@@ -1,0 +1,474 @@
+
+/* general page calmness */
+body {
+    font-family: system-ui, sans-serif;
+    background: #fafafa;
+    color: #222;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+h1 {
+    font-size: 4rem;
+    margin-bottom: 1.25rem;
+}
+
+h2 {
+    margin-top: 2rem;
+    font-size: 1.75rem;
+}
+
+ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    padding: 0;
+    margin: 0;
+}
+
+ul.basic-mat>li {
+    
+    list-style: none;
+    display: flex;
+    
+    padding: 1rem;
+    margin: 0;
+
+    background: #ffffff;
+}
+
+
+ul.basic-mat li.enemy {
+    /* TODO change background to mirrorred image */
+    background: #e2c1c1;
+}
+
+
+ul.basic-mat li.enemy ul.table li {
+
+}
+    ul.basic-mat li.enemy ul.table li > div.card {
+        transform: rotate(180deg);
+        margin: 0 -.5em -.5em 0;
+        -webkit-box-shadow: -.2em -.2em .5em #333;
+        box-shadow: -.2em -.2em .5em #333
+    }
+
+ul.basic-mat li.enemy ul.column {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+}
+
+ul.basic-mat.smallvertical {
+    flex-direction: column;
+    align-items: center;
+    border: solid;
+    margin: 0.5rem;
+    position: relative;
+    gap:0;
+}
+
+ul.basic-mat.smallvertical>li{
+    padding:0.5rem;
+}
+
+ul.basic-mat.smallvertical :nth-child(2) {
+    margin: 0.25rem 0;
+    align-self: center;
+    border-top: solid;
+    border-bottom: solid;
+    padding: 0;
+    width: 100%;
+    text-align: center;
+}
+
+/* links behave */
+a {
+    color: inherit;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* the stars of the show */
+.fit-picture{
+    object-fit: cover;
+    vertical-align: middle;
+    margin-right: 10px;
+
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    background: #ddd;
+}
+/* the stars of the show */
+.playerInfo .fit-picture{
+    margin: 0 1rem;
+    width: 4rem;
+}
+.players .fit-picture, .cards .fit-picture,  .decks .fit-picture{
+    width: 4rem;
+}
+.smallCard .fit-picture{
+    width: 4rem;
+    height: 4rem;
+    align-self: center;
+}
+
+.spotlight{
+    width: 14rem;
+    height: 14rem;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+    background: #c6fbff;
+}
+
+.title{
+    /* margin-bottom: 2rem; */
+   }
+    .title h1{
+        margin:0;
+        padding: 0;
+        margin-bottom: 1rem;
+    }
+    .title p{
+        margin: 0;
+        padding-left: 0.5rem;
+        
+    }
+
+.players{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    /* margin-bottom: 2rem; */
+    height: fit-content;
+    width:100%;
+}
+    .players .playersText{
+        height: 5rem;
+        display: flex;
+        flex-direction: column;
+        /* height: 100%; */
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: flex-start;
+        padding-top: 1rem;
+    }
+
+    .players h2{
+        padding: 0;
+        margin: 0;
+        /* margin-bottom: 2rem; */
+    }
+    .players p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.cards{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    /* margin-bottom: 2rem; */
+    height: fit-content;
+    width:100%;
+}
+    .cards h2{
+        margin:0;
+        /* margin-bottom: 2rem; */
+    }
+    .cards p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.decks
+{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    /* margin-bottom: 2rem; */
+    height: fit-content;
+    width:100%;
+}
+    .decks h2{
+        margin:0;
+        /* margin-bottom: 2rem; */
+    }
+    .decks p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.cardOptions{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: stretch;
+    justify-content: space-evenly;
+}
+    .cardOptions .smallCard{
+        display: flex;
+        flex-direction: column-reverse;
+        height: 9rem;
+        align-items: center;
+        align-content: center;
+        justify-content: space-between;
+        width: 5rem;
+    }
+    /* card batlle shuffle wip */
+/* .cardOptions .smallCard {
+    display: flex;
+    flex-direction: column-reverse;
+    height: 9rem;
+    align-items: center;
+    align-content: center;
+    justify-content: space-between;
+    width: 5rem;
+    margin-right: -300px !important;
+    margin-bottom: -132px;
+    border-style: double;
+    border-width: thick;
+    padding-top: 0.5rem;
+    background: aqua;
+} */
+
+        .cardOptions .smallCard label{
+            display: flex;
+            flex-direction: column;
+        }
+            .cardOptions .smallCard label .fit-picture {
+                margin:0;
+            }
+
+.playerOptions{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: stretch;
+    justify-content: space-evenly;
+}
+    .playerOptions .smallCard{
+        display: flex;
+        flex-direction: column-reverse;
+        height: 7rem;
+        align-items: center;
+        align-content: center;
+        justify-content: space-between;
+        width: 4rem;
+    }
+        .playerOptions .smallCard label{
+            display: flex;
+            flex-direction: column;
+        }
+            .playerOptions .smallCard label .fit-picture {
+                margin:0;
+            }
+
+
+.playerInfo{
+    display: flex;
+    flex-direction: column;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    align-self: stretch;
+    justify-self: right;
+    margin-left: auto;
+}
+
+.playerInfo h2{
+    margin:1rem;
+    align-self: stretch;
+    margin-bottom: 0.25rem;
+}
+
+.cardInfo{
+    display: flex;
+    flex-direction: column;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    align-self: center;
+    justify-self: center;
+    width: 100%;
+    gap: 0.2rem;
+}
+    
+    .cardInfo .cardType{
+        padding: 0;
+        margin-block-start: 0;
+        margin-bottom: 0.25rem;
+        font-size: 1.25rem;
+        /* text-decoration: underline wavy; */
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .cardInfo h2{
+        padding:0;
+        margin-block-start: 0;
+        margin: 0;
+    }
+
+    .smallCardInfo{
+    display: flex;
+    flex-direction: column;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    align-self: center;
+    justify-self: center;
+    text-align: center;
+    gap: 0.2rem;
+}
+    
+    .smallCardInfo .cardType{
+        padding: 0;
+        margin-block-start: 0;
+        margin-bottom: 0.25rem;
+        font-size: .75rem;
+        /* text-decoration: underline wavy; */
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .cardsText{
+        height: 5rem;
+        display: flex;
+        flex-direction: column;
+        /* height: 100%; */
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: flex-start;
+        padding-top: 1rem;
+    }
+    .cardsText h3{
+        margin:0;
+    }
+.createButton {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #c7e0c7;
+    position: relative;
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    box-shadow: 1px 1px 1px 1px black;
+    /* box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15); */
+    max-height: 6rem;
+    max-width: 10rem;
+}
+    .createButton::before{
+        content: '+';
+        font-size:2rem;
+        font-weight: 600;
+        padding-top: 1rem;
+    }
+    .createButton a{
+        padding: 1rem;
+        padding-top: 0;
+        text-align: center;
+        font-size: 0.85rem;
+    }
+    .createButton a::before{
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        border-radius: 0.5rem;
+    }
+    .createButton:hover{
+        background: #d1ead1;
+    }
+    .createButton:active{
+        background: #b6ceb6;
+        box-shadow: unset;
+        left:2px;
+        top:2px;
+    }
+    .createButton:focus-within{
+        background: #cce9cc;
+        outline: auto;
+        outline-offset: 6px;
+    }
+    .createButton:focus-within:active{
+        outline: auto;
+        outline-width: 2px;
+        outline-offset: 0.2rem;
+    }
+    .createButton a:focus{
+        outline:0;
+    }
+
+li.smallCard{
+    /* display: flex;
+    flex-direction: column;
+    align-items: center;
+    */
+    background: #c7dce0; 
+    position: relative;
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    box-shadow: 1px 1px 1px 1px black;
+    max-height: 6rem;
+    max-width: 10rem;
+}
+    li.smallCard a{
+        text-align: center;
+    }
+    li.smallCard a::before{
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        border-radius: 0.5rem;
+    }
+    li.smallCard:focus-within{
+        background: #cce9e9;
+        outline:auto;
+        outline-offset: 6px;
+    }
+    li.smallCard:hover{
+        background: #d1e1ea;
+    }
+    li.smallCard:active{
+        background: #b6bcce;
+        box-shadow: unset;
+        left:2px;
+        top:2px;
+    }
+    
+    li.smallCard:focus-within:active{
+        outline-style: solid;
+        outline-width: 2px;
+        outline-offset: 0.2rem;
+    }
+
+    li.smallCard a:focus{
+        /* background: #c2cfdb; */
+        outline:0;
+    }

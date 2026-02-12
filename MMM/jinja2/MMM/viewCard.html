@@ -1,0 +1,71 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+
+<body>
+    <div class="title">
+        <h1> {{card.title}} card details </h1>
+        <p>
+            Welcome to the page about {{card.title}}!
+        </p>
+    </div>
+    
+    <div class="cardInfo">
+        
+        <h2> {{card.title}} </h2>
+
+        <!-- ART -->
+        {% if card.artSource == "" %}
+        <img class="fit-picture spotlight" src="{{ static('1flubeltje.jpg')}}" alt="{{card.title}} card artwork" />
+        {% else %}
+        <img class="fit-picture spotlight" src="{{ static(card.artSource)}}"
+            alt="{{card.title}} card artwork" />
+        {% endif %}
+
+        <!-- TYPE -->
+        <p class="cardType">
+            {{cardType}}
+        </p>
+    </div>
+
+    <div class="cards">
+        <div class="cardsText">
+            <!-- SYMBOLS -->
+            <h2> Symbols</h2>
+            {% if card.symbols.exclude(pk__isnull=True) %}
+            <p>
+                These symbols are on this {{card.title}} card: {{card.symbols}}
+            </p>
+            {% else %}
+            <p> None </p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="cards">
+        <div class="cardsText">
+            <!-- Owner -->
+            <h2> Owner history</h2>
+            {% if card.ownerHistory.exclude(pk__isnull=True) %}
+            <p>
+                These players have owned this {{card.title}} card:
+            </p>
+            <ul class="basic-mat">
+                {% for cardOwner in card.ownerHistory.all() %}
+                <li>
+                    <a href="{{returnURL}}player/{{ cardOwner.cardOwner.id }}">
+                        {% if loop.index == 1 %}
+                        <b> Current owner: </b> {{ cardOwner.cardOwner.name }} (Aquired {{printLocalTime(cardOwner.aquiredAt)}})
+                        {% else %}
+                        {{ cardOwner.cardOwner.name }} (Aquired {{printLocalTime(cardOwner.aquiredAt)}})
+                        {%endif%}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+
+            {% else %}
+            <p>No one ever owned this card.</p>
+            {% endif %}
+
+        </div>
+    </div>
+    <a href="{{returnURL}}">back</a>
+</body>

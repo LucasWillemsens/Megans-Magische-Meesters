@@ -1,0 +1,140 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+<body>
+    <div class="title">
+        <h1> Create challenge </h1>
+        <p>
+            Let's pick a fight!
+        </p>
+    </div>
+
+    <form method="post" action="{{submitUrl}}">
+        {{ csrf_input }}
+        <input type="hidden" name="newGameIdValue" id="newGameIdValue" value="{{newGameId}}" required/>
+        <input type="hidden" name="challenger" id="challenger" value="{{cardOwner.cardOwner.id}}" required/>
+        <div class="players">
+            <div class="playersText">
+                <h2> Players </h2>
+            </div>
+            {% if players %}
+                <fieldset class="playerOptions">
+                    <legend>Please select the player you wish to challenge:</legend>
+                {% for player in players %}
+                    <div class="smallCard">
+                        <input type="radio" id="challengePlayer{{player.id}}" value="{{player.id}}" name="challengePlayer" required>
+                            <label for="challengePlayer{{player.id}}">
+                                {{player.name}}
+                                
+                                {% if player.profilePictureSource == "" %}
+                                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                                
+                                {% else %}
+                                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name}}'s profile picture" />
+                                {% endif %}
+                            </label>
+                        </input>
+                    </div>
+                {% endfor %}
+                </fieldset>
+            {% else %}
+                <p>No players are available.</p>
+            {% endif %}
+        </div>
+
+        <div class="players">
+            <h2> Collection </h2>
+            {% if cardOwner %}
+            <div class="decks">
+                <div class="cardsText">
+                    <h3> Decks </h3>
+                    <p>
+                        These are your decks:
+                    </p>
+                </div>
+                {% if decks.exists() %}
+                <fieldset class="cardOptions">
+                    <legend>Please select your deck for this challenge:</legend>
+                    {% for deck in decks %}
+                    <div class="smallCard">
+                        <input type="radio" id="startingDeck{{deck.id}}" value="{{deck.id}}" name="startingDeck" required>
+                            <label for="startingDeck{{deck.id}}">
+                                {% if deck.artSource == "" %}
+                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{deck.title}}" />
+                                {% else %}
+                                <img class="fit-picture" src="{{ static(deck.artSource)}}" alt="art of {{deck.title}}" />
+                                {% endif %}
+                
+                                <div class="smallCardInfo">
+                                    {{ deck.title }}
+                                    <p class="cardType">
+                                        {{deck.description}}
+                                    </p>
+                                </div>
+                            </label>
+                        </input>
+                    </div>
+                    {% endfor %}
+                </fieldset>
+                {% else %}
+                <fieldset class="cardOptions">
+                    <legend>Please select your deck for this challenge:</legend>
+                        <input type="radio" id="startingDeckNew" value="New" name="startingDeck" required>
+                            <label for="startingDeckNew">
+                                <p>
+                                    A deck containing all your cards
+                                </p>
+                            </label>
+                        </input>
+                    </fieldset>
+                {% endif %}
+            </div>
+
+            <div class="cards">
+                <div class="cardsText">
+                    <h3> Owned cards </h3>
+                    <p>
+                        These are your cards:
+                    </p>
+                </div>
+                {% if cardOwner.card.exclude(pk__isnull=True) %}
+                <fieldset class="cardOptions">
+                    <legend>Please select your trusted starting card for this challenge:</legend>
+                    {% for card in cardOwner.card.all() %}
+                    <div class="smallCard">
+                        <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
+                            <label for="startingCard{{card.id}}">
+                                {% if card.artSource == "" %}
+                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                                {% else %}
+                                <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                                {% endif %}
+
+                                <div class="smallCardInfo">
+                                        {{ card.title }}
+                                    <p class="cardType">
+                                        {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                                    </p>
+                                </div>
+                            </label>
+                        </input>
+                    </div>
+                    {% endfor %}
+                </fieldset>
+                {% else %}
+                <p>No cards are available.</p>
+                {% endif %}
+            </div>
+
+            {% else %}
+                <p>Not a cardOwner.</p>
+            {% endif %}
+        </div>
+
+        <div class="createButton">
+            <button type="submit">
+                Initialize new game
+            </button>
+        </div>
+    </form>
+
+    <a href="{{returnURL}}">back</a>
+</body>

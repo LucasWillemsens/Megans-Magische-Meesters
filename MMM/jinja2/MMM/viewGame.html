@@ -1,0 +1,112 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+
+<body>
+    <div class="players">
+        {%if player_id >= 0 %}
+            <div class="title">
+                <h1> {{game.title}} game details </h1>
+                <p>
+                    Welcome to the page about {{game.title}}, {{player.name}}!
+                </p>
+                
+            </div>
+            <div class="playerInfo">
+                <h2> {{player.name}} </h2>
+                {% if player.profilePictureSource == "" %}
+                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                {% else %}
+                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                alt="{{player.name}}'s profile picture" />
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="title">
+                <h1> {{game.title}} game details </h1>
+                <p>
+                    Welcome to the page about {{game.title}}!
+                </p>
+            
+            </div>
+        {%endif%}
+    </div>
+    
+    <div class="cardInfo">
+        
+        <h2> {{game.title}} </h2>
+
+        <!-- ART -->
+        {% if game.artSource == "" %}
+        <img class="fit-picture spotlight" src="{{ static('1flubeltje.jpg')}}" alt="{{game.title}} artwork" />
+        {% else %}
+        <img class="fit-picture spotlight" src="{{ static(game.artSource)}}"
+            alt="{{game.title}} card artwork" />
+        {% endif %}
+
+        
+        {% if game.freeForAll %}
+        <p class="cardType">
+            Free for all!
+        </p>
+        {% else %}
+        <p class="cardType">
+            Unknown game mode!
+        </p>
+        {% endif %}
+
+        {% if game.roundNumber > 0 %}
+        <p class="cardType">
+            Round {{game.roundNumber}}
+        </p>
+        {% else %}
+        <p class="cardType">
+            Game has yet to begin!
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="cards">
+        <div class="cardsText">
+            <h2> Boards </h2>
+            {% if battlers.exclude(pk__isnull=True) %}
+            <p>
+                These players have participated in this {{game.title}} game:
+            </p>
+            <ul class="basic-mat">
+                {% for battler in battlers.all() %}
+                <li>
+                    <a href="{{returnURL}}player/{{battler.player.id }}">
+                        {% if loop.index == 1 %}
+                            <b> challenger: </b> {{ battler.player.name }} (joined {{printLocalTime(battler.joinedBattle)}})
+                        {% else %}
+                            {{ battler.player.name }} (joined {{printLocalTime(battler.joinedBattle)}})
+                        {%endif%}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+                <p>No one ever joined this game.</p>
+            {% endif %}
+
+        </div>
+    </div>
+
+    {%if player_id >= 0 %}
+        <form method="post" action="{{submitUrl}}">
+        {{ csrf_input }}
+            Confirm {{game.title}} as {{player.name}}?
+            <div class="createButton">
+                <button type="submit">
+                    Yes! Shuffle the deck and load board
+                </button>
+            </div>
+        </form>
+    {% else %}
+        <p>
+            Not logged in as participant
+        </p>
+    {%endif%}
+
+    <a href="{{returnURL}}">back</a>
+    
+</body>

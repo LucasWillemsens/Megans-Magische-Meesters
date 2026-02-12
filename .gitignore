@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django
+*.log
+*.pot
+*.pyc
+*.sqlite3
+db.sqlite3
+media
+/staticfiles
+
+# Env
+.env
+venv/
+env/
+.venv/
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# JetBrains
+.idea/
+
+# Byte-compiled / cache
+*.egg-info/
+.eggs/
+
+# Assets downloaded
+assets/downloaded/

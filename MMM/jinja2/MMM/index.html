@@ -1,0 +1,79 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+<body>
+    <div class="title">
+        <h1> Magical Masters </h1>
+        <p>
+            Welcome to magical masters!
+        </p>
+    </div>
+
+    <div class="players">
+        <div class="playersText">
+
+            <h2> Players </h2>
+            <p>
+                Please select the player you want to play as:
+            </p>
+        </div>
+    {% if players %}
+        <ul class="basic-mat">
+        {% for player in players %}
+            <li>
+                {% if player.profilePictureSource == "" %}
+                <img class="fit-picture" src="{{ static('profile.jpg')}}"
+                alt="{{player}}'s profile picture" />
+                
+                {% else %}
+                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                alt="{{player}}'s profile picture" />
+                
+                {% endif %}
+                <a href="player/{{ player.id }}">{{ player.name }}</a>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No players are available.</p>
+    {% endif %}
+    </div>
+
+    <div class="cards">
+        <div class="cardsText">
+            <h2> Cards </h2>
+            <p>
+                These are some of the latest cards:
+            </p>
+        </div>
+    {% if latest_cards_list%}
+        <ul class="basic-mat">
+            {% for card in latest_cards_list %}
+            <li class="smallCard">
+                {% if card.artSource == "" %}
+                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                {% else %}
+                <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                {% endif %}
+    
+                <div class="smallCardInfo">
+                    <a href="card/{{ card.id }}/">
+                        {{ card.title }}
+                    </a>
+                    <p class="cardType">
+                        {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                    </p>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No cards are available.</p>
+        {% endif %}
+    </div>
+    
+    <div class="createButton">
+        <a href="game/reset/">
+            ResetGames
+        </a>
+    </div>
+    
+</body>

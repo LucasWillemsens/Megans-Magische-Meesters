@@ -1,0 +1,145 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+<link rel="stylesheet" href="{{ static('cards.css') }}">
+
+<body class="playingCards fourColours rotateHand">
+    <div class="players">
+        <h1> {{game.title}} board </h1>
+        {%if player_id >= 0 %}
+            <div class="playerInfo">
+                <h2> {{player.name}} </h2>
+                {% if player.profilePictureSource == "" %}
+                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                {% else %}
+                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                alt="{{player.name}}'s profile picture" />
+                {% endif %}
+            </div>
+        {%endif%}
+    </div>
+    
+    <div class="cardInfo">
+        
+        <h2> {{game.title}} </h2>
+        {% if game.roundNumber > 0 %}
+        <p class="cardType">
+            Round {{game.roundNumber}}
+        </p>
+        {% else %}
+        <p class="cardType">
+            Game has yet to begin!
+        </p>
+        {% endif %}
+    </div>
+
+    <!-- other boards -->
+    <div class="cards">
+        <div class="cardsText">
+            <h2> Boards </h2>
+            {% if battlers.exclude(pk__isnull=True) %}
+            <ul class="basic-mat">
+                {% for battler in battlers.exclude(player_id=player_id).all() %}
+                <li class="enemy">
+                    <ul class="table">
+                        <!-- for cards in battler etc -->
+                        <li>
+                            <div class="card little joker">
+                                <span class="rank">-</span>
+                                <span class="suit">Joker</span>
+                            </div>
+                            </li>
+                            <li>
+                            <div class="card little joker">
+                                <span class="rank">-</span>
+                                <span class="suit">Joker</span>
+                            </div>
+                        </li>
+                    </ul>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+                <p>No one ever joined this game.</p>
+            {% endif %}
+
+        </div>
+    </div>
+
+    {%if player_id >= 0 %}
+
+    <!-- own board -->
+
+    <div class="playerScreen">
+        <ul class="table">
+        <li>
+            <div class="card joker">
+                <span class="rank">-</span>
+                <span class="suit">Joker</span>
+            </div>
+        </li>
+        <li>
+            <div class="card joker">
+                <span class="rank">-</span>
+                <span class="suit">Joker</span>
+            </div>
+        </li>
+            <li>
+                <div class="card joker">
+                <span class="rank">-</span>
+                <span class="suit">Joker</span>
+            </div>
+            </li>
+        </ul>
+        
+        <div class="deckHand"> 
+            <ul class="deck">
+                <li>
+                    <div class="card back"> *
+                    </div>
+                </li>
+                <li>
+                    <div class="card back"> asdasd
+                    </div>
+                </li>
+                <li>
+                    <div class="card back"> asdasd
+                    </div>
+                </li>
+            </ul>
+            <div>
+                <ul class="hand">
+                          <!-- TODO -->
+                    {% for card in cardsInHand %}
+                    <li>
+                        <a class="card rank-q hearts" href="#">
+                            <span class="rank">
+                                {{card.cardType}}
+                            </span>
+                            <span class="suit">
+                                {{card.title}}
+                            </span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            
+            <form method="post" action="{{submitUrl}}">
+                {{ csrf_input }}
+                Confirm {{game.title}} as {{player.name}}?
+                <div class="createButton">
+                    <button type="submit">
+                        play selected card
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% else %}
+        <p>
+            Not logged in as participant
+        </p>
+    {%endif%}
+
+    <a href="{{returnURL}}">back</a>
+</body>

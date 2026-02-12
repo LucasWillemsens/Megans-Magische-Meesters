@@ -1,0 +1,16 @@
+<p>
+    {{error_message}}
+</p>
+<form action="{{ questionData["href"] }}" method="post">
+{{ csrf_input }}
+<fieldset>
+    <legend><h1>{{question.question_text }}</h1></legend>
+    {% for choice in question.choice_set.all() %}
+    <input type="radio" name="choice" id="choice{{ loop.index }}" value="{{ choice.id }}">
+    <label for="choice{{ loop.index }}">{{ choice.choice_text }}</label><br>
+    {% endfor %}
+</fieldset>
+<input type="submit" value="Vote">
+</form>
+
+<a href="{{ questionData["returnURL"]}}">back</a>

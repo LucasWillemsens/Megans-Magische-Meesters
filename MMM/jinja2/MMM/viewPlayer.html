@@ -1,0 +1,121 @@
+<link rel="stylesheet" href="{{ static('style.css') }}">
+<body>
+    <div class="players">
+        <div class="title">
+            <h1> {{player.name}}'s page </h1>
+            <p>
+                Welcome {{player.name}}, this is your personal magical masters page!
+            </p>
+        </div>
+        <div class="playerInfo">
+            <h2> {{player.name}} </h2>
+            {% if player.profilePictureSource == "" %}
+                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+            {% else %}
+                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name}}'s profile picture" />
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="players">
+    <h2> Challenges </h2>
+        {% if challenges != [] %}
+        <ul class="basic-mat">
+            {% for challenge in challenges %}
+            <li>
+                <!-- Game {{loop.index}} -->
+                
+                <div class="smallCardInfo">
+                    <a href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}">
+                        <h3>
+                            Game {{loop.index}}
+                        </h3>
+                    </a>
+                    <p class="cardType">
+                        lootPile: {{challenge.printLootPile()}}
+                    </p>
+                    
+                    {% if challenge.participants.count() > 0 %}
+                    <p class="cardType">
+                        (Started {{printLocalTime(challenge.participants.all()[0].joinedBattle)}})
+                    </p>
+                    {% endif %}
+                </div>
+                
+                {% if challenge.participants.exclude(pk__isnull=True) %}
+                    <ul class="basic-mat smallvertical">
+                        <li>
+                            <b>
+                                {{challenge.challenger.name}}
+                            </b>
+                        </li>
+                            
+                        <p>
+                            versus
+                        </p>
+                        {% for battler in challenge.participants.exclude(player__name=challenge.challenger.name).all() %}
+                            <li>
+                                {{battler.player.name}}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>
+                        No participants
+                    </p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p> {{player.name}} has never challenged anyone.</p>
+        <!-- <p> {{player.name}} did not challenge anyone.</p> -->
+        {% endif %}
+        <div class="createButton">
+            <a href="{{returnURL}}game/create/{{player.id}}">
+                Create challenge
+            </a>
+        </div>
+    </div>
+
+    <div class="players">
+    {% if cardOwner %}
+        <h2> Collection </h2>
+        <div class="cards">
+            <div class="cardsText">
+                <h3> Owned cards </h3>
+                <p>
+                    These are your cards:
+                </p>
+            </div>
+            {% if cardOwner.card.exclude(pk__isnull=True) %}
+            <ul class="basic-mat">
+                {% for card in cardOwner.card.all() %}
+                <li class="smallCard">
+                    {% if card.artSource == "" %}
+                    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                    {% else %}
+                    <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                    {% endif %}
+                
+                    <div class="smallCardInfo">
+                        <a href="{{returnURL}}card/{{ card.id }}/">
+                            {{ card.title }}
+                        </a>
+                        <p class="cardType">
+                            {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                        </p>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p>No cards are available.</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <p>Not a cardOwner.</p>
+    {% endif %}
+    </div>
+    <a href="{{returnURL}}">back</a>
+</body>
