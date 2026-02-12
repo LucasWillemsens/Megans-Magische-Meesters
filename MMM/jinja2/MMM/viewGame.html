@@ -1,6 +1,6 @@
-<link rel="stylesheet" href="{{ static('style.css') }}">
+{% extends 'base.html' %}
 
-<body>
+{% block content %}
     <div class="players">
         {%if player_id >= 0 %}
             <div class="title">
@@ -109,4 +109,4 @@
 
     <a href="{{returnURL}}">back</a>
     
-</body>
+{% endblock %}

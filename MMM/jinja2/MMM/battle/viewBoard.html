@@ -1,7 +1,11 @@
-<link rel="stylesheet" href="{{ static('style.css') }}">
-<link rel="stylesheet" href="{{ static('cards.css') }}">
+{% extends 'base.html' %}
 
-<body class="playingCards fourColours rotateHand">
+{% block extra_head %}
+    <link rel="stylesheet" href="{{ static('cards.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="playingCards fourColours rotateHand">
     <div class="players">
         <h1> {{game.title}} board </h1>
         {%if player_id >= 0 %}
@@ -142,4 +146,5 @@
     {%endif%}
 
     <a href="{{returnURL}}">back</a>
-</body>
+</div>
+{% endblock %}

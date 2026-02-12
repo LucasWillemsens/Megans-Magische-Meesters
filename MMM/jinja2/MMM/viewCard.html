@@ -1,6 +1,6 @@
-<link rel="stylesheet" href="{{ static('style.css') }}">
+{% extends 'base.html' %}
 
-<body>
+{% block content %}
     <div class="title">
         <h1> {{card.title}} card details </h1>
         <p>
@@ -68,4 +68,4 @@
         </div>
     </div>
     <a href="{{returnURL}}">back</a>
-</body>
+{% endblock %}

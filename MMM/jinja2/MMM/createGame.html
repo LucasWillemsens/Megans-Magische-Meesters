@@ -1,5 +1,6 @@
-<link rel="stylesheet" href="{{ static('style.css') }}">
-<body>
+{% extends 'base.html' %}
+
+{% block content %}
     <div class="title">
         <h1> Create challenge </h1>
         <p>
@@ -137,4 +138,4 @@
     </form>
 
     <a href="{{returnURL}}">back</a>
-</body>
+{% endblock %}

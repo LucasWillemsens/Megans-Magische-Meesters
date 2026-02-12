@@ -1,3 +1,6 @@
+{% extends 'base.html' %}
+
+{% block content %}
 <p>
     {{error_message}}
 </p>
@@ -14,3 +17,4 @@
 </form>
 
 <a href="{{ questionData["returnURL"]}}">back</a>
+{% endblock %}
