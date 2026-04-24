@@ -16,40 +16,58 @@
   
 ---
 
-## 🗺 Roadmap & Open TODOS (cleaned up)
+## 🗺 Roadmap (updated for fastest impressive prototype)
 
-This is a curated, grouped version of your todo list — organised so it's clear what's left and roughly how long things might take.
+### Current state snapshot
 
-- **Immediate (1–2 days)**
-  - [ ] Battle pages (2 days)
-  - [ ] Prototype testing with Annabel
+- [x] Core Django data model exists (`Player`, `Card`, `Deck`, `BattleHistory`, `Game`, `GameCard`, `CardState`)
+- [x] Basic web flow exists: index -> player -> create challenge -> game -> board
+- [x] Deck shuffle + initial game-card creation is partially implemented
+- [ ] End-to-end playable match loop is not complete yet
+- [ ] Challenge lifecycle (send/cancel/accept) is not complete yet
+- [ ] Automated tests are not in place yet
 
-- **Challenges & Matchflow**
-  - [ ] Implement challenge flow: send / cancel / accept
-  - [ ] Draft deck flow
-  - [ ] Debug first-draw from deck (prevent duplicates, multiple confirms, conceal sensitive actions)
+### Prototype target (what "impressive" means)
 
-- **Deck / Game Pages**
-  - [ ] Deck page: default order, images, name & description
-  - [ ] Game page: image, name & description
-  - [ ] History pages
+Ship a reliable 1v1 demo (human vs bot) that can be played from start to finish in under 3 minutes, with clear visuals and a readable match log.
 
-- **UX / Interaction**
-  - [ ] Clickable full cards
-  - [ ] Clickable account avatar → account actions
-  - [ ] Logo + navigation to homepage
-  - [ ] Improve colours ("dark arts" book theme), favicon, page title
+### Phase 1: Lock a playable vertical slice (1-3 days)
 
-- **Data / Tools**
-  - [ ] Import / export data (decks, cards)
-  - [ ] Easy card creation UI: assign symbols, image, bot-assignment
+- [ ] Make one stable demo route: `create challenge -> confirm -> board -> winner`
+- [ ] Auto-add bot opponent when challenge is confirmed (postpone async invites)
+- [ ] Implement turn actions with minimal scope:
+  - [ ] Draw one card
+  - [ ] Play one card to a lane
+  - [ ] End turn
+- [ ] Show only allowed information (own hand visible, opponent hand hidden)
+- [ ] Add one clear win condition and finish screen
 
-- **Testing / Deploy**
-  - [ ] Step 5: testing and automation (2 hours)
-  - [ ] Deploy / make a Pillards version
+### Phase 2: Make it look and feel like a real game (1-2 days)
 
-- **Polish & Feedback**
-  - [ ] Collect feedback and iterate
+- [ ] Upgrade board readability (lane labels, active player, card counts, trusted/revealed states)
+- [ ] Add compact action log (draw/play/reveal/win)
+- [ ] Improve visual identity for demo impact (title bar, consistent palette, stronger card focus)
+- [ ] Add one-click "Play again"
+
+### Phase 3: Reliability before sharing (0.5-1 day)
+
+- [ ] Add tests for `CardState` transitions (draw/play/reveal/trust)
+- [ ] Add test for deck initialization (no duplicates, starting card handling)
+- [ ] Add one smoke test for challenge -> board flow
+- [ ] Prevent duplicate confirms / accidental double-submit
+
+### Explicitly postpone (after prototype demo)
+
+- [ ] Full multiplayer accept/cancel notifications
+- [ ] Deck builder and card-creation UI
+- [ ] Import/export pipeline
+- [ ] Tournament systems and deployment variants
+
+### Feedback loop
+
+- [ ] Run 3 focused playtests (including Annabel)
+- [ ] Capture friction points after each session
+- [ ] Apply top 3 fixes immediately, defer the rest
 
 ---
 

@@ -1,0 +1,36 @@
+{% extends 'base.jinja2' %}
+
+{% block content %}
+<div class="title">
+    <h1>{{ game.title }} result</h1>
+    {% if winnerParticipant %}
+    <p>Winner: {{ winnerParticipant.player.name }}</p>
+    {% else %}
+    <p>The game ended in a draw.</p>
+    {% endif %}
+</div>
+
+<div class="cards">
+    <div class="cardsText">
+        <h2>Participants</h2>
+    </div>
+    <ul class="basic-mat">
+        {% for participant in participants %}
+        <li>
+            {% if winnerParticipant and participant.id == winnerParticipant.id %}
+            <b>{{ participant.player.name }}</b>
+            {% else %}
+            {{ participant.player.name }}
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="createButton">
+    <a href="{{ playAgainUrl }}">Play again</a>
+</div>
+
+<a href="{{ returnURL }}">back</a>
+{% endblock %}
+

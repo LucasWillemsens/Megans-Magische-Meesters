@@ -84,14 +84,15 @@ class Deck(models.Model):
 
     #by default adds all cards a player currently owns
     @classmethod
-    def create(cls, player_id, deckTitle="",newDescription ="", newDeckCards = []):
+    def create(cls, player_id, deckTitle="", newDescription="", newDeckCards=None):
         playerOwner = Player.objects.get(pk=player_id)
-        if newDeckCards == []: newDeckCards = playerOwner.getCollection() 
+        if newDeckCards is None:
+            newDeckCards = playerOwner.getCollection()
         if deckTitle == "": deckTitle = f"{playerOwner.name}'s new deck"
         if newDescription == "": newDescription = f"all cards of {playerOwner.name}"
         newDeck =  cls(title=deckTitle, player=playerOwner, description=newDescription)
         newDeck.save()
-        newDeck.cards.set(newDeckCards)
+        newDeck.cards.set(list(newDeckCards))
         newDeck.save()
         return newDeck 
 
@@ -102,14 +103,15 @@ class Deck(models.Model):
             return f"{self.title} - {self.description}"
 
     def available(self):
-        for card in self.cards:
+        for card in self.cards.all():
             lastOwner = card.ownerHistory.order_by("-aquiredAt").all()[0]
 
             #not currently owned
             if lastOwner.cardOwner.id != self.player.id: return False
 
             #currently in use
-            if GameCard.objects.get(pk=card.id): return False
+            if GameCard.objects.filter(card_id=card.id).exists():
+                return False
         return True
 
 #games
@@ -126,16 +128,70 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     #TODO could add a "board per round snapshot" as a log
 
     @classmethod
+    def createRandomDeck(cls, player_id, starting_card_id=-1, deck_label="random deck"):
+        player = Player.objects.get(pk=player_id)
+        collection = list(player.getCollection())
+        if not collection:
+            raise Exception("player has no cards in collection")
+
+        if starting_card_id < 0:
+            starting_card = random.choice(collection)
+        else:
+            starting_card = next((card for card in collection if card.id == starting_card_id), None)
+            if starting_card is None:
+                raise Exception("starting card not in player collection")
+
+        remaining_cards = [card for card in collection if card.id != starting_card.id]
+        random.shuffle(remaining_cards)
+        if remaining_cards:
+            remaining_cards = remaining_cards[: random.randint(1, len(remaining_cards))]
+
+        timestamp = timezone.now().strftime("%d %B %Y %H:%M")
+        deck = Deck.create(
+            player_id=player_id,
+            deckTitle=f"{player.name}'s {deck_label} {timestamp}",
+            newDescription=f"random subset of {player.name}'s collection",
+            newDeckCards=[starting_card] + remaining_cards,
+        )
+        return starting_card, deck
+
+    @classmethod
     def createRobot(cls, player_id, startingCard_id=-1, deck_id=-1):
         if deck_id < 0:
-            startingCard, deck = self.newRandomDraft(startingCard_id < 0)
+            startingCard, deck = cls.createRandomDeck(
+                player_id=player_id,
+                starting_card_id=startingCard_id,
+                deck_label="auto deck",
+            )
             startingCard_id = startingCard.id
             deck_id = deck.id
-        return cls(player_id=player_id, startingCard_id=startingCard_id, deck_id=deck_id,joinedBattle=datetime.datetime.now(), fled=False,defeated=False, computerControlled=True)
+        elif startingCard_id < 0:
+            deck = Deck.objects.get(pk=deck_id)
+            firstDeckCard = deck.cards.first()
+            if firstDeckCard is None:
+                raise Exception("robot deck has no cards")
+            startingCard_id = firstDeckCard.id
+        return cls(
+            player_id=player_id,
+            startingCard_id=startingCard_id,
+            deck_id=deck_id,
+            joinedBattle=timezone.now(),
+            fled=False,
+            defeated=False,
+            computerControlled=True,
+        )
 
     @classmethod
     def createHuman(cls, player_id, startingCard_id, deck_id):
-        return cls(player_id=player_id, startingCard_id=startingCard_id,deck_id=deck_id, joinedBattle=datetime.datetime.now(), fled=False,defeated=False, computerControlled=False)
+        return cls(
+            player_id=player_id,
+            startingCard_id=startingCard_id,
+            deck_id=deck_id,
+            joinedBattle=timezone.now(),
+            fled=False,
+            defeated=False,
+            computerControlled=False,
+        )
 
     def __str__(self):
         return f"{self.player.name} (f:{self.fled}, d:{self.defeated}, j{self.joinedBattle})"
@@ -143,52 +199,105 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     def getGame(self):
         battle = self.battles.all()[0]
         return battle.game.all()[0]
-
-    def newRandomDraft(self, selectStartingCard = False):
-        player = self.player
-        randomCollection = player.getCollection()
-        random.shuffle(randomCollection)
-        maxSize = randomCollection.__len__()
-        randint = random.randint(1,maxSize-1)
-        randomDeckCards = []
-        newDecksize = 0
-        if selectStartingCard:
-            randomCard = random.choice(randomCollection)
-            randomDeckCards.append(randomCard)
-            newDecksize += 1
-        for card in randomCollection:
-            if not selectStartingCard and card.id == self.startingCard.id: continue #skip startingCard in this case
-            randomDeckCards.append(card)
-            newDecksize += 1
-            if newDecksize == randint: 
-                deckTitle = f"{self.player.name[0:5]}'s randomDeck s{randint} d{datetime.datetime.now().strftime('%d %B %Y %H:%M')}"
-                if selectStartingCard: deckTitle = f"{laneTypes[self.startingCard.cardType]} " + deckTitle
-                randomDeck = Deck.create(self.player.id,deckTitle,f"random {randint} card subset of {self.player.name}'s entire collection ")
-                if selectStartingCard: return randomCard, randomDeck
-                else: return self.startingCard, randomDeck
-        raise Exception(f"generated deck of size: {newDecksize} but failed to make it random size: {randint}")
     
     #takes a pre-made deck and creates a random order, initialising all gamecards
     def startWithDeckInRandomOrder(self, initializeStartingCard = False):
-        size = self.deck.cards.all().count()
         game_id = self.getGame().id
+        existingGameCards = list(
+            GameCard.objects.filter(game_id=game_id, user_id=self.id).select_related("card", "state")
+        )
+        if existingGameCards:
+            existingStartCard = next(
+                (gameCard for gameCard in existingGameCards if gameCard.card_id == self.startingCard_id),
+                None,
+            )
+            return existingStartCard, existingGameCards
+
         randomOrderDeck = list(self.deck.cards.all())
+        if initializeStartingCard and not any(card.id == self.startingCard_id for card in randomOrderDeck):
+            randomOrderDeck.append(self.startingCard)
         random.shuffle(randomOrderDeck)
-        for cardIndex in range(size):
-            if randomOrderDeck[cardIndex].id == self.startingCard.id: 
-                if initializeStartingCard:
-                    startCard = GameCard.create(self.startingCard.id, game_id, self.id)
-                    startCard.state.draw()
-                    startCard.state.play(startCard.card.cardType+1)
-                    startCard.state.reveal()
-                    startCard.state.trust()
-                    startCard.save()
-            else:
-                deckCard = GameCard.create(randomOrderDeck[cardIndex].id,game_id, self.id)
-                deckCard.lane = (cardIndex+1) * -1 #order in deck
-                deckCard.save()
-                randomOrderDeck.append(deckCard)
-        return startCard, randomOrderDeck
+
+        createdGameCards = []
+        startCard = None
+        deckPosition = 1
+        for deckCard in randomOrderDeck:
+            if initializeStartingCard and deckCard.id == self.startingCard_id and startCard is None:
+                startCard = GameCard.create(self.startingCard_id, game_id, self.id)
+                startCard.save()
+                startCard.state.draw()
+                startCard.state.play(startCard.card.cardType + 1)
+                startCard.state.reveal()
+                startCard.state.trust()
+                startCard.state.save()
+                createdGameCards.append(startCard)
+                continue
+
+            newGameCard = GameCard.create(deckCard.id, game_id, self.id)
+            newGameCard.save()
+            newGameCard.state.inDeck = True
+            newGameCard.state.lane = deckPosition * -1
+            newGameCard.state.laneOrdinal = 0
+            newGameCard.state.faceDown = True
+            newGameCard.state.trusted = False
+            newGameCard.state.save()
+            deckPosition += 1
+            createdGameCards.append(newGameCard)
+
+        if initializeStartingCard and startCard is None:
+            raise Exception("starting card failed to initialize")
+        return startCard, createdGameCards
+
+    def getNewMaxCardInHandOrdinal(self):
+        handCards = GameCard.objects.filter(game_id=self.getGame().id, user_id=self.id, state__lane=0).all()
+        if not handCards:
+            return 1
+        return max(gameCard.state.laneOrdinal for gameCard in handCards) +1
+
+    def getNewMaxCardInLaneOrdinal(self, lane:int):
+        laneCards = GameCard.objects.filter(game_id=self.getGame().id, user_id=self.id, state__lane=lane).all()
+        if not laneCards:
+            return 1
+        return max(gameCard.state.laneOrdinal for gameCard in laneCards)+1
+
+    def getNextDeckCard(self):
+        return (
+            GameCard.objects.filter(
+                game_id=self.getGame().id,
+                user_id=self.id,
+                state__inDeck=True,
+            )
+            .select_related("state", "card")
+            .order_by("-state__lane", "id")
+            .first()
+        )
+
+    def drawCard(self):
+        gameCard = self.getNextDeckCard()
+        if gameCard is None:
+            return None
+
+        newOrdinal = self.getNewMaxCardInHandOrdinal()
+        gameCard.state.draw()
+        gameCard.state.updateOrdinal(newOrdinal)
+        gameCard.state.save(update_fields=["lane", "inDeck", "laneOrdinal"])
+        return gameCard
+
+    def playCard(self, game_card_id, lane=None):
+        gameCard = GameCard.objects.select_related("state", "card").get(
+            pk=game_card_id,
+            game_id=self.getGame().id,
+            user_id=self.id,
+        )
+        if lane is None:
+            lane = gameCard.card.cardType + 1
+        if lane < 1 or lane > 4:
+            raise Exception("invalid lane selected")
+
+        gameCard.state.play(lane)
+        gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
+        gameCard.state.save(update_fields=["lane", "laneOrdinal"])
+        return gameCard
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data
@@ -206,46 +315,50 @@ class BattleHistory(models.Model):
         return str.join(",",lootPile)
 
     def addHumanChallenger(self, challengerPlayer_id, startingCard_id = -1, deck_id=-1):
+        existingParticipant = self.participants.filter(player_id=challengerPlayer_id).first()
+        if existingParticipant is not None:
+            return existingParticipant
+
         if deck_id < 0:
-            selectStartingCard = startingCard_id<0
-            player = Player.objects.get(pk=challengerPlayer_id)
-            randomCollection = player.getCollection()
-            random.shuffle(randomCollection)
-            maxSize = randomCollection.__len__()
-            randint = random.randint(1,maxSize-1)
-            randomDeckCards = []
-            newDecksize = 0
-            if selectStartingCard:
-                randomCard = random.choice(randomCollection)
-                randomDeckCards.append(randomCard)
-                newDecksize += 1
-            for card in randomCollection:
-                if not selectStartingCard and card.id == startingCard_id: continue #skip startingCard in this case
-                randomDeckCards.append(card)
-                newDecksize += 1
-                if newDecksize == randint: 
-                    deckTitle = f"{player.name[0:5]}'s randomDeck s{randint} d{datetime.datetime.now().strftime('%d %B %Y %H:%M')}"
-                    if selectStartingCard: deckTitle = f"{laneTypes[randomCard.cardType]} " + deckTitle
-                    randomDeck = Deck.create(player.id,deckTitle,f"random {randint} card subset of {player.name}'s entire collection ")
-                    break
-            if selectStartingCard: startingCard_id = randomCard.id
-            challengerPlayer = BattleParticipant.createHuman(player_id=challengerPlayer_id, startingCard_id=startingCard_id, deck_id=randomDeck.id)
-        else: challengerPlayer = BattleParticipant.createHuman(player_id=challengerPlayer_id, startingCard_id=startingCard_id, deck_id=deck_id)
+            starting_card, random_deck = BattleParticipant.createRandomDeck(
+                player_id=challengerPlayer_id,
+                starting_card_id=startingCard_id,
+                deck_label="random deck",
+            )
+            startingCard_id = starting_card.id
+            deck_id = random_deck.id
+        else:
+            if startingCard_id < 0:
+                raise Exception("starting card required for predefined deck")
+            deck = Deck.objects.get(pk=deck_id)
+            startingCard = Card.objects.get(pk=startingCard_id)
+            if not deck.cards.filter(pk=startingCard_id).exists():
+                deck.cards.add(startingCard)
+
+        challengerPlayer = BattleParticipant.createHuman(
+            player_id=challengerPlayer_id,
+            startingCard_id=startingCard_id,
+            deck_id=deck_id,
+        )
         challengerPlayer.save()
         self.participants.add(challengerPlayer)
         startCard = Card.objects.get(pk=startingCard_id)
         self.lootPile.add(startCard)
         self.save()
+        return challengerPlayer
 
     def addRobotChallenger(self, challengerPlayer_id, startingCard_id=-1, deck_id=-1):
+        existingParticipant = self.participants.filter(player_id=challengerPlayer_id).first()
+        if existingParticipant is not None:
+            return existingParticipant
+
         challengerPlayer = BattleParticipant.createRobot(player_id=challengerPlayer_id, startingCard_id=startingCard_id, deck_id=deck_id)
         challengerPlayer.save()
         self.participants.add(challengerPlayer)
-        if startingCard_id == -1:
-            startCard =  challengerPlayer.player.getCollection()[0] 
-        else: startCard = Card.objects.get(pk=startingCard_id)
+        startCard = challengerPlayer.startingCard
         self.lootPile.add(startCard)
         self.save()
+        return challengerPlayer
 
     @classmethod
     def create(cls, challengerPlayer_id):
@@ -273,12 +386,14 @@ class Game(models.Model):
 
     def initialized(self):
         if not self.freeForAll: raise Exception("not implemented")
-        return self.history.participants.exclude(pk_isnull=True).exists()
+        return self.history.participants.exclude(pk__isnull=True).exists()
 
     def over(self):
         if not self.freeForAll: raise Exception("not implemented")
+        if not self.history.participants.filter(fled=True,defeated=True).exists(): return False
+            # raise Exception("no one has lost yet")
         playersStillGaming = self.history.participants.filter(fled=False,defeated=False).all()
-        return playersStillGaming.count() == 1 and playersStillGaming[0].player != self.history.challenger.player
+        return playersStillGaming.count() <= 1
 
 
 # models for gamestate and battles in progress
@@ -287,21 +402,27 @@ class Game(models.Model):
 class CardState(models.Model):
     inDeck = models.BooleanField(default=True)
     lane = models.IntegerField(default=-1) 
+    laneOrdinal = models.PositiveIntegerField(default=0)
     faceDown = models.BooleanField(default=True)
     trusted = models.BooleanField(default=False)
 
     def reset(self):
         self.inDeck = True 
         self.lane = -1 #-1: default state unordered in deck. 0 (in hand) or < -1 (order in deck), else in play
+        self.laneOrdinal = 0
         self.faceDown = True
         self.trusted = False
 
     def draw(self):
         if (not self.inDeck or not self.lane <= -1):
             raise Exception("in play")
-        # sanity checks: if (not self.inDeck or not self.faceDown or self.trusted): 
         self.lane = 0
         self.inDeck = False
+
+    def updateOrdinal(self, numberInLaneOrHand:int):
+        if (self.inDeck or self.lane < 0):
+            self.laneOrdinal = 0
+        else: self.laneOrdinal = numberInLaneOrHand
 
     def shuffleBack(self):
         if (self.inDeck): 
@@ -368,22 +489,3 @@ class GameCard(models.Model):
         newGameCardState = CardState.create()
         newGameCardState.save()
         return cls(card_id=card_id, game_id=game_id,user_id=battleParticipant_id,state=newGameCardState)
-
-# tutorial classes
-class Question(models.Model):
-    question_text = models.CharField(max_length=200)
-    pub_date = models.DateTimeField("date published")
-
-    def __str__(self):
-        return f"({self.pub_date}){self.question_text}"
-
-    def was_published_recently(self):
-        return self.pub_date >= timezone.now() - datetime.timedelta(days=1)
-
-class Choice(models.Model):
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
-    choice_text = models.CharField(max_length=200)
-    votes = models.IntegerField(default=0)
-    
-    def __str__(self):
-        return f"({self.votes}){self.choice_text}"

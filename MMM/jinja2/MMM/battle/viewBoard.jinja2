@@ -1,0 +1,167 @@
+{% extends 'base.jinja2' %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('cards.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="playingCards fourColours rotateHand">
+    <div class="players">
+        <div class="title">
+            <h1>{{ game.title }}</h1>
+            <p>Round {{ game.roundNumber }}</p>
+        </div>
+        <div class="playerInfo">
+            <h2>{{ player.name }}</h2>
+            {% if player.profilePictureSource == "" %}
+            <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+            {% else %}
+            <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                alt="{{player.name}}'s profile picture" />
+            {% endif %}
+        </div>
+    </div>
+
+    {% if error_message != "" %}
+    <div class="cards">
+        <p><b>Action error:</b> {{ error_message }}</p>
+    </div>
+    {% endif %}
+
+    <div class="cards">
+        <div class="cardsText">
+            <h2>Enemy boards</h2>
+        </div>
+        {% if enemyBoards %}
+        <ul class="enemyBoards">
+            {% for enemy in enemyBoards %}
+            <li class="enemy basic-mat">
+                <div class="smallCardInfo">
+                    <h3>{{ enemy.participant.player.name }}</h3>
+                    <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
+                </div>
+                <ul class="table">
+                    {% for lane in enemy.laneRows %}
+                    {% if lane.cards %}
+                    {% for card in lane.cards %}
+                    <li>
+                        <div class="card">
+                            <span class="suit">{{ card.lane }}</span>
+                            {{card.title}}
+                            {{card.image}}
+                        </div>
+                    </li>
+                    {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back" title="{{ lane.name }}">{{ lane.name }}</div>
+                    </li>
+                    {% endif %}
+                    {% endfor %}
+                </ul>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No enemy participants loaded yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="playerScreen">
+        <div class="cardsText">
+            <h2> {{ player.name }} Board </h2>
+            <ul class="basic-mat table">
+                {% for lane in ownLaneRows %}
+                <li class="lane {{lane.name}}">
+                {% if lane.cards %}
+                    <ul class="cardRow" title="cards">
+                        {% for card in lane.cards %}
+                        <li>
+                            <div class="card {{ card.cssClass }}" title="{{ lane.name }}">
+                                <span class="rank">{{ card.rank }}</span>
+                                <span class="suit">{{ card.title }}</span>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    <p>
+                        {{ lane.name }}
+                    </p>
+                    <ul class="cardRow" title="trustedCards">
+                        {% for card in lane.trustedCards %}
+                        <li>
+                            <div class="card {{ card.cssClass }}" title="{{ lane.name }}">
+                                <span class="rank">{{ card.rank }}</span>
+                                <span class="suit">{{ card.title }}</span>
+                            </div>
+                        </li>
+                        {% endfor %}
+                {% else %}
+                    <li>
+                        <p>
+                            {{ lane.name }}
+                        </p>
+                        </li>
+                </li>
+                {% endif %}
+                {% endfor %}
+            </ul>
+            <div class="deckHand">
+                <p>Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}</p>
+                <ul class="deck">
+                    {% if ownDeckCount > 0 %}
+                    {% for _ in ownDeckStack %}
+                    <li>
+                        {% if loop.first %}
+                        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                            {{ csrf_input }}
+                            <input type="hidden" name="action" value="draw">
+                            <button type="submit" class="card back" title="Draw card">Draw</button>
+                        </form>
+                        {% else %}
+                        <div class="card back">*</div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back">Empty</div>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="hand">
+                    {% if handCards %}
+                    {% for card in handCards %}
+                    <li>
+                        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                            {{ csrf_input }}
+                            <input type="hidden" name="action" value="play">
+                            <input type="hidden" name="card_id" value="{{ card.id }}">
+                            <input type="hidden" name="lane" value="{{ card.lane }}">
+                            <button type="submit" class="card {{ card.cssClass }}" title="Play to {{ card.laneName }}">
+                                <span class="rank">{{ card.rank }}</span>
+                                <span class="suit">{{ card.title }}</span>
+                            </button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back">No cards</div>
+                    </li>
+                    {% endif %}
+                </ul>
+
+                <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                    {{ csrf_input }}
+                    <input type="hidden" name="action" value="end_turn">
+                    <button type="submit" class="card joker" title="End turn">
+                        <span class="rank">!</span>
+                        <span class="suit">End turn</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <a href="{{ returnURL }}">back</a>
+    </div>
+    {% endblock %}
