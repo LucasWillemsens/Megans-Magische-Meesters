@@ -155,7 +155,6 @@ def confirmChallenge(request, game_id, player_id):
 def viewBoard(request, game_id, player_id, error_message=""):
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
-    # BattleParticipant.objects.get(game_id=game_id, player_id=player_id)
 
     if not GameCard.objects.filter(game_id=game_id, user_id=current_participant.id).exists():
         return redirect(f"/game/{game_id}/{player_id}/")
@@ -202,8 +201,8 @@ def boardAction(request, game_id, player_id):
         return redirect(f"/game/{game_id}/board/{player_id}/")
 
     game = Game.objects.get(pk=game_id)
-    participant = Participant.objects.get(game=game, player_id=player_id)
-    _ensure_game_initialized(game)
+    current_participant = game.history.participants.get(player_id=player_id)
+    _ensure_game_initialized(game) #todo remove this
 
     action = request.POST.get("action", "")
     error_message = ""
@@ -233,13 +232,13 @@ def boardAction(request, game_id, player_id):
 
 def viewWinner(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
-    participant = Participant.objects.get(game=game, player_id=player_id)
+    current_participant = game.history.participants.get(player_id=player_id)
     finished, winner_participant = _game_result(game)
     if not finished:
         return redirect(f"/game/{game_id}/board/{player_id}/")
 
     context = {
-        "player": participant.player,
+        "player": current_participant.player,
         "game": game,
         "winnerParticipant": winner_participant,
         "participants": game.history.participants.all(),

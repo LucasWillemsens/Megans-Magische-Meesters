@@ -631,25 +631,104 @@
 
 div.playerScreen{
     width: 100%;
-    height: 100%;
-    position: relative;
+    height: 1080px;
     display: flex;
     flex-direction: column;
     flex-wrap: nowrap;
-    align-items: center;
+    justify-content: flex-start;
+    align-items: flex-start;
 }
-    .playerScreen .table{
-        max-width:100%;
-        max-height: 50%;
+    .playerScreen > ul{
+        display: block;
+        width: 100%;
+        height: 60%;
     }
+    .playerScreen .playerBoard{
+        width:100%;
+        height: 100%;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+    li.playerBoard > ul.basic-mat{
+        display:block;
+        width:100%;
+        height:50%;
+    }
+
+    li.playerBoard h2{
+    height: 10%;
+    margin: 0;
+    }
+
+    ul.lanes {
+        align-self: center;
+        justify-self: center;
+        height: 85%;
+        display: flex;
+        flex-wrap: nowrap;
+        flex-direction: row;
+        padding: 0 14%;
+        width: 56%;
+        gap: 2%;
+        justify-content: center;
+        margin-top: -1.5%;
+    }
+        ul.lanes li.lane {
+            width: 22%;
+            height: 100%;
+        }
+        ul.lanes li.lane.Intelligence {
+            background-color: 
+            /* rgb(217, 158, 196); */
+            rgb(213 193 235);
+        }
+        ul.lanes li.lane.Speed {
+            background-color: 
+            /* rgb(199, 193, 142); */
+            rgb(252 247 207);
+        }
+        ul.lanes li.lane.Visciousness {
+            background-color: 
+            /* rgb(203, 125, 125); */
+            rgb(215 155 155);
+        }
+        ul.lanes li.lane.Resolve {
+            background-color: 
+            /* rgb(162, 202, 162); */
+            rgb(178 193 180);
+        }
+
+            ul.lanes li.lane p {
+                align-self: center;
+                justify-self: center;
+            }
+            ul.lanes li.lane p::before{
+                content: "";
+                display: block;
+                width: 100%;
+                height: 2px;
+                background-color: black;
+                margin-bottom: 5px;
+            }
+            ul.lanes li.lane p::after{
+                content: "";
+                display: block;
+                width: 100%;
+                height: 2px;
+                background-color: black;
+                margin-top: 5px;
+            }
+
     .playerScreen .deckHand {
         position: relative;
         display: flex;
-        flex-direction: row;
         width: 100%;
-        max-height: 50%;
-        justify-content: space-between;
+        margin-top: auto;
+        flex-direction: row;
+        flex-wrap: nowrap;
         align-items: flex-end;
+        height: 25%;
     }
     
     .playerScreen .deckHand > .deck{
@@ -660,3 +739,19 @@ div.playerScreen{
         width: 60%;
         margin: 0 20%;
     }
+
+    ul.enemyBoards li.enemyBoard {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        flex-direction: column;
+    }
+
+.playerScreen ul.enemyBoards {
+    margin-top: 1rem;
+    display: flex;
+    width: 100%;
+    height: fit-content;
+    flex-direction: column;
+    flex-wrap: nowrap;
+}

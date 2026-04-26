@@ -13,6 +13,11 @@ body {
     gap: 1.5rem;
 }
 
+.all{
+    display: block;
+    position: relative;
+}
+
 h1 {
     font-size: 4rem;
     margin-bottom: 1.25rem;
