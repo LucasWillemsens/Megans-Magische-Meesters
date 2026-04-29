@@ -12,8 +12,8 @@
 
 .playingCards .card {
     display: inline-block;
-    width: 3.3em;
-    height: 4.6em;
+    width: 4.25rem;
+    height: 6rem;
     border: 1px solid #666;
     border-radius: .3em;
     -moz-border-radius: .3em;
@@ -470,8 +470,8 @@
 .playingCards ul.table li,
 .playingCards ul.hand li,
 .playingCards ul.deck li {
-    margin: 0;
-    padding: 0;
+    /* margin: 0;
+    padding: 0; */
     list-style-type: none;
     float: left;
 }
@@ -644,7 +644,7 @@ div.playerScreen{
         height: 60%;
     }
     .playerScreen .playerBoard{
-        width:100%;
+        width: calc(100% - 2rem);
         height: 100%;
         position: relative;
         display: flex;
@@ -656,9 +656,15 @@ div.playerScreen{
         height:50%;
     }
 
-    li.playerBoard h2{
-    height: 10%;
-    margin: 0;
+    li.playerBoard h2, li.enemyBoard h2{
+        height: 10%;
+        margin: 0;
+        z-index: 1;
+        /* text-decoration: underline; */
+        opacity: 0.15;
+        color: #114503;
+        transform: translateX(-25px) translatey(-83px) rotate(-17deg);
+        pointer-events:none;
     }
 
     ul.lanes {
@@ -676,6 +682,7 @@ div.playerScreen{
     }
         ul.lanes li.lane {
             width: 22%;
+            min-width: 8rem;
             height: 100%;
         }
         ul.lanes li.lane.Intelligence {
@@ -699,11 +706,11 @@ div.playerScreen{
             rgb(178 193 180);
         }
 
-            ul.lanes li.lane p {
+            ul.lanes li.lane > p {
                 align-self: center;
                 justify-self: center;
             }
-            ul.lanes li.lane p::before{
+            ul.lanes li.lane > p::before{
                 content: "";
                 display: block;
                 width: 100%;
@@ -711,7 +718,7 @@ div.playerScreen{
                 background-color: black;
                 margin-bottom: 5px;
             }
-            ul.lanes li.lane p::after{
+            ul.lanes li.lane > p::after{
                 content: "";
                 display: block;
                 width: 100%;
@@ -742,10 +749,16 @@ div.playerScreen{
 
     ul.enemyBoards li.enemyBoard {
         display: flex;
-        width: 100%;
+        max-width: calc(100% - 2rem);
         height: 100%;
         flex-direction: column;
     }
+
+    ul.enemyBoards li.enemyBoard > p{        
+        margin-top: -1rem;
+        margin-left: -1rem;
+        position: absolute;
+}
 
 .playerScreen ul.enemyBoards {
     margin-top: 1rem;
@@ -754,4 +767,334 @@ div.playerScreen{
     height: fit-content;
     flex-direction: column;
     flex-wrap: nowrap;
+}
+
+button.end-turn{
+    cursor: pointer;
+    display: inline-block;
+    width: 4.25rem;
+    height: 6rem;
+    border: 1px solid #666;
+    border-radius: .3em;
+    -moz-border-radius: .3em;
+    -webkit-border-radius: .3em;
+    -khtml-border-radius: .3em;
+    padding: .25em;
+    margin: 0 .5em .5em 0;
+    text-align: center;
+    font-size: 1.2em;
+    font-weight: normal;
+    font-family: Arial, sans-serif;
+    position: relative;
+    background-color: #fff;
+    -moz-box-shadow: .2em .2em .5em #333;
+    -webkit-box-shadow: .2em .2em .5em #333;
+    box-shadow: .2em .2em .5em #333;
+}
+
+button.draw{
+    letter-spacing: normal;
+    box-sizing: unset;
+    line-height: unset;
+    text-rendering: unset;
+    text-shadow: unset;
+    unicode-bidi: isolate;
+    cursor: pointer;
+}
+
+
+/* the stars of the show */
+.fit-picture{
+    object-fit: cover;
+    vertical-align: middle;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    background: #ddd;
+}
+/* the stars of the show */
+.playerInfo .fit-picture{
+    margin: 0 1rem;
+    width: 4rem;
+}
+.players .fit-picture, .cards .fit-picture,  .decks .fit-picture{
+    width: 4rem;
+}
+.smallCard .fit-picture{
+    width: 4rem;
+    height: 4rem;
+    align-self: center;
+}
+
+
+.cards{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    /* margin-bottom: 2rem; */
+    height: fit-content;
+    width:100%;
+}
+    .cards h2{
+        margin:0;
+        /* margin-bottom: 2rem; */
+    }
+    .cards p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.decks
+{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    /* margin-bottom: 2rem; */
+    height: fit-content;
+    width:100%;
+}
+    .decks h2{
+        margin:0;
+        /* margin-bottom: 2rem; */
+    }
+    .decks p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.cardOptions{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: stretch;
+    justify-content: space-evenly;
+}
+    .cardOptions .smallCard{
+        display: flex;
+        flex-direction: column-reverse;
+        height: 9rem;
+        align-items: center;
+        align-content: center;
+        justify-content: space-between;
+        width: 5rem;
+    }
+    /* card batlle shuffle wip */
+/* .cardOptions .smallCard {
+    display: flex;
+    flex-direction: column-reverse;
+    height: 9rem;
+    align-items: center;
+    align-content: center;
+    justify-content: space-between;
+    width: 5rem;
+    margin-right: -300px !important;
+    margin-bottom: -132px;
+    border-style: double;
+    border-width: thick;
+    padding-top: 0.5rem;
+    background: aqua;
+} */
+
+        .cardOptions .smallCard label{
+            display: flex;
+            flex-direction: column;
+        }
+            .cardOptions .smallCard label .fit-picture {
+                margin:0;
+            }
+
+.card.back.emptyDeck, .card.back.emptyHand  {
+    border-style: dashed;
+    border-width: thick;
+    background: transparent;
+    box-shadow: none;
+    top: 4px;
+    left: -4px;
+}
+
+ul.cardRow{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    padding: 0;
+    margin: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-content: center;
+    min-width: 5rem;
+    min-height: 6rem;
+}
+
+.playingCards ul.cardRow .card {
+    margin:0;
+    border: 3px solid black;
+    box-shadow: 1px 1px 1px 1px black;;
+}
+
+
+.cardInfo{
+    display: flex;
+    flex-direction: column;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    align-self: center;
+    justify-self: center;
+    width: 100%;
+    gap: 0.2rem;
+}
+    
+    .cardInfo .cardType{
+        padding: 0;
+        margin-block-start: 0;
+        margin-bottom: 0.25rem;
+        font-size: 1.25rem;
+        /* text-decoration: underline wavy; */
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .cardInfo h2{
+        padding:0;
+        margin-block-start: 0;
+        margin: 0;
+    }
+
+    .smallCardInfo{
+    display: flex;
+    flex-direction: column;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    align-self: center;
+    justify-self: center;
+    text-align: center;
+    gap: 0.2rem;
+}
+    
+    .smallCardInfo .cardType{
+        padding: 0;
+        margin-block-start: 0;
+        margin-bottom: 0.25rem;
+        font-size: .75rem;
+        /* text-decoration: underline wavy; */
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .cardsText{
+        height: 5rem;
+        display: flex;
+        flex-direction: column;
+        /* height: 100%; */
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: flex-start;
+        padding-top: 1rem;
+    }
+    .cardsText h3{
+        margin:0;
+    }
+
+    li.smallCard{
+    /* display: flex;
+    flex-direction: column;
+    align-items: center;
+    */
+    background: #c7dce0; 
+    position: relative;
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    box-shadow: 1px 1px 1px 1px black;
+    max-height: 6rem;
+    max-width: 10rem;
+}
+    li.smallCard a{
+        text-align: center;
+    }
+    li.smallCard a::before{
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        border-radius: 0.5rem;
+    }
+    li.smallCard:focus-within{
+        background: #cce9e9;
+        outline:auto;
+        outline-offset: 6px;
+    }
+    li.smallCard:hover{
+        background: #d1e1ea;
+    }
+    li.smallCard:active{
+        background: #b6bcce;
+        box-shadow: unset;
+        left:2px;
+        top:2px;
+    }
+    
+    li.smallCard:focus-within:active{
+        outline-style: solid;
+        outline-width: 2px;
+        outline-offset: 0.2rem;
+    }
+
+    li.smallCard a:focus{
+        /* background: #c2cfdb; */
+        outline:0;
+    }
+
+.playingCards li.card.smallCard {
+    /* background: #c7dce0; */
+    /* position: relative; */
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    /* box-shadow: 1px 1px 1px 1px black; */
+    /* max-height: 6rem;
+    max-width: 10rem; */
+}
+.playingCards ul.cardRow li.card.smallCard {
+    border: 3px solid black;
+    box-shadow: none;
+}
+
+.smallCardInfo{
+
+    font-size: 14px;
+}
+
+.smallCardInfo .cardType{
+    padding: 0;
+    margin-block-start: 0px;
+    margin-bottom: -2.75rem;
+    font-size: 7px;
+    font-weight: 800;
+    text-transform: uppercase;
+    align-self: center;
+    justify-self: flex-end;
+}
+
+li.smallCard a, li.smallCard p:is(:not(.cardType)){
+    text-align: center;
+    line-height: 0.6rem;
+    height: 1.25rem;
+    overflow: hidden;
+    font-size: 0.73rem;
+    margin-block-start: 0;
+    margin-block-end: 0;
+}
+
+ li.smallCard button{
+    border:none;
+    padding-block: 0;
+    padding-inline: 0;
 }

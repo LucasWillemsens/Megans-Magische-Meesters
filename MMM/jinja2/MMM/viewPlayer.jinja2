@@ -82,7 +82,7 @@
     <div class="players">
     {% if cardOwner %}
         <h2> Collection </h2>
-        <div class="cards">
+        <div class="cards playingCards fourColours">
             <div class="cardsText">
                 <h3> Owned cards </h3>
                 <p>
@@ -92,7 +92,7 @@
             {% if cardOwner.card.exclude(pk__isnull=True) %}
             <ul class="basic-mat">
                 {% for card in cardOwner.card.all() %}
-                <li class="smallCard">
+                <li class="card smallCard">
                     {% if card.artSource == "" %}
                     <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                     {% else %}

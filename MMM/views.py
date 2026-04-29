@@ -155,19 +155,20 @@ def confirmChallenge(request, game_id, player_id):
 def viewBoard(request, game_id, player_id, error_message=""):
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
+    gameCards = GameCard.objects.filter(game_id=game_id)
 
-    if not GameCard.objects.filter(game_id=game_id, user_id=current_participant.id).exists():
+    if not gameCards.exists():
         return redirect(f"/game/{game_id}/{player_id}/")
 
     finished, _ = _game_result(game)
     if finished:
         return redirect(f"/game/{game_id}/winner/{player_id}/")
 
-    own_board = newBoard()
+    own_board = contextBoard(gameCards, current_participant.id)
     # _board_state(game.id, current_participant.id)
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
-        enemy_board = newBoard()
+        enemy_board = contextBoard(gameCards, enemy_participant.id)
         #  _board_state(game.id, enemy_participant.id)
         
         enemy_boards.append(
@@ -208,13 +209,13 @@ def boardAction(request, game_id, player_id):
     error_message = ""
     try:
         if action == "draw":
-            if participant.drawCard() is None:
+            if current_participant.drawCard() is None:
                 error_message = "No cards left in deck."
         elif action == "play":
             card_id = int(request.POST.get("card_id", "0"))
             lane_value = request.POST.get("lane", "")
             lane = int(lane_value) if lane_value else None
-            participant.playCard(card_id, lane)
+            current_participant.playCard(card_id, lane)
         elif action == "end_turn":
             _run_bot_turn(game, player_id)
             game.roundNumber = max(game.roundNumber, 1) + 1
@@ -320,9 +321,34 @@ def newBoard():
     board = {
         "handCards": [],
         "handCount": 0,
-        "laneRows": [{"name": "Intelligence", "cards": [], "trustedCards": []}, 
-        {"name": "Speed", "cards": [], "trustedCards": []}, {"name": "Visciousness", "cards": [], "trustedCards": []}, {"name": "Resolve", "cards": [], "trustedCards": []}],
+        "laneRows": [
+            {"name": "Intelligence", "cards": [], "trustedCards": []}, 
+            {"name": "Speed", "cards": [], "trustedCards": []}, 
+            {"name": "Visciousness", "cards": [], "trustedCards": []},
+            {"name": "Resolve", "cards": [], "trustedCards": []}
+        ],
         "deckCount": 0,
         "deckStack": [],
+    }
+    return board
+
+def contextBoard(gameCards, user_id):
+    userCards = [gameCard for gameCard in gameCards if gameCard.user_id == user_id]
+    handCards = [gameCard for gameCard in userCards if gameCard.state.lane == 0]
+    intelligenceCards = [gameCard for gameCard in userCards if gameCard.state.lane == 1]
+    speedCards = [gameCard for gameCard in userCards if gameCard.state.lane == 2]
+    visciousnessCards = [gameCard for gameCard in userCards if gameCard.state.lane == 3]
+    resolveCards = [gameCard for gameCard in userCards if gameCard.state.lane == 4]
+    deckCards = [gameCard for gameCard in userCards if gameCard.state.inDeck == True]
+
+    board = {
+        "handCards": handCards,
+        "handCount": len(handCards),
+        "laneRows": [{"name": "Intelligence", "cards": [card for card in intelligenceCards if card.state.trusted == False], "trustedCards": [card for card in intelligenceCards if card.state.trusted == True]},
+        {"name": "Speed", "cards": [card for card in speedCards if card.state.trusted == False], "trustedCards": [card for card in speedCards if card.state.trusted == True]}, 
+        {"name": "Visciousness", "cards": [card for card in visciousnessCards if card.state.trusted == False], "trustedCards": [card for card in visciousnessCards if card.state.trusted == True]}, 
+        {"name": "Resolve", "cards": [card for card in resolveCards if card.state.trusted == False], "trustedCards": [card for card in resolveCards if card.state.trusted == True]}],
+        "deckCount": len(deckCards),
+        "deckStack": deckCards,
     }
     return board

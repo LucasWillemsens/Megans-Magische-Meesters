@@ -203,17 +203,17 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     #takes a pre-made deck and creates a random order, initialising all gamecards
     def startWithDeckInRandomOrder(self, initializeStartingCard = False):
         game_id = self.getGame().id
+        #todo remove bandaid: make it so this button is never reachable for this condition
         existingGameCards = list(
             GameCard.objects.filter(game_id=game_id, user_id=self.id).select_related("card", "state")
         )
-        if existingGameCards:
-            existingStartCard = next(
-                (gameCard for gameCard in existingGameCards if gameCard.card_id == self.startingCard_id),
-                None,
-            )
-            return existingStartCard, existingGameCards
+        # print(f"existing game cards for participant {self.id} in game {game_id}: {existingGameCards}, self.startingCard_id: {self.startingCard_id}, selected deck: {self.deck}" )
+        if existingGameCards: return (gameCard for gameCard in existingGameCards if gameCard.card_id == self.startingCard_id), existingGameCards
 
+        #order of deck not selected yet, game must be initialized
         randomOrderDeck = list(self.deck.cards.all())
+
+        #no starting card selected yet
         if initializeStartingCard and not any(card.id == self.startingCard_id for card in randomOrderDeck):
             randomOrderDeck.append(self.startingCard)
         random.shuffle(randomOrderDeck)
@@ -483,6 +483,7 @@ class GameCard(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="gameCards")
     user = models.ForeignKey(BattleParticipant,on_delete=models.CASCADE, related_name="usingCards")
     state = models.ForeignKey(CardState, on_delete=models.CASCADE, related_name="cardsInState") #strange relation back
+    cssClass = models.CharField(max_length=200, default="")
 
     @classmethod
     def create(cls, card_id, game_id, battleParticipant_id):

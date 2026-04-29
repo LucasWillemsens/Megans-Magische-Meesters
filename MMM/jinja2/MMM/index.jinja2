@@ -1,5 +1,10 @@
 {% extends 'base.jinja2' %}
 
+{#
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('cards.css') }}">
+{% endblock %} #}
+
 {% block content %}
     <div class="title">
         <h1> Magical Masters </h1>
@@ -38,7 +43,7 @@
     {% endif %}
     </div>
 
-    <div class="cards">
+    <div class="cards playingCards fourColours">
         <div class="cardsText">
             <h2> Cards </h2>
             <p>
@@ -48,7 +53,7 @@
     {% if latest_cards_list%}
         <ul class="basic-mat">
             {% for card in latest_cards_list %}
-            <li class="smallCard">
+            <li class="card smallCard">
                 {% if card.artSource == "" %}
                 <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                 {% else %}
