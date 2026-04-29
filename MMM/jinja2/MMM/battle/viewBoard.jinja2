@@ -10,9 +10,9 @@
         <div class="playerInfo">
             <h2>{{ player.name }}</h2>
             {% if player.profilePictureSource == "" %}
-            <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+            <img draggable="false" class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
             {% else %}
-            <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+            <img draggable="false" class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
                 alt="{{player.name}}'s profile picture" />
             {% endif %}
         </div>
@@ -38,9 +38,9 @@
                         {% for card in lane.cards %}
                             <li class="card smallCard">
                                 {% if card.card.artSource == "" %}
-                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
-                                <img class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
                             
                                 <div class="smallCardInfo">
@@ -62,9 +62,9 @@
                         {% for card in lane.trustedCards %}
                             <li class="card smallCard">
                                 {% if card.card.artSource == "" %}
-                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
-                                <img class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
                             
                                 <div class="smallCardInfo">
@@ -105,9 +105,9 @@
                         {% for card in lane.cards %}
                             <li class="card smallCard">
                                 {% if card.card.artSource == "" %}
-                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
-                                <img class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
                             
                                 <div class="smallCardInfo">
@@ -129,9 +129,9 @@
                         {% for card in lane.trustedCards %}
                             <li class="card smallCard">
                                 {% if card.card.artSource == "" %}
-                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
-                                <img class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
                             
                                 <div class="smallCardInfo">
@@ -181,7 +181,7 @@
         <ul class="hand">
             {% if handCards %}
             {% for card in handCards %}
-            <li class="card smallCard">
+            <li class="card smallCard" draggable="true">
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                     {{ csrf_input }}
                     <input type="hidden" name="action" value="play">
@@ -191,9 +191,9 @@
                         {# <span class="rank">{{ card.card.cardType }}</span>
                         <span class="suit">{{ card.card.title }}</span> #}
                         {% if card.card.artSource == "" %}
-                        <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                        <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                         {% else %}
-                        <img class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                        <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                         {% endif %}
                     
                         <div class="smallCardInfo">
@@ -230,4 +230,6 @@
         </div>
 
     <a href="{{ returnURL }}">back</a>
+    <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
     {% endblock %}
+{# {% load static %} #}
