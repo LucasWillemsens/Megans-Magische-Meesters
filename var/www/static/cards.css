@@ -27,9 +27,6 @@
     font-family: Arial, sans-serif;
     position: relative;
     background-color: #fff;
-    -moz-box-shadow: .2em .2em .5em #333;
-    -webkit-box-shadow: .2em .2em .5em #333;
-    box-shadow: .2em .2em .5em #333;
 }
 
 .playingCards a.card {
@@ -684,6 +681,7 @@ div.playerScreen{
             width: 22%;
             min-width: 8rem;
             height: 100%;
+            position: relative;
         }
         ul.lanes li.lane.Intelligence {
             background-color: 
@@ -787,8 +785,6 @@ button.end-turn{
     font-family: Arial, sans-serif;
     position: relative;
     background-color: #fff;
-    -moz-box-shadow: .2em .2em .5em #333;
-    -webkit-box-shadow: .2em .2em .5em #333;
     box-shadow: .2em .2em .5em #333;
 }
 
@@ -935,7 +931,6 @@ ul.cardRow{
 .playingCards ul.cardRow .card {
     margin:0;
     border: 3px solid black;
-    box-shadow: 1px 1px 1px 1px black;;
 }
 
 
@@ -1003,18 +998,13 @@ ul.cardRow{
     }
 
     li.smallCard{
-    /* display: flex;
-    flex-direction: column;
-    align-items: center;
-    */
-    background: #c7dce0; 
-    position: relative;
-    border-radius: 0.5rem;
-    border: 3px solid black;
-    box-shadow: 1px 1px 1px 1px black;
-    max-height: 6rem;
-    max-width: 10rem;
-}
+        background: #c7dce0; 
+        position: relative;
+        border-radius: 0.5rem;
+        border: 3px solid black;
+        max-height: 6rem;
+        max-width: 10rem;
+    }
     li.smallCard a{
         text-align: center;
     }
@@ -1037,7 +1027,6 @@ ul.cardRow{
     }
     li.smallCard:active{
         background: #b6bcce;
-        box-shadow: unset;
         left:2px;
         top:2px;
     }
@@ -1053,18 +1042,34 @@ ul.cardRow{
         outline:0;
     }
 
+    ul.hand li.card.smallCard::before{
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        border-radius: 0.5rem;
+        cursor: pointer;
+    }
+
+     ul.hand div.cardContainer{
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        border-radius: 0.5rem;
+        box-shadow: .2em .2em .5em #333;
+    }
+
 .playingCards li.card.smallCard {
-    /* background: #c7dce0; */
-    /* position: relative; */
     border-radius: 0.5rem;
     border: 3px solid black;
-    /* box-shadow: 1px 1px 1px 1px black; */
-    /* max-height: 6rem;
-    max-width: 10rem; */
+    overflow: hidden;
 }
 .playingCards ul.cardRow li.card.smallCard {
     border: 3px solid black;
-    box-shadow: none;
 }
 
 .smallCardInfo{
@@ -1097,4 +1102,23 @@ li.smallCard a, li.smallCard p:is(:not(.cardType)){
     border:none;
     padding-block: 0;
     padding-inline: 0;
+}
+
+ul.hand li.card.smallCard::after{
+    content:"";
+    position: absolute;
+    background-image: -webkit-gradient(radial, center center, 20, center center, 80, from(#3c3), color-stop(0.4, #363), to(#030));
+    right: 100%;
+    top: 100%;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    transition: all 0.25s ease-in-out;;
+}
+
+ul.hand li.card.smallCard:hover::after{
+    right: 80%;
+    top: 80%;
 }

@@ -23,38 +23,21 @@ class CardDragDropSystem {
      * Create drop zones for each lane
      */
     createDropZones() {
-        // Get all lanes from both enemy and player boards
-        const allLanes = document.querySelectorAll('.lane');
+        // Get all lanes from player board
+        const allLanes = document.querySelectorAll('li.playerBoard ul.lanes li.lane');
 
         allLanes.forEach((lane, index) => {
             // Create a drop zone container for each lane
             const dropZone = document.createElement('div');
             dropZone.className = 'drop-zone';
             dropZone.id = `drop-zone-${index}`;
-            dropZone.dataset.laneIndex = index;
-            dropZone.textContent = '📍 Drop card here';
-            dropZone.style.cssText = `
-                min-height: 40px;
-                border: 2px dashed #999;
-                border-radius: 8px;
-                padding: 10px;
-                text-align: center;
-                background-color: #f5f5f5;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                font-size: 12px;
-                color: #666;
-                margin-top: 8px;
-            `;
 
             // Insert drop zone at the end of each lane
             lane.appendChild(dropZone);
 
-            // Store reference to drop zone
+            // Store reference to drop zone, must be done or garbage collected
             this.dropZones.set(index, {
-                element: dropZone,
-                lane: lane,
-                laneElement: lane
+                element: dropZone
             });
         });
 
@@ -93,12 +76,12 @@ class CardDragDropSystem {
      */
     onCardDragStart(e) {
         this.draggedCard = e.currentTarget;
-        this.draggedCard.style.opacity = '0.6';
         this.draggedCard.classList.add('dragging');
 
         // Set drag image and data
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', this.draggedCard.innerHTML);
+        e.dataTransfer.setDragImage(this.draggedCard, 0, 0);
+        // e.dataTransfer.setData('text/html', this.draggedCard.innerHTML);
 
         console.log('Drag started:', this.draggedCard);
 
@@ -110,7 +93,6 @@ class CardDragDropSystem {
      * Handle card drag end
      */
     onCardDragEnd(e) {
-        this.draggedCard.style.opacity = '1';
         this.draggedCard.classList.remove('dragging');
 
         // Remove drop zone highlights
@@ -128,8 +110,6 @@ class CardDragDropSystem {
 
         const zone = e.currentTarget;
         zone.classList.add('drop-zone-active');
-        zone.style.borderColor = '#4CAF50';
-        zone.style.backgroundColor = '#e8f5e9';
 
         return false;
     }
@@ -140,9 +120,6 @@ class CardDragDropSystem {
     onDropZoneDragLeave(e) {
         const zone = e.currentTarget;
         zone.classList.remove('drop-zone-active');
-        zone.style.borderColor = '#999';
-        zone.style.backgroundColor = '#f5f5f5';
-
         return false;
     }
 
@@ -154,24 +131,21 @@ class CardDragDropSystem {
         e.stopPropagation();
 
         const zone = e.currentTarget;
+
         zone.classList.remove('drop-zone-active');
-        zone.style.borderColor = '#999';
-        zone.style.backgroundColor = '#f5f5f5';
 
         if (this.draggedCard) {
             const cardTitle = this.draggedCard.textContent;
             console.log(`Card dropped: "${cardTitle}" in zone`, zone.id);
 
-            // Visual feedback
+            // TODO use local storage and hologram of card and remove this ugly Visual feedback
             zone.textContent = `✓ Dropped: ${cardTitle}`;
-            zone.style.backgroundColor = '#c8e6c9';
-            zone.style.borderColor = '#4CAF50';
-
+            zone.classList.add('drop-zone-landed');
+            
             // Reset the zone text after 2 seconds
             setTimeout(() => {
-                zone.textContent = '📍 Drop card here';
-                zone.style.backgroundColor = '#f5f5f5';
-                zone.style.borderColor = '#999';
+                zone.textContent = ``;
+                zone.classList.remove('drop-zone-landed');
             }, 2000);
 
             // Here you can add logic to send the drop action to your server
@@ -184,96 +158,52 @@ class CardDragDropSystem {
     /**
      * Handle the card drop action (send to server or handle locally)
      */
-    handleCardDrop(card, zone) {
+    handleCardDrop(cardId, zone) {
         // Extract card information from the card element
-        const cardId = this.extractCardId(card);
-        const laneIndex = zone.dataset.laneIndex;
+        // const cardId = this.extractCardId(card);
+        const lane = zone.dataset.lane;
 
-        console.log(`Processing drop - Card ID: ${cardId}, Lane: ${laneIndex}`);
+        console.log(`Processing drop - Card ID: ${cardId}, Lane: ${lane}`);
 
         // You can emit a custom event for other parts of your application to handle
         const dropEvent = new CustomEvent('cardDropped', {
             detail: {
                 cardId: cardId,
-                card: card,
+                // card: card,
                 zone: zone,
-                laneIndex: laneIndex,
-                timestamp: new Date().toISOString()
+                // laneIndex: laneIndex,
+                // timestamp: new Date().toISOString()
             }
         });
 
         document.dispatchEvent(dropEvent);
 
         // Optional: send to server via AJAX
+        //draw and end turn should sync with server. Other actions are handled locally and could be undone.
         // this.sendDropToServer(cardId, laneIndex);
     }
 
-    /**
-     * Extract card ID from card element (adjust based on your HTML structure)
-     */
-    extractCardId(card) {
-        // Try to find card ID from various possible sources
-        const form = card.querySelector('form');
-        if (form) {
-            const cardIdInput = form.querySelector('input[name="card_id"]');
-            if (cardIdInput) {
-                return cardIdInput.value;
-            }
-        }
+    // extractCardId(card) {
+    //     const form = card.querySelector('form.cardActionForm');
+    //     if (form) {
+    //         const cardIdInput = form.querySelector('input[name="card_id"]');
+    //         if (cardIdInput) {
+    //             return cardIdInput.value;
+    //         }
+    //     }
+    //     return 'unknown';
+    // }
 
-        // Fallback: use card's ID attribute or index
-        return card.id || card.dataset.cardId || 'unknown';
-    }
-
-    /**
-     * Highlight or remove highlight from all drop zones
-     */
     highlightAllDropZones(highlight) {
         this.dropZones.forEach((zoneData) => {
             const zone = zoneData.element;
             if (highlight) {
-                zone.style.borderColor = '#2196F3';
-                zone.style.backgroundColor = '#e3f2fd';
+                zone.classList.add('drop-zone-highlight');
             } else {
+                zone.classList.remove('drop-zone-highlight');
                 zone.classList.remove('drop-zone-active');
-                zone.style.borderColor = '#999';
-                zone.style.backgroundColor = '#f5f5f5';
             }
         });
-    }
-
-    /**
-     * Send drop action to server (optional)
-     */
-    sendDropToServer(cardId, laneIndex) {
-        // Get CSRF token if available
-        const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
-        const token = csrfToken ? csrfToken.value : '';
-
-        const data = {
-            action: 'drop_card',
-            card_id: cardId,
-            lane: laneIndex
-        };
-
-        // Uncomment and adjust the fetch call based on your server endpoint
-        /*
-        fetch('/your-drop-endpoint/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': token
-            },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Drop processed:', data);
-        })
-        .catch(error => {
-            console.error('Error sending drop:', error);
-        });
-        */
     }
 
     /**
@@ -294,9 +224,11 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Card Drag and Drop System initialized');
 });
 
-// Listen for custom cardDropped events (example usage)
-document.addEventListener('cardDropped', (e) => {
-    const { cardId, laneIndex } = e.detail;
-    console.log(`Card ${cardId} was dropped on lane ${laneIndex}`);
-    // Add your custom handling here
-});
+// // Listen for custom cardDropped events (example usage)
+// document.addEventListener('cardDropped', (e) => {
+//     const { cardId, zone } = e.detail;
+//     console.log(`Card ${cardId} was dropped on lane ${zone.id}`);
+//     // Add your custom handling here
+
+
+// });

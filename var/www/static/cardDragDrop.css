@@ -1,0 +1,76 @@
+
+@keyframes morphCard {
+  from {
+    clip-path: polygon(
+        150% 150%, 
+        84% 185%,
+        0% 180%,
+        -20% -20%, 
+        150% -20%
+    );
+  }
+  to {
+    clip-path: polygon(
+        150% 150%, 
+        84% 160%, 
+        -1% 79%, 
+        -20% -20%, 
+        150% -20%
+    );
+  }
+}
+
+.drop-zone {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    top:0;
+    left: 0;
+    opacity: 0.2;
+    /* transition: ease 0.1s;
+    transition-property: border; */
+}
+.drop-zone::before{
+    position: absolute;
+    border: none;
+    content:"";
+    transition: var(--animate-highlight);
+}
+
+.drop-zone-highlight::before{    
+    content:"";
+    margin:auto;
+    display: block;
+    border: dashed 0.5rem;
+    border-color: black;
+    width: calc(100% - 1rem);
+    height:calc(100% - 1rem);
+}
+.drop-zone-highlight.drop-zone-active::before {
+    border: none;
+}
+
+.drop-zone-landed{
+}
+div.drop-zone-active {
+}
+
+
+.dragging{
+    opacity: 0.15;
+}
+
+/* 
+ul.hand li.card.smallCard{
+    clip-path: polygon(
+        150% 150%, 
+        -20% 150%,
+        -20% 0%,
+        -20% -20%, 
+        150% -20%
+    );
+} */
+
+ul.hand li.card.smallCard:hover{
+    animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
+}
