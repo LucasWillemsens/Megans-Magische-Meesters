@@ -36,23 +36,27 @@
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
-                            <li class="card smallCard">
-                                {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
-                                {% else %}
-                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                                {% endif %}
+                            <li class="cardContainer">
+                                <div class="card smallCard">
+                                    {% if card.card.artSource == "" %}
+                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                                        alt="no art of {{card.card.title}}" />
+                                    {% else %}
+                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                                        alt="art of {{card.card.title}}" />
+                                    {% endif %}
                             
-                                <div class="smallCardInfo">
-                                    {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
-                                        <p>
-                                            {{ card.card.title }}
+                                    <div class="smallCardInfo">
+                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
+                                            <p>
+                                                {{ card.card.title }}
+                                            </p>
+                                            {#
+                                        </a> #}
+                                        <p class="cardType">
+                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
-                                        {#
-                                    </a> #}
-                                    <p class="cardType">
-                                        {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                    </p>
+                                    </div>
                                 </div>
                             </li>
                         {% endfor %}
@@ -60,23 +64,27 @@
                     <p> {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="card smallCard">
-                                {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
-                                {% else %}
-                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                                {% endif %}
+                            <li class="cardContainer">
+                                <div class="card smallCard">
+                                    {% if card.card.artSource == "" %}
+                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                                        alt="no art of {{card.card.title}}" />
+                                    {% else %}
+                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                                        alt="art of {{card.card.title}}" />
+                                    {% endif %}
                             
-                                <div class="smallCardInfo">
-                                    {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
-                                        <p>
-                                            {{ card.card.title }}
+                                    <div class="smallCardInfo">
+                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
+                                            <p>
+                                                {{ card.card.title }}
+                                            </p>
+                                            {#
+                                        </a> #}
+                                        <p class="cardType">
+                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
-                                        {#
-                                    </a> #}
-                                    <p class="cardType">
-                                        {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                    </p>
+                                    </div>
                                 </div>
                             </li>
                         {% endfor %}
@@ -103,23 +111,25 @@
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
-                            <li class="card smallCard">
-                                {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
-                                {% else %}
-                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                                {% endif %}
+                            <li class="cardContainer">
+                                <div class="card smallCard">
+                                    {% if card.card.artSource == "" %}
+                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                    {% else %}
+                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                                    {% endif %}
                             
-                                <div class="smallCardInfo">
-                                    {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
-                                        <p>
-                                            {{ card.card.title }}
+                                    <div class="smallCardInfo">
+                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
+                                            <p>
+                                                {{ card.card.title }}
+                                            </p>
+                                            {#
+                                        </a> #}
+                                        <p class="cardType">
+                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
-                                        {#
-                                    </a> #}
-                                    <p class="cardType">
-                                        {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                    </p>
+                                    </div>
                                 </div>
                             </li>
                         {% endfor %}
@@ -127,23 +137,27 @@
                     <p> {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="card smallCard">
-                                {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
-                                {% else %}
-                                <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                                {% endif %}
+                            <li class="cardContainer">
+                                <div class="card smallCard">
+                                    {% if card.card.artSource == "" %}
+                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                                        alt="no art of {{card.card.title}}" />
+                                    {% else %}
+                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                                        alt="art of {{card.card.title}}" />
+                                    {% endif %}
                             
-                                <div class="smallCardInfo">
-                                    {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
-                                        <p>
-                                            {{ card.card.title }}
+                                    <div class="smallCardInfo">
+                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
+                                            <p>
+                                                {{ card.card.title }}
+                                            </p>
+                                            {#
+                                        </a> #}
+                                        <p class="cardType">
+                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
-                                        {#
-                                    </a> #}
-                                    <p class="cardType">
-                                        {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                    </p>
+                                    </div>
                                 </div>
                             </li>
                         {% endfor %}
@@ -181,7 +195,9 @@
         <ul class="hand">
             {% if handCards %}
             {% for card in handCards %}
-            <li class="card smallCard" draggable="true">
+            <li class="cardContainer" draggable="true">
+                <div class="card smallCard">
+
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                     {{ csrf_input }}
                     <input type="hidden" name="action" value="play">
@@ -209,15 +225,16 @@
                         </div>
                     </button>
                 </form>
+                </div>
             </li>
             {% endfor %}
             {% else %}
             <li>
-                <div class="card back emptyHand">
+                <div class="card back emptyHand" />
                 </div>
-                </li>
-                {% endif %}
-                </ul>
+            </li>
+            {% endif %}
+            </ul>
 
         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
             {{ csrf_input }}
@@ -233,4 +250,3 @@
     <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
     <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
     {% endblock %}
-{# {% load static %} #}

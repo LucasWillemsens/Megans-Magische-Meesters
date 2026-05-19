@@ -726,6 +726,7 @@ div.playerScreen{
             }
 
     .playerScreen .deckHand {
+        z-index: 1;    
         position: relative;
         display: flex;
         width: 100%;
@@ -915,6 +916,21 @@ button.draw{
     left: -4px;
 }
 
+ul.basic-mat{
+
+    padding: 0;
+
+    & li.cardContainer{
+        margin: 0;
+        padding: 0;
+    }
+}
+ul.basic-mat .card{
+    margin:0;
+    border: 3px solid black;
+}
+
+
 ul.cardRow{
     display: flex;
     flex-wrap: wrap;
@@ -997,7 +1013,7 @@ ul.cardRow{
         margin:0;
     }
 
-    li.smallCard{
+    li.cardContainer > .smallCard{
         background: #c7dce0; 
         position: relative;
         border-radius: 0.5rem;
@@ -1005,11 +1021,11 @@ ul.cardRow{
         max-height: 6rem;
         max-width: 10rem;
     }
-    li.smallCard a{
+    li.cardContainer > .smallCard a{
         text-align: center;
     }
-    li.smallCard a::before{
-        content: '';
+    li.cardContainer > .smallCard a::before{
+        /* content: ''; */
         position: absolute;
         width: 100%;
         height: 100%;
@@ -1017,58 +1033,72 @@ ul.cardRow{
         left: 0;
         border-radius: 0.5rem;
     }
-    li.smallCard:focus-within{
-        background: #cce9e9;
-        outline:auto;
-        outline-offset: 6px;
+
+    .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
+    .playerScreen .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
+       { 
+        opacity: 0.6;
+        filter:none;
+        /* z-index: 0; */
     }
-    li.smallCard:hover{
+    ul.hand li.cardContainer{
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: 1;
+        &::after{
+            content:"";
+            top:0;
+            right:0;
+            width:100%;
+            height:100%;
+            position: absolute;
+            cursor: grab;
+        }
+    }
+    .playerScreen .deckHand .hand li.cardContainer:hover{
+        opacity: 1 !important;
+        z-index: 3;
+    } 
+    
+    .playerScreen .deckHand .hand li.cardContainer:focus-within{
+        opacity: 1 !important;
+        z-index: 2;
+    }
+    li.cardContainer:hover > .smallCard{
         background: #d1e1ea;
     }
-    li.smallCard:active{
+    li.cardContainer:hover:active > .smallCard{
         background: #b6bcce;
         left:2px;
         top:2px;
     }
+        li.cardContainer:focus-within 
+    {
     
-    li.smallCard:focus-within:active{
+        outline:auto;
+        outline-offset: 6px; 
+        
+        & .smallCard{
+            background: #cce9e9;
+        }
+    }
+    li.cardContainer:focus-within:active{
         outline-style: solid;
         outline-width: 2px;
         outline-offset: 0.2rem;
     }
 
-    li.smallCard a:focus{
-        /* background: #c2cfdb; */
+    li.cardContainer > .smallCard a:focus{
         outline:0;
     }
 
-    ul.hand li.card.smallCard::before{
-        content: "";
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        top: 0;
-        left: 0;
-        border-radius: 0.5rem;
-        cursor: pointer;
-    }
-
-     ul.hand div.cardContainer{
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        top: 0;
-        left: 0;
-        border-radius: 0.5rem;
-        box-shadow: .2em .2em .5em #333;
-    }
-
-.playingCards li.card.smallCard {
+.playingCards li.cardContainer > .card.smallCard {
     border-radius: 0.5rem;
     border: 3px solid black;
     overflow: hidden;
 }
-.playingCards ul.cardRow li.card.smallCard {
+.playingCards ul.cardRow li.cardContainer > .card.smallCard {
     border: 3px solid black;
 }
 
@@ -1088,7 +1118,27 @@ ul.cardRow{
     justify-self: flex-end;
 }
 
-li.smallCard a, li.smallCard p:is(:not(.cardType)){
+.cardContainer:focus-within *{
+    outline:0;
+}
+ 
+li.cardContainer{    
+    width: calc(4.75rem + 6px);
+    height: calc(6.5rem + 6px);
+    border-radius: 0.5rem;
+    margin: 0;
+}
+
+ li.cardContainer > .smallCard button{
+    border:none;
+    padding-block: 0;
+    padding-inline: 0;
+    width: 4rem;
+    height: 4rem;
+    justify-self: center;
+}
+
+li.cardContainer > .smallCard a, li.cardContainer > .smallCard p:is(:not(.cardType)){
     text-align: center;
     line-height: 0.6rem;
     height: 1.25rem;
@@ -1098,15 +1148,21 @@ li.smallCard a, li.smallCard p:is(:not(.cardType)){
     margin-block-end: 0;
 }
 
- li.smallCard button{
-    border:none;
-    padding-block: 0;
-    padding-inline: 0;
+li.cardContainer:hover > .smallCard a::after{
+    /* content: ""; */
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    border-radius: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.3);
 }
 
-ul.hand li.card.smallCard::after{
+ul.hand li.cardContainer > .card.smallCard::after{
     content:"";
     position: absolute;
+    z-index: 2;
     background-image: -webkit-gradient(radial, center center, 20, center center, 80, from(#3c3), color-stop(0.4, #363), to(#030));
     right: 100%;
     top: 100%;
@@ -1115,10 +1171,11 @@ ul.hand li.card.smallCard::after{
     overflow: hidden;
     border-radius: 0.5rem;
     border: 3px solid black;
-    transition: all 0.25s ease-in-out;;
+    transition: all 0.25s ease-in-out;
 }
 
-ul.hand li.card.smallCard:hover::after{
+ul.hand li.cardContainer:hover > .card.smallCard::after{
     right: 80%;
     top: 80%;
+    filter: drop-shadow(4px 4px 4px #000);
 }

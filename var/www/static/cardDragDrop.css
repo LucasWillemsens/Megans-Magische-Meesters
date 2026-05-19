@@ -27,8 +27,6 @@
     top:0;
     left: 0;
     opacity: 0.2;
-    /* transition: ease 0.1s;
-    transition-property: border; */
 }
 .drop-zone::before{
     position: absolute;
@@ -60,17 +58,6 @@ div.drop-zone-active {
     opacity: 0.15;
 }
 
-/* 
-ul.hand li.card.smallCard{
-    clip-path: polygon(
-        150% 150%, 
-        -20% 150%,
-        -20% 0%,
-        -20% -20%, 
-        150% -20%
-    );
-} */
-
-ul.hand li.card.smallCard:hover{
+ul.hand li.cardContainer:hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }

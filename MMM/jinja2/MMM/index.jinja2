@@ -53,22 +53,25 @@
     {% if latest_cards_list%}
         <ul class="basic-mat">
             {% for card in latest_cards_list %}
-            <li class="card smallCard">
-                {% if card.artSource == "" %}
-                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
-                {% else %}
-                <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
-                {% endif %}
-    
-                <div class="smallCardInfo">
-                    <a href="card/{{ card.id }}/">
-                        {{ card.title }}
-                    </a>
-                    <p class="cardType">
-                        {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
-                    </p>
+            <li class="cardContainer">
+                <div class="card smallCard">
+                    {% if card.artSource == "" %}
+                    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                    {% else %}
+                    <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                    {% endif %}
+            
+                    <div class="smallCardInfo">
+                        <a href="card/{{ card.id }}/">
+                            {{ card.title }}
+                        </a>
+                        <p class="cardType">
+                            {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                        </p>
+                    </div>
                 </div>
             </li>
+            
             {% endfor %}
         </ul>
         {% else %}

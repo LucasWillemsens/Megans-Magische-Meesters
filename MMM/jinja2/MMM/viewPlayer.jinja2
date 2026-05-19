@@ -92,20 +92,22 @@
             {% if cardOwner.card.exclude(pk__isnull=True) %}
             <ul class="basic-mat">
                 {% for card in cardOwner.card.all() %}
-                <li class="card smallCard">
-                    {% if card.artSource == "" %}
-                    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
-                    {% else %}
-                    <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
-                    {% endif %}
+                <li class="cardContainer">
+                    <div class="card smallCard">
+                        {% if card.artSource == "" %}
+                        <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                        {% else %}
+                        <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                        {% endif %}
                 
-                    <div class="smallCardInfo">
-                        <a href="{{returnURL}}card/{{ card.id }}/">
-                            {{ card.title }}
-                        </a>
-                        <p class="cardType">
-                            {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
-                        </p>
+                        <div class="smallCardInfo">
+                            <a href="{{returnURL}}card/{{ card.id }}/">
+                                {{ card.title }}
+                            </a>
+                            <p class="cardType">
+                                {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                            </p>
+                        </div>
                     </div>
                 </li>
                 {% endfor %}
