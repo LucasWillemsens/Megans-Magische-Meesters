@@ -70,10 +70,9 @@
         </ul>
         {% else %}
         <p> {{player.name}} has never challenged anyone.</p>
-        <!-- <p> {{player.name}} did not challenge anyone.</p> -->
         {% endif %}
         <div class="createButton">
-            <a href="{{returnURL}}game/create/{{player.id}}">
+            <a href="{{returnURL}}game/create/{{player.id}}" draggable="false">
                 Create challenge
             </a>
         </div>

@@ -1,11 +1,22 @@
-
-/* general page calmness */
 @property --animate-highlight {
   syntax: "*";
   inherits: true;
    /* property name | duration | easing function | delay */
    initial-value: border 1.05s ease-in -1s;
 }
+
+:root{
+    --create-button-background:  #c7e0c7;
+    --create-button-background-highlight: #d1ead1;
+    /* #b6ceb6
+    #e2c1c1
+    #b6ceb6
+    #cce9cc
+    
+    */
+    --basic-mat-background: #e2c1c1;
+}
+
 
 body {
     font-family: system-ui, sans-serif;
@@ -50,14 +61,12 @@ ul.basic-mat>li {
     
     padding: 1rem;
     margin: 0;
-
-    /* background: #ffffff; */
 }
 
 
 ul.basic-mat li.enemy {
     /* TODO change background to mirrorred image */
-    background: #e2c1c1;
+    background: var(--basic-mat-background);
 }
 
 
@@ -99,7 +108,6 @@ ul.basic-mat.smallvertical :nth-child(2) {
     text-align: center;
 }
 
-/* links behave */
 a {
     color: inherit;
     text-decoration: none;
@@ -118,7 +126,6 @@ a:hover {
 }
 
 .title{
-    /* margin-bottom: 2rem; */
    }
     .title h1{
         margin:0;
@@ -138,7 +145,6 @@ a:hover {
     flex-wrap: wrap;
     gap: 1rem;
     padding: 0;
-    /* margin-bottom: 2rem; */
     height: fit-content;
     width:100%;
 }
@@ -146,7 +152,6 @@ a:hover {
         height: 5rem;
         display: flex;
         flex-direction: column;
-        /* height: 100%; */
         flex-wrap: wrap;
         justify-content: flex-start;
         align-items: flex-start;
@@ -156,7 +161,6 @@ a:hover {
     .players h2{
         padding: 0;
         margin: 0;
-        /* margin-bottom: 2rem; */
     }
     .players p{
         margin: 0;
@@ -209,7 +213,7 @@ a:hover {
     display: flex;
     flex-direction: column;
     align-items: center;
-    background: #c7e0c7;
+    background: var(--create-button-background);
     position: relative;
     border-radius: 0.5rem;
     border: 3px solid black;
@@ -224,13 +228,18 @@ a:hover {
         font-weight: 600;
         padding-top: 1rem;
     }
-    .createButton a{
+    .createButton a, .createButton button{
         padding: 1rem;
         padding-top: 0;
         text-align: center;
         font-size: 0.85rem;
+        border: none;
+        background: none;
+        font-weight: 500;
+        cursor: pointer;
+        font-family: unset;
     }
-    .createButton a::before{
+    .createButton a::before, .createButton button::before{
         content: '';
         position: absolute;
         width: 100%;
@@ -239,17 +248,15 @@ a:hover {
         left: 0;
         border-radius: 0.5rem;
     }
-    .createButton:hover{
-        background: #d1ead1;
+    .createButton:hover, .createButton:active, .createButton:focus-within{
+        background: var(--create-button-background-highlight);
     }
     .createButton:active{
-        background: #b6ceb6;
         box-shadow: unset;
         left:2px;
         top:2px;
     }
     .createButton:focus-within{
-        background: #cce9cc;
         outline: auto;
         outline-offset: 6px;
     }
@@ -258,6 +265,6 @@ a:hover {
         outline-width: 2px;
         outline-offset: 0.2rem;
     }
-    .createButton a:focus{
+    .createButton a:focus, .createButton button:focus{
         outline:0;
     }
