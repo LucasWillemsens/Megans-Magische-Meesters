@@ -79,6 +79,13 @@ def viewGame(request, game_id):
 def viewGameAsPlayer(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
     current_battler = Player.objects.get(pk=player_id)
+
+    
+    # response = HttpResponse("Cookie set")
+    # request.set_cookie('cookie_name', 'cookie_value', max_age=3600)
+    request.session['player_id'] = player_id
+    request.session.get('player_id')
+
     context = {
         "player_id": player_id,
         "player": current_battler,
@@ -206,16 +213,18 @@ def boardAction(request, game_id, player_id):
     _ensure_game_initialized(game) #todo remove this
 
     action = request.POST.get("action", "")
+    plays = request.session.get("plays", [])
     error_message = ""
     try:
+        if plays is not None and len(plays) > 0:
+            playcards(game, plays, current_participant)
         if action == "draw":
-            if current_participant.drawCard() is None:
+            if current_participant.drawCard() is not None:
+                # if deck is empty:
+                #     immediatly do actions
+                pass
+            else:
                 error_message = "No cards left in deck."
-        elif action == "play":
-            card_id = int(request.POST.get("card_id", "0"))
-            lane_value = request.POST.get("lane", "")
-            lane = int(lane_value) if lane_value else None
-            current_participant.playCard(card_id, lane)
         elif action == "end_turn":
             _run_bot_turn(game, player_id)
             game.roundNumber = max(game.roundNumber, 1) + 1
@@ -228,8 +237,18 @@ def boardAction(request, game_id, player_id):
     finished, _ = _game_result(game)
     if finished:
         return redirect(f"/game/{game_id}/winner/{player_id}/")
+    request.session['plays'] = [] #clear plays after action is done
     return viewBoard(request, game_id, player_id, error_message=error_message)
 
+# participant must be fetched from database and use id?
+#can I put plays like this in the request object?
+#can I use the get method like this?
+def playcards(game, plays, participant):
+    for play in plays:
+        card_id = int(play.get("card_id", "0"))
+        lane_value = play.get("lane", "")
+        lane = int(lane_value) if lane_value else None
+        participant.playCard(card_id, lane)
 
 def viewWinner(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
@@ -259,7 +278,14 @@ def resetGames(request):
 
 def _render(request, template_name, context):
     template = loader.get_template(template_name)
-    return HttpResponse(template.render(context, request))
+    response = HttpResponse(template.render(context, request))
+    # response.set_cookie(
+    # 'plays',
+    # '0-1,2-3', #play dark magic in int or reveal it and play fire spell in vis 
+    # httponly=False,
+    # secure=False,
+    # samesite='Strict')
+    return response
 
 def _participant_game_cards(game_id, participant_id):
     return list(

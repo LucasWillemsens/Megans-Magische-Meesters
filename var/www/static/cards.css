@@ -502,7 +502,6 @@
 .playingCards ul.hand li:nth-child(11) { left: 11em; }
 .playingCards ul.hand li:nth-child(12) { left: 12.1em; }
 .playingCards ul.hand li:nth-child(13) { left: 13.2em; }
-
 .playingCards ul.hand li:nth-child(14) { left: 14.3em; }
 .playingCards ul.hand li:nth-child(15) { left: 15.4em; }
 .playingCards ul.hand li:nth-child(16) { left: 16.5em; }
@@ -1068,17 +1067,7 @@ ul.cardRow{
         filter:none;
     }
     ul.hand li.cardContainer{
-        position: absolute;
-        top: 0;
-        right: 0;
-        z-index: 1;
         &::after{
-            content:"";
-            top:0;
-            right:0;
-            width:100%;
-            height:100%;
-            position: absolute;
             cursor: grab;
         }
     }
@@ -1093,7 +1082,7 @@ ul.cardRow{
         opacity: 1 !important;
         z-index: 2;
     }
-    li.cardContainer:hover > .smallCard{
+    li.cardContainer:not(.facedown):hover > .smallCard{
         background: var(--card-background-highlight);
     }
     li.cardContainer:hover:active > .smallCard{
@@ -1147,16 +1136,31 @@ ul.cardRow{
     outline:0;
 }
  
-li.cardContainer{    
+li.cardContainer{
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 1;
     width: calc(4.75rem + 6px);
     height: calc(6.5rem + 6px);
     border-radius: 0.5rem;
     margin: 0;
     box-shadow: .1em .1em 0.15em #333;
+    position: relative;
+
+     &::after{
+            content:"";
+            top:0;
+            right:0;
+            width:100%;
+            height:100%;
+            position: absolute;
+     }
 }
 
 .hand li.cardContainer{
     box-shadow: 0.2em 0.2em 0.15em #333;
+    position: absolute;
 }
 
  li.cardContainer > .smallCard button{

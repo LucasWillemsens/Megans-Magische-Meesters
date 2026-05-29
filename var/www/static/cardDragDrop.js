@@ -2,7 +2,6 @@
  * Card Drag and Drop System
  * Handles dragging cards to drop zones in each lane
  */
-
 class CardDragDropSystem {
     constructor() {
         this.draggedCard = null;
@@ -10,57 +9,46 @@ class CardDragDropSystem {
         this.init();
     }
 
-    /**
-     * Initialize the drag and drop system
-     */
     init() {
         this.createDropZones();
         this.setupCardDragListeners();
         this.setupDropZoneListeners();
     }
 
-    /**
-     * Create drop zones for each lane
-     */
     createDropZones() {
-        // Get all lanes from player board
         const allLanes = document.querySelectorAll('li.playerBoard ul.lanes li.lane');
-
         allLanes.forEach((lane, index) => {
-            // Create a drop zone container for each lane
             const dropZone = document.createElement('div');
             dropZone.className = 'drop-zone';
-            dropZone.id = `drop-zone-${index}`;
-
-            // Insert drop zone at the end of each lane
+            dropZone.id = `drop-zone-${index+1}`;
             lane.appendChild(dropZone);
-
-            // Store reference to drop zone, must be done or garbage collected
-            this.dropZones.set(index, {
+            this.dropZones.set(index+1, {
                 element: dropZone
             });
         });
-
-        console.log(`Created ${this.dropZones.size} drop zones`);
     }
 
-    /**
-     * Setup drag event listeners for all draggable cards
-     */
     setupCardDragListeners() {
-        const draggableCards = document.querySelectorAll('.card[draggable="true"]');
-
+        const draggableCards = document.querySelectorAll('.cardContainer[draggable="true"]');
         draggableCards.forEach((card, index) => {
             card.addEventListener('dragstart', this.onCardDragStart.bind(this));
             card.addEventListener('dragend', this.onCardDragEnd.bind(this));
         });
-
-        console.log(`Setup drag listeners for ${draggableCards.length} cards`);
     }
 
-    /**
-     * Setup event listeners for drop zones
-     */
+    //TODO
+    setupFaceDownCardClickListeners() {
+        const facedownCards = document.querySelector('.playerBoard')
+        .querySelectorAll(':not(.hologram) .cardContainer.facedown');
+
+        facedownCards.forEach((card, index) => {
+            //todo grab lane value from card location
+            card.addEventListener('click', (e) => this.onFaceDownCardClick(e, card.dataset.laneValue), {once : true});
+        });
+
+        console.log(`Setup click listeners for ${facedownCards.length} cards`);
+    }
+
     setupDropZoneListeners() {
         this.dropZones.forEach((zoneData, index) => {
             const zone = zoneData.element;
@@ -71,128 +59,78 @@ class CardDragDropSystem {
         });
     }
 
-    /**
-     * Handle card drag start
-     */
     onCardDragStart(e) {
         this.draggedCard = e.currentTarget;
         this.draggedCard.classList.add('dragging');
-
-        // Set drag image and data
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setDragImage(this.draggedCard, 0, 0);
-        // e.dataTransfer.setData('text/html', this.draggedCard.innerHTML);
-
-        console.log('Drag started:', this.draggedCard);
-
-        // Highlight all drop zones
+        e.dataTransfer.setDragImage(this.draggedCard,180, 150);
         this.highlightAllDropZones(true);
     }
 
-    /**
-     * Handle card drag end
-     */
     onCardDragEnd(e) {
         this.draggedCard.classList.remove('dragging');
-
-        // Remove drop zone highlights
         this.highlightAllDropZones(false);
-
-        console.log('Drag ended');
     }
 
-    /**
-     * Handle drag over a drop zone
-     */
     onDropZoneDragOver(e) {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
-
         const zone = e.currentTarget;
         zone.classList.add('drop-zone-active');
-
         return false;
     }
 
-    /**
-     * Handle drag leave from a drop zone
-     */
     onDropZoneDragLeave(e) {
         const zone = e.currentTarget;
         zone.classList.remove('drop-zone-active');
         return false;
     }
 
-    /**
-     * Handle drop on a drop zone
-     */
     onDropZoneDrop(e) {
         e.preventDefault();
         e.stopPropagation();
-
         const zone = e.currentTarget;
-
         zone.classList.remove('drop-zone-active');
 
         if (this.draggedCard) {
             const cardTitle = this.draggedCard.textContent;
-            console.log(`Card dropped: "${cardTitle}" in zone`, zone.id);
-
-            // TODO use local storage and hologram of card and remove this ugly Visual feedback
-            zone.textContent = `✓ Dropped: ${cardTitle}`;
-            zone.classList.add('drop-zone-landed');
+            const hologram = document.createElement('div');
             
-            // Reset the zone text after 2 seconds
-            setTimeout(() => {
-                zone.textContent = ``;
-                zone.classList.remove('drop-zone-landed');
-            }, 2000);
+            const copycard = this.draggedCard.cloneNode(true);
+            copycard.classList.remove('dragging');
+            copycard.classList.add('facedown');
+            copycard.removeAttribute('draggable');
+            copycard.children[0].classList.add('back');
+            const button = copycard.querySelector('button');
+            button.setAttribute('inert', 'true');
+            
+            hologram.appendChild(copycard);
+            hologram.querySelector('.cardContainer.facedown').addEventListener('click', (e) => this.onFaceDownCardClick(e, zone.id.split('-')[2]), {once : true});
+            hologram.classList.add('hologram');
+            zone.appendChild(hologram);
 
-            // Here you can add logic to send the drop action to your server
-            this.handleCardDrop(this.draggedCard, zone);
+            this.createupdateCookie(this.draggedCard.querySelectorAll('input[name="card_id"]')[0].value, zone.id.split('-')[2]);
+            this.draggedCard.remove();
         }
-
         return false;
     }
 
-    /**
-     * Handle the card drop action (send to server or handle locally)
-     */
-    handleCardDrop(cardId, zone) {
-        // Extract card information from the card element
-        // const cardId = this.extractCardId(card);
-        const lane = zone.dataset.lane;
-
-        console.log(`Processing drop - Card ID: ${cardId}, Lane: ${lane}`);
-
-        // You can emit a custom event for other parts of your application to handle
-        const dropEvent = new CustomEvent('cardDropped', {
-            detail: {
-                cardId: cardId,
-                // card: card,
-                zone: zone,
-                // laneIndex: laneIndex,
-                // timestamp: new Date().toISOString()
-            }
-        });
-
-        document.dispatchEvent(dropEvent);
-
-        // Optional: send to server via AJAX
-        //draw and end turn should sync with server. Other actions are handled locally and could be undone.
-        // this.sendDropToServer(cardId, laneIndex);
+    onFaceDownCardClick(e, laneValue) {
+        const card = e.target;
+        console.log('Face-down card clicked:',card);
+        const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
+        this.createupdateCookie(`${cardId}`, `${laneValue}`, true);
+        card.classList.remove('facedown');
+        card.children[0].classList.remove('back');
     }
 
-    // extractCardId(card) {
-    //     const form = card.querySelector('form.cardActionForm');
-    //     if (form) {
-    //         const cardIdInput = form.querySelector('input[name="card_id"]');
-    //         if (cardIdInput) {
-    //             return cardIdInput.value;
-    //         }
-    //     }
-    //     return 'unknown';
-    // }
+    createupdateCookie(cardId, laneValue,flipFaceUp=false) {
+        if (flipFaceUp) {
+            document.cookie=`${cardId}=${laneValue}f`;
+        } else {
+            document.cookie=`${cardId}=${laneValue}`;
+        }
+    }
 
     highlightAllDropZones(highlight) {
         this.dropZones.forEach((zoneData) => {
@@ -206,29 +144,13 @@ class CardDragDropSystem {
         });
     }
 
-    /**
-     * Refresh the drag and drop system (call after dynamic updates)
-     */
     refresh() {
-        // Clear existing listeners
         this.dropZones.clear();
-
-        // Reinitialize
         this.init();
     }
 }
 
-// Initialize the system when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     window.cardDragDrop = new CardDragDropSystem();
-    console.log('Card Drag and Drop System initialized');
+    // console.log('Card Drag and Drop System initialized');
 });
-
-// // Listen for custom cardDropped events (example usage)
-// document.addEventListener('cardDropped', (e) => {
-//     const { cardId, zone } = e.detail;
-//     console.log(`Card ${cardId} was dropped on lane ${zone.id}`);
-//     // Add your custom handling here
-
-
-// });

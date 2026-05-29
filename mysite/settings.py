@@ -50,6 +50,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = False  # Set to True to prevent JavaScript access to cookies
+SESSION_COOKIE_SAMESITE = 'Lax'  # Adjust as needed (None, Lax, Strict)
+
+
 ROOT_URLCONF = 'mysite.urls'
 
 #TODO update templates naar
