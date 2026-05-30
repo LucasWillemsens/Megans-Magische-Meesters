@@ -125,6 +125,10 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     fled = models.BooleanField()
     defeated = models.BooleanField()
     computerControlled = models.BooleanField(default=True)
+    #the following fields reset each round when end turn is pressed.
+    drawnCardsAmount = models.IntegerField(default=0) 
+    playedCardsAmount = models.IntegerField(default=0)
+    flippedCardsAmount = models.IntegerField(default=0)
     #TODO could add a "board per round snapshot" as a log
 
     @classmethod
@@ -273,6 +277,12 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         )
 
     def drawCard(self):
+        #TODO maybe move the calculation of stats to end of turn
+        #check if allowed
+        intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
+        if self.drawnCardsAmount >= 1 + intCount - self.playedCardsAmount:
+            raise Exception(f"{self.player.name} cannot draw more cards this turn")
+
         gameCard = self.getNextDeckCard()
         if gameCard is None:
             return None
@@ -281,9 +291,13 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         gameCard.state.draw()
         gameCard.state.updateOrdinal(newOrdinal)
         gameCard.state.save(update_fields=["lane", "inDeck", "laneOrdinal"])
+
+        self.drawnCardsAmount +=1
+        self.save()
         return gameCard
 
-    def playCard(self, game_card_id, lane=None):
+    def playCard(self, game_card_id, lane=None, flipFaceUp=False):
+        print(f"playing card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
         gameCard = GameCard.objects.select_related("state", "card").get(
             pk=game_card_id,
             game_id=self.getGame().id,
@@ -292,12 +306,68 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         if lane is None:
             lane = gameCard.card.cardType + 1
         if lane < 1 or lane > 4:
-            raise Exception("invalid lane selected")
+            raise Exception(f"{self.player.name} invalid lane selected")
+            
+        intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
 
-        gameCard.state.play(lane)
+        if flipFaceUp:
+            if self.flippedCardsAmount >= 1 + spdCount -self.playedCardsAmount: raise Exception("cannot flip more cards over this turn")
+        elif self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
+            raise Exception(f"{self.player.name} cannot play more cards this turn")
+
+        if gameCard.state.lane == 0:
+            gameCard.state.play(lane)
         gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
-        gameCard.state.save(update_fields=["lane", "laneOrdinal"])
+        if flipFaceUp:
+            gameCard.state.reveal()
+        gameCard.state.save(update_fields=["lane", "laneOrdinal", "faceDown"])
+
+        self.playedCardsAmount +=1
+        self.save()
+
         return gameCard
+
+    def getStats(self):
+        print(f" getStats calc for {self.player.name}")
+        gameCards = GameCard.objects.filter(
+                game_id=self.getGame().id,
+                user_id=self.id,
+                state__faceDown=False,
+            )
+        intCount = sum(1 for gameCard in gameCards if gameCard.state.lane == 1)
+        spdCount = sum(1 for gameCard in gameCards if gameCard.state.lane == 2)
+        visCount = sum(1 for gameCard in gameCards if gameCard.state.lane == 3)
+        resCount = sum(1 for gameCard in gameCards if gameCard.state.lane == 4)
+        tactics = intCount + spdCount
+        power = visCount + resCount
+        influence = tactics + power 
+        print(f"lane counts for {self.player.name} - int: {intCount}, spd: {spdCount}, vis: {visCount}, res: {resCount} - tactics: {tactics}, power: {power}, influence: {influence}")
+        return intCount, spdCount, visCount, resCount, tactics, power, influence
+    
+    def flee(self): 
+        #pursuing participants also count as fled
+        #the slowest possible pursuer who acted last must choose first
+        #maybe use the speed stat difference to determine the amount of turns that can be waited before vijand fled
+        self.fled = True
+        #TODO update lootpile of game to release all trusted cards on board
+        self.save()
+
+    def resetTurn(self):
+        self.drawnCardsAmount = 0
+        self.playedCardsAmount = 0
+        self.flippedCardsAmount = 0
+        self.save()
+
+    def shuffleBoard(self):
+        print(f" {self.player.name} cards are shuffled back into the deck")
+        boardCards = GameCard.objects.filter(
+            game_id=self.getGame().id, 
+            user_id=self.id, 
+            state__trusted=False, 
+            state__inDeck=False,
+            state__faceDown=False)
+        for card in boardCards:
+            card.shuffleBack()
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data

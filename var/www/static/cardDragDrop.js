@@ -13,6 +13,7 @@ class CardDragDropSystem {
         this.createDropZones();
         this.setupCardDragListeners();
         this.setupDropZoneListeners();
+        this.setupFaceDownCardClickListeners();
     }
 
     createDropZones() {
@@ -36,17 +37,29 @@ class CardDragDropSystem {
         });
     }
 
-    //TODO
+    //TODO check if card in lane is valid or move to other lane
     setupFaceDownCardClickListeners() {
-        const facedownCards = document.querySelector('.playerBoard')
-        .querySelectorAll(':not(.hologram) .cardContainer.facedown');
+        const faceDownCards = document.querySelector('.playerBoard')
+        .querySelectorAll(':not(.hologram) .cardContainer.faceDown');
 
-        facedownCards.forEach((card, index) => {
-            //todo grab lane value from card location
-            card.addEventListener('click', (e) => this.onFaceDownCardClick(e, card.dataset.laneValue), {once : true});
+        faceDownCards.forEach((card, index) => {
+            let laneValue = null;
+            const laneElementClass = card.closest('li.lane').classList[1];
+            if (laneElementClass === 'Intelligence') {
+                laneValue = 1;
+            }else if (laneElementClass === 'Speed') {
+                laneValue = 2;
+            } else if (laneElementClass === 'Visciousness') {
+                laneValue = 3;
+            } else if (laneElementClass === 'Resolve') {
+                laneValue = 4;
+            } else {
+                console.warn('Unknown lane type for face-down card:', laneElementClass);
+            }
+            card.addEventListener('click', (e) => this.onFaceDownCardClick(e, laneValue), {once : true});
         });
 
-        console.log(`Setup click listeners for ${facedownCards.length} cards`);
+        console.log(`Setup click listeners for ${faceDownCards.length} cards`);
     }
 
     setupDropZoneListeners() {
@@ -98,14 +111,14 @@ class CardDragDropSystem {
             
             const copycard = this.draggedCard.cloneNode(true);
             copycard.classList.remove('dragging');
-            copycard.classList.add('facedown');
+            copycard.classList.add('faceDown');
             copycard.removeAttribute('draggable');
             copycard.children[0].classList.add('back');
             const button = copycard.querySelector('button');
             button.setAttribute('inert', 'true');
             
             hologram.appendChild(copycard);
-            hologram.querySelector('.cardContainer.facedown').addEventListener('click', (e) => this.onFaceDownCardClick(e, zone.id.split('-')[2]), {once : true});
+            hologram.querySelector('.cardContainer.faceDown').addEventListener('click', (e) => this.onFaceDownCardClick(e, zone.id.split('-')[2]), {once : true});
             hologram.classList.add('hologram');
             zone.appendChild(hologram);
 
@@ -117,18 +130,18 @@ class CardDragDropSystem {
 
     onFaceDownCardClick(e, laneValue) {
         const card = e.target;
-        console.log('Face-down card clicked:',card);
+        console.log('Face-down card clicked:',card, `cardId: ${card.querySelectorAll('input[name="card_id"]')[0].value}, laneValue: ${laneValue}`);
         const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true);
-        card.classList.remove('facedown');
+        card.classList.remove('faceDown');
         card.children[0].classList.remove('back');
     }
 
     createupdateCookie(cardId, laneValue,flipFaceUp=false) {
         if (flipFaceUp) {
-            document.cookie=`${cardId}=${laneValue}f`;
+            document.cookie=`${cardId}=${laneValue}f;path=/`;
         } else {
-            document.cookie=`${cardId}=${laneValue}`;
+            document.cookie=`${cardId}=${laneValue};path=/`;
         }
     }
 

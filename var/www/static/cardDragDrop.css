@@ -36,7 +36,7 @@
 .drop-zone .hologram {
     position: absolute;
 }
-.drop-zone .hologram .facedown:hover {
+.drop-zone .hologram .faceDown:hover {
     cursor:pointer;
 }
 .drop-zone .hologram:nth-child(1)  { left: 0.5em; }

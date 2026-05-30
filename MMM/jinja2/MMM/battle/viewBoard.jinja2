@@ -36,6 +36,12 @@
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
+                            {% if card.state.faceDown %}
+                            <li class="cardContainer faceDown">
+                                <div class="card back smallCard">
+                                </div>
+                            </li>
+                            {% else %}
                             <li class="cardContainer">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
@@ -59,9 +65,10 @@
                                     </div>
                                 </div>
                             </li>
+                            {% endif %}
                         {% endfor %}
                     </ul>
-                    <p> {{ lane.name }} </p>
+                    <p> {{ lane.value }} | {{ lane.name}} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             <li class="cardContainer">
@@ -111,6 +118,32 @@
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
+                            {% if card.state.faceDown %}
+                            <li class="cardContainer faceDown">
+                                <input type="hidden" name="card_id" value="{{ card.id }}">
+                                <div class="card back smallCard">
+                                    {% if card.card.artSource == "" %}
+                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                                        alt="no art of {{card.card.title}}" />
+                                    {% else %}
+                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                                        alt="art of {{card.card.title}}" />
+                                    {% endif %}
+                            
+                                    <div class="smallCardInfo">
+                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
+                                            <p>
+                                                {{ card.card.title }}
+                                            </p>
+                                            {#
+                                        </a> #}
+                                        <p class="cardType">
+                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                                        </p>
+                                    </div>
+                                </div>
+                            </li>
+                            {% else %}
                             <li class="cardContainer">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
@@ -132,9 +165,10 @@
                                     </div>
                                 </div>
                             </li>
+                            {% endif %}
                         {% endfor %}
                     </ul>
-                    <p> {{ lane.name }} </p>
+                    <p> {{ lane.value }} | {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             <li class="cardContainer">
@@ -168,7 +202,10 @@
         </li>
         </ul>
     <div class="deckHand">
-        <p>Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}</p>
+        <p>Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }} (
+            {{drawnCardsAmount}}d
+            {{playedCardsAmount}}p
+            {{flippedCardsAmount}}f this turn )</p>
         <ul class="deck">
             {% if ownDeckCount > 0 %}
             {% for _ in ownDeckStack %}

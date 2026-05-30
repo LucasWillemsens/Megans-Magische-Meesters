@@ -632,7 +632,7 @@
 
 div.playerScreen{
     width: 100%;
-    height: 1080px;
+    min-height: 1080px;
     display: flex;
     flex-direction: column;
     flex-wrap: nowrap;
@@ -941,17 +941,16 @@ ul.basic-mat .card{
 }
 
 
-ul.cardRow{
+ul.cardRow{    
     display: flex;
-    flex-wrap: wrap;
-    gap: 1.5rem;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
     padding: 0;
     margin: 0;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-content: center;
+    flex-direction: row;
+    justify-content: center;
     min-width: 5rem;
-    min-height: 6rem;
+    min-height: 7.5rem;
 }
 
 .playingCards ul.cardRow .card {
@@ -1089,7 +1088,7 @@ ul.cardRow{
         opacity: 1 !important;
         z-index: 2;
     }
-    li.cardContainer:not(.facedown):hover > .smallCard{
+    li.cardContainer:not(.faceDown):hover > .smallCard{
         background: var(--card-background-highlight);
     }
     li.cardContainer:hover:active > .smallCard{
