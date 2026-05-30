@@ -1020,6 +1020,16 @@ ul.cardRow{
         margin:0;
     }
 
+    li.cardContainer:hover {
+        z-index: 3;
+        box-shadow: none !important;
+        filter: drop-shadow(0.1em 0.1em 0.15em #333) !important;
+    }
+     li.cardContainer:hover:active {
+        box-shadow: unset;
+        filter: none !important;
+    }
+
     li.cardContainer > .smallCard{
         background: var(--card-background);
         position: relative;
@@ -1073,9 +1083,6 @@ ul.cardRow{
     }
     .playerScreen .deckHand .hand li.cardContainer:hover{
         opacity: 1 !important;
-        filter: drop-shadow(0.2em 0.2em 0.15em #333) !important;
-        z-index: 3;
-        box-shadow: none;
     } 
     
     .playerScreen .deckHand .hand li.cardContainer:focus-within{
@@ -1148,14 +1155,14 @@ li.cardContainer{
     box-shadow: .1em .1em 0.15em #333;
     position: relative;
 
-     &::after{
-            content:"";
-            top:0;
-            right:0;
-            width:100%;
-            height:100%;
-            position: absolute;
-     }
+}
+.playerScreen li.cardContainer::after{
+       content:"";
+       top:0;
+       right:0;
+       width:100%;
+       height:100%;
+       position: absolute;
 }
 
 .hand li.cardContainer{
