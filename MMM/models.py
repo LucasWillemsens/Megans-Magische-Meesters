@@ -297,7 +297,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         self.save()
         return gameCard
 
-    def playCard(self, game_card_id, lane=None, flipFaceUp=False):
+    def playCard(self, game_card_id, lane=None, flipFaceUp=False,specialClause=False):
         print(f"{self.player.name} plays card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
         gameCard = GameCard.objects.select_related("state", "card").get(
             pk=game_card_id,
@@ -311,7 +311,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             
         intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
 
-        if flipFaceUp:
+        if flipFaceUp and not specialClause:
                                              #spd + 1 minus cards played with spd
             if (self.flippedCardsAmount >= spdCount+1+min(0, -self.playedCardsAmount+intCount+1-self.drawnCardsAmount)): raise Exception("cannot flip more cards over this turn")
         elif self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
@@ -362,18 +362,28 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
 
     def shuffleBoard(self):
         print(f" {self.player.name} cards are shuffled back into the deck")
+        # for existingCard in GameCard.objects.all():
+        #     print(existingCard.__str__())
         boardCards = GameCard.objects.filter(
             game_id=self.getGame().id, 
             user_id=self.id, 
-            state__trusted=False, 
+            state__trusted=False,
             state__inDeck=False,
             state__faceDown=False)
-        if boardCards is None:
-            print(f" {self.player.name} has no cards to shuffle back")
+        handCards = GameCard.objects.filter(
+            game_id=self.getGame().id, 
+            user_id=self.id, 
+            state__lane=0)
+        if (boardCards is None or len(boardCards) < 1) and (handCards is None or len(handCards) < 1):
+            # print(f" {self.player.name} has no cards to shuffle back")
             return
+        # TODO fix join filter or to list and make order random
         for card in boardCards:
+            # print(f"{card.card.title} is shuffled from board: {card.__str__()}")
             card.state.shuffleBack()
-            card.state.save()
+        for card in handCards:
+            # print(f"{card.card.title} is shuffled from hand: {card.__str__()}")
+            card.state.shuffleBack()
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data
@@ -483,11 +493,13 @@ class CardState(models.Model):
     trusted = models.BooleanField(default=False)
 
     def reset(self):
+        # print(f"reset state of card {self.laneOrdinal} in {self.lane}")
         self.inDeck = True 
         self.lane = -1 #-1: default state unordered in deck. 0 (in hand) or < -1 (order in deck), else in play
         self.laneOrdinal = 0
         self.faceDown = True
         self.trusted = False
+        self.save()
 
     def draw(self):
         if (not self.inDeck or not self.lane <= -1):
@@ -503,7 +515,7 @@ class CardState(models.Model):
     def shuffleBack(self):
         if (self.inDeck): 
             raise Exception("inDeck")
-        if (self.faceDown): 
+        if (self.faceDown and self.lane != 0): 
             raise Exception("faceDown")
         if (self.trusted): 
             raise Exception("trusted")
@@ -553,6 +565,9 @@ class CardState(models.Model):
     def create(cls):
         return cls()
 
+    def __str__(self):
+        return f"inDeck?{self.inDeck} lane={self.lane} laneOrdinal={self.laneOrdinal} faceDown?{self.faceDown} trusted?{self.trusted}"
+
 #a card in play. Only one gamecard per card possible, gets deleted after game is complete
 class GameCard(models.Model):
     card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="inGame")
@@ -566,3 +581,6 @@ class GameCard(models.Model):
         newGameCardState = CardState.create()
         newGameCardState.save()
         return cls(card_id=card_id, game_id=game_id,user_id=battleParticipant_id,state=newGameCardState)
+    
+    def __str__(self):
+        return f"{self.card.title} (p{self.user.player.name[:5]} in g{self.game.id}) = {self.state}"

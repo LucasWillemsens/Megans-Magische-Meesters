@@ -2,6 +2,8 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.template import loader
 
+import random
+
 from .models import (
     BattleHistory,
     BattleParticipant,
@@ -257,21 +259,31 @@ def playcards(game, plays, participant):
 
 def specialActions(participant):
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
-
+    response = ""
     if intCount >= spdCount and intCount >= visCount and intCount >= resCount:
         intSpecial(participant, intCount)
+
+    intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
+
     if spdCount >= intCount and spdCount >= visCount and spdCount >= resCount:
-        spdSpecial(participant, spdCount, power)
-    if visCount >= intCount and visCount >= spdCount and visCount >= resCount:
-        visSpecial(participant, visCount)
-    if resCount >= intCount and resCount >= spdCount and resCount >= visCount:
+        response = spdSpecial(participant, spdCount, power)
+        #TODO use response object check if there are more people in the game and check their status
+
+    if response == "" and visCount >= intCount and visCount >= spdCount and visCount >= resCount:
+        response = visSpecial(participant, visCount)
+    
+    if response == "" and resCount >= intCount and resCount >= spdCount and resCount >= visCount:
         resSpecial(participant, resCount)
 
 def intSpecial(participant,count):
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
-    #play all cards in hand
-    participant.playedCardsAmount = -count
-    participant.save(update_fields=["playedCardsAmount"])
+    handCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0)
+            # .all()
+    #TODO implement selection of card to play, random for now
+    random.shuffle(handCards)
+    for i in range(min(count,len(handCards))):
+        newCard = handCards[i]
+        participant.playCard(newCard.id,flipFaceUp=True, specialClause=True)
 
 def spdSpecial(participant,speed, power, opponentId = None):
     #TODO implement pursuit of slower fleeing opponent
@@ -287,9 +299,11 @@ def spdSpecial(participant,speed, power, opponentId = None):
         if opponentSpd < speed:
             print(f"{participant.player.name} flees from {opponent.player.name} and steals a card")
             participant.flee()
+            return f"{participant.id} fled from {opponent.id}"
         else:
             print(f"{participant.player.name} fails to flee from {opponent.player.name}")
             #maybe have the slower participants lose these participant and oppopent?
+    return ""
 
 def visSpecial(participant,visciouisness, opponentId = None):
     #attack opponent
@@ -299,37 +313,49 @@ def visSpecial(participant,visciouisness, opponentId = None):
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     #we need a res card that we can trust in order to follow through with the attack
-    newTrustedResCard =  getTrustableCard(participant,[4])
+    newTrustedResCard =  getTrustableCards(participant,[4])[0]
     if newTrustedResCard is None:
-        print(f"{participant.player.name} drains the last of their resolve and is defeated")
+        response = f"{participant.player.name} drains the last of their resolve and is defeated"
+        print(response)
         #lose
         participant.defeated = True
         participant.save()
-        return
+        return response
     elif opponentRes < visciouisness:
-        print(f"{participant.player.name} attacks and defeats {opponent.player.name} ({visciouisness} > {opponentRes})")
+        response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({visciouisness} > {opponentRes})"
+        print(response)
         #win
         opponent.defeated = True
         opponent.save()
     else:
-        print(f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({visciouisness} <= {opponentRes})")
+        response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({visciouisness} <= {opponentRes})"
+        print(response)
+        response = ""
     newTrustedResCard.state.trust()
     newTrustedResCard.state.save()
+    return response
 
 def resSpecial(participant,count):
     print(f"{participant.player.name} holds and trusts up to {count} cards")
-    #trust cards up to resolve amount
-    participant.playedCardsAmount = -count
-    participant.save(update_fields=["playedCardsAmount"])
+    newCards = getTrustableCards(participant)
+    if newCards == None or len(newCards) < 1:
+        return
+    #TODO implement selection of card to trust, random for now
+    random.shuffle(newCards)
+    for i in range(min(count,len(newCards))):
+        newCard = newCards[i]
+        newCard.state.trust()
+        newCard.state.save()
+    # participant.playedCardsAmount = -count
+    # participant.save(update_fields=["playedCardsAmount"])
 
-#TODO implement selection of card to trust
-def getTrustableCard(participant,laneNumbers = [1,2,3,4]):
+def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
     for laneNumber in laneNumbers:
         laneCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=laneNumber, state__trusted=False ).order_by("state__laneOrdinal")
         trustableCards += laneCards
     if trustableCards is None: return None
-    return len(trustableCards) > 0 and trustableCards[0] or None
+    return len(trustableCards) > 0 and trustableCards or None
 
 def viewResult(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)

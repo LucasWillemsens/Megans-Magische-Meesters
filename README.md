@@ -71,4 +71,8 @@ Ship a reliable 1v1 demo (human vs bot) that can be played from start to finish 
 
 ---
 
+kaarten toevoegen aan database:
+
+insert into MMM_Card values(6,'running downhill','runningDownhill.jpg',3);
+insert into MMM_Card_ownerHistory values(8,6,1);  
 
