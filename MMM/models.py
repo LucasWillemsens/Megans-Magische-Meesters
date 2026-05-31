@@ -148,7 +148,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         remaining_cards = [card for card in collection if card.id != starting_card.id]
         random.shuffle(remaining_cards)
         if remaining_cards:
-            remaining_cards = remaining_cards[: random.randint(1, len(remaining_cards))]
+            remaining_cards = remaining_cards[: random.randint(2, len(remaining_cards))]
 
         timestamp = timezone.now().strftime("%d %B %Y %H:%M")
         deck = Deck.create(

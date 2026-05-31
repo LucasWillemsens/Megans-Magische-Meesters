@@ -313,7 +313,10 @@ def visSpecial(participant,visciouisness, opponentId = None):
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     #we need a res card that we can trust in order to follow through with the attack
-    newTrustedResCard =  getTrustableCards(participant,[4])[0]
+    newTrustedResCard = None
+    newTrustedResCards = getTrustableCards(participant,[4])
+    if len(newTrustedResCards) > 0:  
+        newTrustedResCard = newTrustedResCards[0]
     if newTrustedResCard is None:
         response = f"{participant.player.name} drains the last of their resolve and is defeated"
         print(response)
@@ -355,7 +358,7 @@ def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
         laneCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=laneNumber, state__trusted=False ).order_by("state__laneOrdinal")
         trustableCards += laneCards
     if trustableCards is None: return None
-    return len(trustableCards) > 0 and trustableCards or None
+    return trustableCards
 
 def viewResult(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
