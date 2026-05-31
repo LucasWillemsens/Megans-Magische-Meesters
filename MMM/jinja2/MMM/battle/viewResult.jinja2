@@ -3,8 +3,15 @@
 {% block content %}
 <div class="title">
     <h1>{{ game.title }} result</h1>
-    {% if winnerParticipant %}
-    <p>Winner: {{ winnerParticipant.player.name }}</p>
+    {% if lastParticipants %}
+        <p> {{ result }}: 
+        {% for lastParticipant in lastParticipants %}
+            {{ lastParticipants[0].player.name }}
+            {% if not loop.last %}
+            ,
+            {% endif%}
+        {% endfor %}
+        </p>
     {% else %}
     <p>The game ended in a draw.</p>
     {% endif %}
@@ -17,7 +24,7 @@
     <ul class="basic-mat">
         {% for participant in participants %}
         <li>
-            {% if winnerParticipant and participant.id == winnerParticipant.id %}
+            {% if lastParticipants and participant in lastParticipants %}
             <b>{{ participant.player.name }}</b>
             {% else %}
             {{ participant.player.name }}
@@ -26,6 +33,8 @@
         {% endfor %}
     </ul>
 </div>
+
+{# TODO lootpile overview #}
 
 <div class="createButton">
     <a href="{{ playAgainUrl }}" draggable="false">Play again</a>

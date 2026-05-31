@@ -33,7 +33,7 @@ Ship a reliable 1v1 demo (human vs bot) that can be played from start to finish 
 
 ### Phase 1: Lock a playable vertical slice (1-3 days)
 
-- [ ] Make one stable demo route: `create challenge -> confirm -> board -> winner`
+- [ ] Make one stable demo route: `create challenge -> confirm -> board -> results`
 - [ ] Auto-add bot opponent when challenge is confirmed (postpone async invites)
 - [ ] Implement turn actions with minimal scope:
   - [ ] Draw one card

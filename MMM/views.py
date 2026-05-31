@@ -167,9 +167,9 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     if not gameCards.exists():
         return redirect(f"/game/{game_id}/{player_id}/")
 
-    finished, _ = _game_result(game)
+    finished, _, _ = _game_result(game)
     if finished:
-        return redirect(f"/game/{game_id}/winner/{player_id}/")
+        return redirect(f"/game/{game_id}/result/{player_id}/")
 
     own_board = contextBoard(gameCards, current_participant.id)
     # _board_state(game.id, current_participant.id)
@@ -237,9 +237,9 @@ def boardAction(request, game_id, player_id):
     except Exception as exc:
         error_message = str(exc)
 
-    finished, _ = _game_result(game)
-    if finished:
-        return redirect(f"/game/{game_id}/winner/{player_id}/")
+    # finished, _, _ = _game_result(game)
+    # if finished:
+    #     return redirect(f"/game/{game_id}/result/{player_id}/")
     request.session['plays'] = [] #clear plays after action is done
     return viewBoard(request, game_id, player_id, error_message=error_message, clear_cookies=True)
 
@@ -256,13 +256,6 @@ def playcards(game, plays, participant):
         participant.playCard(card_id, int(lane_value), flipFaceUp)
 
 def specialActions(participant):
-    print(f" special actions activated for {participant.player.name}")
-    # # which lane is fullest?
-    # gameCards = GameCard.objects.filter(
-    #         game_id=self.getGame().id,
-    #         user_id=self.id,
-    #         state__faceDown=False,
-    #     )
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
 
     if intCount >= spdCount and intCount >= visCount and intCount >= resCount:
@@ -275,14 +268,12 @@ def specialActions(participant):
         resSpecial(participant, resCount)
 
 def intSpecial(participant,count):
-    print(f"{participant.player.name} activates intelligence special with {count} cards in lane")
+    print(f"{participant.player.name} enacts master plan (max {count} cards)")
     #play all cards in hand
     participant.playedCardsAmount = -count
     participant.save(update_fields=["playedCardsAmount"])
 
 def spdSpecial(participant,speed, power, opponentId = None):
-    print(f"{participant.player.name} activates speed special with {speed} speed and {power} power")
-    #flee or hunt vluchten of opjagen
     #TODO implement pursuit of slower fleeing opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
@@ -290,8 +281,8 @@ def spdSpecial(participant,speed, power, opponentId = None):
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     if opponentPower < power:
-        print(f"{participant.player.name} hunts {opponent.player.name}")
-        opponent.specialActions()
+        print(f"{participant.player.name} rushes down {opponent.player.name}")
+        specialActions(opponent)
     else:
         if opponentSpd < speed:
             print(f"{participant.player.name} flees from {opponent.player.name} and steals a card")
@@ -301,7 +292,6 @@ def spdSpecial(participant,speed, power, opponentId = None):
             #maybe have the slower participants lose these participant and oppopent?
 
 def visSpecial(participant,visciouisness, opponentId = None):
-    print(f"{participant.player.name} activates Visciousness special with {visciouisness} cards in lane")
     #attack opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
@@ -309,37 +299,55 @@ def visSpecial(participant,visciouisness, opponentId = None):
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     #we need a res card that we can trust in order to follow through with the attack
-    if findResolveToTrust(participant) is None:
+    newTrustedResCard =  getTrustableCard(participant,[4])
+    if newTrustedResCard is None:
+        print(f"{participant.player.name} drains the last of their resolve and is defeated")
         #lose
         participant.defeated = True
         participant.save()
+        return
     elif opponentRes < visciouisness:
+        print(f"{participant.player.name} attacks and defeats {opponent.player.name} ({visciouisness} > {opponentRes})")
         #win
         opponent.defeated = True
         opponent.save()
+    else:
+        print(f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({visciouisness} <= {opponentRes})")
+    newTrustedResCard.state.trust()
+    newTrustedResCard.state.save()
 
 def resSpecial(participant,count):
-    print(f"{participant.player.name} activates Resolve special with {count} cards in lane")
+    print(f"{participant.player.name} holds and trusts up to {count} cards")
     #trust cards up to resolve amount
     participant.playedCardsAmount = -count
     participant.save(update_fields=["playedCardsAmount"])
 
-def viewWinner(request, game_id, player_id):
+#TODO implement selection of card to trust
+def getTrustableCard(participant,laneNumbers = [1,2,3,4]):
+    trustableCards = []
+    for laneNumber in laneNumbers:
+        laneCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=laneNumber, state__trusted=False ).order_by("state__laneOrdinal")
+        trustableCards += laneCards
+    if trustableCards is None: return None
+    return len(trustableCards) > 0 and trustableCards[0] or None
+
+def viewResult(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
-    finished, winner_participant = _game_result(game)
+    finished, win, last_participants = _game_result(game)
     if not finished:
         return redirect(f"/game/{game_id}/board/{player_id}/")
 
     context = {
         "player": current_participant.player,
         "game": game,
-        "winnerParticipant": winner_participant,
+        "lastParticipants": last_participants,
+        "result": win and "winners" or "losers",
         "participants": game.history.participants.all(),
         "returnURL": BASE_URL,
         "playAgainUrl": f"{BASE_URL}player/{player_id}/",
     }
-    return _render(request, "MMM/battle/viewWinner.jinja2", context)
+    return _render(request, "MMM/battle/viewResult.jinja2", context)
 
 def resetGames(request):
     Game.objects.all().delete()
@@ -359,26 +367,22 @@ def _render(request, template_name, context, clear_cookies=False):
                 response.delete_cookie(cookie)
     return response
 
-
-def _participant_has_actions(game_id, participant_id):
-    cards = GameCard.objects.filter(game_id=game_id, user_id=participant_id)
-    return cards.filter(state__inDeck=True).exists() or cards.filter(state__lane=0).exists()
-
-def _game_result(game):
+def _game_result(game, force_end=False):
     participants = list(game.history.participants.all())
-    # print(f"calculating result: ") 
-    for participant in participants:
-        print(f" {participant.player.name} {participant.defeated and 'was defeated' or participant.fled and 'has fled' or 'is in the game'}")
+    # for participant in participants:
+        # print(f" {participant.player.name} {participant.defeated and 'was defeated' or participant.fled and 'has fled' or 'is in the game'}")
     if not participants:
-        return False, None
+        return False,False, None
+
     active_participants = [p for p in participants if not p.defeated and not p.fled]
     if len(active_participants) == 1:
         others = [other for other in participants if other.fled]
-        #if defeated player was defeated before fleeing player
-        return len(others) >= len(participants)-1, active_participants[0]
-    if len(active_participants) == 0:
-        return True, None
-    return False, None
+        return True, len(others) < len(participants)-1, active_participants
+    elif len(active_participants) >1: 
+        return force_end, True, active_participants
+    else:
+        return True, True, None
+    return False, False, None
 
 
 def _ensure_game_initialized(game):
@@ -405,7 +409,7 @@ def _run_bot_turn(game, human_player_id):
             else:
                 error_message = f"No cards left in {bot_participant.player.name}'s deck."
         if hand_card is not None:
-            bot_participant.playCard(hand_card.id, True)
+            bot_participant.playCard(hand_card.id, flipFaceUp=True)
         bot_participant.resetTurn()
 
 def newBoard():
@@ -435,10 +439,10 @@ def contextBoard(gameCards, user_id):
     board = {
         "handCards": handCards,
         "handCount": len(handCards),
-        "laneRows": [{"name": "Intelligence", "value": len(intelligenceCards), "cards": [card for card in intelligenceCards if card.state.trusted == False], "trustedCards": [card for card in intelligenceCards if card.state.trusted == True]},
-        {"name": "Speed", "value": len(speedCards), "cards": [card for card in speedCards if card.state.trusted == False], "trustedCards": [card for card in speedCards if card.state.trusted == True]}, 
-        {"name": "Visciousness", "value": len(visciousnessCards), "cards": [card for card in visciousnessCards if card.state.trusted == False], "trustedCards": [card for card in visciousnessCards if card.state.trusted == True]}, 
-        {"name": "Resolve", "value": len(resolveCards), "cards": [card for card in resolveCards if card.state.trusted == False], "trustedCards": [card for card in resolveCards if card.state.trusted == True]}],
+        "laneRows": [{"name": "Intelligence", "value": len([revealedCard for revealedCard in intelligenceCards if not revealedCard.state.faceDown]), "cards": [card for card in intelligenceCards if card.state.trusted == False], "trustedCards": [card for card in intelligenceCards if card.state.trusted == True]},
+        {"name": "Speed", "value": len([revealedCard for revealedCard in speedCards if not revealedCard.state.faceDown]), "cards": [card for card in speedCards if card.state.trusted == False], "trustedCards": [card for card in speedCards if card.state.trusted == True]}, 
+        {"name": "Visciousness", "value": len([revealedCard for revealedCard in visciousnessCards if not revealedCard.state.faceDown]), "cards": [card for card in visciousnessCards if card.state.trusted == False], "trustedCards": [card for card in visciousnessCards if card.state.trusted == True]}, 
+        {"name": "Resolve", "value": len([revealedCard for revealedCard in resolveCards if not revealedCard.state.faceDown]), "cards": [card for card in resolveCards if card.state.trusted == False], "trustedCards": [card for card in resolveCards if card.state.trusted == True]}],
         "deckCount": len(deckCards),
         "deckStack": deckCards,
     }

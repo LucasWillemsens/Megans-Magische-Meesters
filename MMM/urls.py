@@ -42,6 +42,5 @@ urlpatterns = [
     path("game/<int:game_id>/<int:player_id>/confirm", views.confirmChallenge, name="confirmChallenge"),
     path("game/<int:game_id>/board/<int:player_id>/", views.viewBoard, name="viewBoard"),
     path("game/<int:game_id>/board/<int:player_id>/action/", views.boardAction, name="boardAction"),
-    path("game/<int:game_id>/winner/<int:player_id>/", views.viewWinner, name="viewWinner"),
-
+    path("game/<int:game_id>/result/<int:player_id>/", views.viewResult, name="viewResult"),
 ]

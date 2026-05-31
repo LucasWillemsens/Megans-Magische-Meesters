@@ -280,7 +280,8 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         #TODO maybe move the calculation of stats to end of turn
         #check if allowed
         intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
-        if self.drawnCardsAmount >= 1 + intCount - self.playedCardsAmount:
+                                    #int + 1 minus cards played with int
+        if self.drawnCardsAmount >= intCount+1+min(0,-self.playedCardsAmount+spdCount+1-self.flippedCardsAmount):
             raise Exception(f"{self.player.name} cannot draw more cards this turn")
 
         gameCard = self.getNextDeckCard()
@@ -297,7 +298,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         return gameCard
 
     def playCard(self, game_card_id, lane=None, flipFaceUp=False):
-        print(f"playing card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
+        print(f"{self.player.name} plays card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
         gameCard = GameCard.objects.select_related("state", "card").get(
             pk=game_card_id,
             game_id=self.getGame().id,
@@ -311,24 +312,25 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
 
         if flipFaceUp:
-            if self.flippedCardsAmount >= 1 + spdCount -self.playedCardsAmount: raise Exception("cannot flip more cards over this turn")
+                                             #spd + 1 minus cards played with spd
+            if (self.flippedCardsAmount >= spdCount+1+min(0, -self.playedCardsAmount+intCount+1-self.drawnCardsAmount)): raise Exception("cannot flip more cards over this turn")
         elif self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
             raise Exception(f"{self.player.name} cannot play more cards this turn")
 
         if gameCard.state.lane == 0:
             gameCard.state.play(lane)
+            self.playedCardsAmount +=1
         gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
-        if flipFaceUp:
+        if flipFaceUp and (self.flippedCardsAmount < 2 + tactics -self.playedCardsAmount -self.drawnCardsAmount):
             gameCard.state.reveal()
+            self.flippedCardsAmount += 1
         gameCard.state.save(update_fields=["lane", "laneOrdinal", "faceDown"])
 
-        self.playedCardsAmount +=1
         self.save()
 
         return gameCard
 
     def getStats(self):
-        print(f" getStats calc for {self.player.name}")
         gameCards = GameCard.objects.filter(
                 game_id=self.getGame().id,
                 user_id=self.id,
@@ -341,7 +343,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         tactics = intCount + spdCount
         power = visCount + resCount
         influence = tactics + power 
-        print(f"lane counts for {self.player.name} - int: {intCount}, spd: {spdCount}, vis: {visCount}, res: {resCount} - tactics: {tactics}, power: {power}, influence: {influence}")
+        # print(f"lane counts for {self.player.name} - int: {intCount}, spd: {spdCount}, vis: {visCount}, res: {resCount} - tactics: {tactics}, power: {power}, influence: {influence}")
         return intCount, spdCount, visCount, resCount, tactics, power, influence
     
     def flee(self): 
@@ -366,8 +368,12 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             state__trusted=False, 
             state__inDeck=False,
             state__faceDown=False)
+        if boardCards is None:
+            print(f" {self.player.name} has no cards to shuffle back")
+            return
         for card in boardCards:
-            card.shuffleBack()
+            card.state.shuffleBack()
+            card.state.save()
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data
