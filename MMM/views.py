@@ -2,7 +2,9 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.template import loader
 
+import json
 import random
+from urllib.parse import unquote
 
 from .models import (
     BattleHistory,
@@ -85,6 +87,10 @@ def viewGameAsPlayer(request, game_id, player_id):
     
     # response = HttpResponse("Cookie set")
     # request.set_cookie('cookie_name', 'cookie_value', max_age=3600)
+
+        #     // read cookie
+        # window.location.href = `${shortPath}`;
+
     request.session['player_id'] = player_id
     request.session.get('player_id')
 
@@ -249,13 +255,15 @@ def playcards(game, plays, participant):
     for play in plays:
         if play =="csrftoken" or play == "sessionid":
             continue
-        flipFaceUp = False
-        card_id = play
-        lane_value = plays[play]
-        if lane_value.endswith("f"):
-            lane_value = lane_value[:-1]
-            flipFaceUp = True
-        participant.playCard(card_id, int(lane_value), flipFaceUp)
+        payload = _parse_play_cookie_value(plays[play])
+        card_id = int(play)
+        participant.playCard(
+            card_id,
+            int(payload["laneValue"]),
+            payload["flipFaceUp"],
+            sourceLane=payload["sourceLane"],
+            sourceOrdinal=payload["sourceOrdinal"],
+        )
 
 def specialActions(participant):
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
@@ -355,7 +363,7 @@ def resSpecial(participant,count):
 def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
     for laneNumber in laneNumbers:
-        laneCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=laneNumber, state__trusted=False ).order_by("state__laneOrdinal")
+        laneCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=laneNumber, state__trusted=False, state__faceDown=False ).order_by("state__laneOrdinal")
         trustableCards += laneCards
     if trustableCards is None: return None
     return trustableCards
@@ -389,12 +397,70 @@ def resetGames(request):
 
 def _render(request, template_name, context, clear_cookies=False):
     template = loader.get_template(template_name)
+    # print(f"Clearing cookies: {context.get('player_id', '?')} at {requestPath}") 
+    
+    if clear_cookies:
+        # when clearing cookies, all playable cookies for current game will be transferred to animations
+        context = _addLoadingAnimations(context, request)
     response = HttpResponse(template.render(context, request))
+    requestPath = request.path[0: request.path.rfind("action")]
+
     if clear_cookies:
         for cookie in request.COOKIES:
-            if cookie != "sessionid" and cookie != "csrftoken": 
-                response.delete_cookie(cookie)
+            if cookie != "sessionid" and cookie != "csrftoken":
+                response.delete_cookie(cookie, path=requestPath)
     return response
+
+def _addLoadingAnimations(context, request):
+    plays = []
+    for cookie in request.COOKIES:
+        if cookie != "sessionid" and cookie != "csrftoken":
+            payload = _parse_play_cookie_value(request.COOKIES[cookie])
+            plays.append(
+                {
+                    "cardId": cookie,
+                    "laneValue": payload["laneValue"],
+                    "sourceLane": payload["sourceLane"],
+                    "sourceOrdinal": payload["sourceOrdinal"],
+                    "flipFaceUp": payload["flipFaceUp"],
+                }
+            )
+    context["plays"] = plays
+    print(f"Updating loading animations for plays: {plays} at {request.path}")
+    context["handCards"] = _update_drawn_hand_cards(context["handCards"], plays)
+    context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
+    return context
+
+
+def _parse_play_cookie_value(cookie_value):
+    decoded_value = unquote(cookie_value or "")
+    if decoded_value.startswith("{"):
+        try:
+            payload = json.loads(decoded_value)
+        except json.JSONDecodeError:
+            payload = {}
+        return {
+            "laneValue": int(payload.get("laneValue", 0)),
+            "sourceLane": int(payload["sourceLane"]) if payload.get("sourceLane") is not None else None,
+            "sourceOrdinal": int(payload["sourceOrdinal"]) if payload.get("sourceOrdinal") is not None else None,
+            "flipFaceUp": bool(payload.get("flipFaceUp", False)),
+        }
+
+    flipFaceUp = decoded_value.endswith("f")
+    lane_value = decoded_value[:-1] if flipFaceUp else decoded_value
+    return {
+        "laneValue": int(lane_value or 0),
+        "sourceLane": None,
+        "sourceOrdinal": None,
+        "flipFaceUp": flipFaceUp,
+    }
+
+def _update_drawn_hand_cards(hand_cards, plays):
+    return hand_cards
+
+
+def _update_played_cards(lane_rows, plays):
+    return lane_rows
 
 def _game_result(game, force_end=False):
     participants = list(game.history.participants.all())

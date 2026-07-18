@@ -1,6 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 
+from . import views
 from .models import (
     BattleHistory,
     Card,
@@ -90,6 +91,16 @@ class BattleFlowTests(TestCase):
 
         self.assertEqual(len(hand_cards), drawable_cards)
         self.assertEqual(len(hand_cards), len(set(hand_cards)))
+
+    def test_play_cookie_payload_contains_source_state(self):
+        payload = views._parse_play_cookie_value(
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 3, "flipFaceUp": true}'
+        )
+
+        self.assertEqual(payload["laneValue"], 2)
+        self.assertEqual(payload["sourceLane"], 0)
+        self.assertEqual(payload["sourceOrdinal"], 3)
+        self.assertTrue(payload["flipFaceUp"])
 
     def test_end_turn_advances_round_and_bot_plays(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])

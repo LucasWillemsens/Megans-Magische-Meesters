@@ -122,27 +122,45 @@ class CardDragDropSystem {
             hologram.classList.add('hologram');
             zone.appendChild(hologram);
 
-            this.createupdateCookie(this.draggedCard.querySelectorAll('input[name="card_id"]')[0].value, zone.id.split('-')[2]);
+            const sourceLane = this.draggedCard.dataset.sourceLane ?? '0';
+            const sourceOrdinal = this.draggedCard.dataset.sourceOrdinal ?? '0';
+            this.createupdateCookie(
+                this.draggedCard.querySelectorAll('input[name="card_id"]')[0].value,
+                zone.id.split('-')[2],
+                false,
+                sourceLane,
+                sourceOrdinal,
+            );
             this.draggedCard.remove();
         }
         return false;
     }
 
     onFaceDownCardClick(e, laneValue) {
-        const card = e.target;
-        console.log('Face-down card clicked:',card, `cardId: ${card.querySelectorAll('input[name="card_id"]')[0].value}, laneValue: ${laneValue}`);
+        const card = e.currentTarget ?? e.target.closest('.cardContainer');
         const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
-        this.createupdateCookie(`${cardId}`, `${laneValue}`, true);
+        const sourceLane = card.dataset.sourceLane ?? '0';
+        const sourceOrdinal = card.dataset.sourceOrdinal ?? '0';
+        console.log('Face-down card clicked:', card, `cardId: ${cardId}, laneValue: ${laneValue}`);
+        this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
         card.classList.remove('faceDown');
         card.children[0].classList.remove('back');
     }
 
-    createupdateCookie(cardId, laneValue,flipFaceUp=false) {
-        if (flipFaceUp) {
-            document.cookie=`${cardId}=${laneValue}f;path=/`;
-        } else {
-            document.cookie=`${cardId}=${laneValue};path=/`;
+    createupdateCookie(cardId, laneValue, flipFaceUp=false, sourceLane=null, sourceOrdinal=null) {
+        const path = window.location.pathname;
+        console.log('Current path:', path);
+        let shortPath = path.substring(0, path.lastIndexOf('action'));
+        if (!shortPath ) {
+            shortPath = path;
         }
+        const payload = {
+            laneValue: `${laneValue}`,
+            sourceLane: sourceLane ?? 0,
+            sourceOrdinal: sourceOrdinal ?? 0,
+            flipFaceUp,
+        };
+        document.cookie=`${cardId}=${encodeURIComponent(JSON.stringify(payload))};path=${shortPath}`;
     }
 
     highlightAllDropZones(highlight) {

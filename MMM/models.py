@@ -297,7 +297,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         self.save()
         return gameCard
 
-    def playCard(self, game_card_id, lane=None, flipFaceUp=False,specialClause=False):
+    def playCard(self, game_card_id, lane=None, flipFaceUp=False,specialClause=False, sourceLane=None, sourceOrdinal=None):
         print(f"{self.player.name} plays card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
         gameCard = GameCard.objects.select_related("state", "card").get(
             pk=game_card_id,
