@@ -31,12 +31,12 @@
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer faceDown">
+                            <li class="cardContainer {{ card.cssClass }} faceDown">
                                 <div class="card back smallCard">
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer">
+                            <li class="cardContainer {{ card.cssClass }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
@@ -65,7 +65,7 @@
                     <p> {{ lane.value }} | {{ lane.name}} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="cardContainer">
+                            <li class="cardContainer {{ card.cssClass }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
@@ -114,7 +114,8 @@
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer faceDown" data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                            <li class="cardContainer faceDown {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
                                 <div class="card back smallCard">
                                     {% if card.card.artSource == "" %}
@@ -139,7 +140,8 @@
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer" data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
@@ -166,7 +168,7 @@
                     <p> {{ lane.value }} | {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="cardContainer">
+                            <li class="cardContainer {{ card.cssClass }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
@@ -229,7 +231,8 @@
         <ul class="hand">
             {% if handCards %}
                 {% for card in handCards %}
-            <li class="cardContainer" draggable="true" data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+            <li class="cardContainer {{ card.cssClass }}" draggable="true" data-source-lane="{{ card.state.lane }}"
+                data-source-ordinal="{{ card.state.laneOrdinal }}">
                 <div class="card smallCard">
 
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">

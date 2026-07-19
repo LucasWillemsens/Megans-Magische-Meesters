@@ -456,10 +456,25 @@ def _parse_play_cookie_value(cookie_value):
     }
 
 def _update_drawn_hand_cards(hand_cards, plays):
+    for play in plays:
+        card_id = int(play["cardId"])
+        for hand_card in hand_cards:
+            if hand_card.id == card_id:
+                # updated_card = hand_card
+                hand_card.cssClass = "loading"
     return hand_cards
 
 
 def _update_played_cards(lane_rows, plays):
+    for play in plays:
+        card_id = int(play["cardId"])
+        for row in lane_rows:
+            for card in row["cards"]:
+                if card.id == card_id:
+                    card.state.lane = play["sourceLane"]
+                    card.state.ordinal = play["sourceOrdinal"]
+                    card.cssClass = "loading"
+                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.ordinal}) -> {row['name']} .")
     return lane_rows
 
 def _game_result(game, force_end=False):
