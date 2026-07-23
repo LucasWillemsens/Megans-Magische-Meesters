@@ -1,0 +1,1 @@
+Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.

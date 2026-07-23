@@ -1,0 +1,3 @@
+Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
+
+Includes: symbol-behavior, recent-symbol-history, card-links-middle-click, soul-trials-exploration, upgrade-requirements, ai-assisted-card-upgrades.

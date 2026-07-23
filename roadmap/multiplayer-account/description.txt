@@ -1,0 +1,3 @@
+Clarify multiplayer and account behavior to support both asynchronous battle flow and secure identity.
+
+Includes: turn-order-async-skip, cookie-state-safety, win-loot-draft-rules, secure-account-links, frontend-key-encryption.

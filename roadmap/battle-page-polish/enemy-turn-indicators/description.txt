@@ -1,0 +1,1 @@
+Show enemy player turn indicators to improve multiplayer-like flow and make it obvious when the opponent is acting.

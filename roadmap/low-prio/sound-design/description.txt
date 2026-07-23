@@ -1,0 +1,3 @@
+Add sound design to support the game's atmosphere, feedback, and rhythm.
+
+Includes: record-sound-effects, interaction-sound-design, audio-level-balance.

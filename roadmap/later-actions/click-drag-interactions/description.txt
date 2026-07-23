@@ -1,0 +1,1 @@
+Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.

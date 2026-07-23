@@ -1,0 +1,1 @@
+Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.

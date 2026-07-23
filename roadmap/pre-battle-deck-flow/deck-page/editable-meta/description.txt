@@ -1,0 +1,1 @@
+Allow deck name and description editing so players can label their decks clearly.

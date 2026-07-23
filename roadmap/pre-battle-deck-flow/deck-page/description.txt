@@ -1,0 +1,3 @@
+Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
+
+Includes: drag-drop-ordering, artwork-previews, editable-meta, create-new-deck.

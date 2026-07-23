@@ -1,0 +1,3 @@
+Improve game page metadata so each match feels like a distinct playable entry.
+
+Includes: game-art-name-description, play-again-new-challenge, bot-rematch-fresh-deck.

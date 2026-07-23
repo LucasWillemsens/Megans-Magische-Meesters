@@ -1,0 +1,3 @@
+Capture later action items that improve match polish and post-game flow after the core prototype is stable.
+
+Includes: rematch-even-board, lootpile-results, pursuit-flee-rules, click-drag-interactions, sync-and-lane-animations.

@@ -1,0 +1,1 @@
+Make card links followable via middle-click to support quick navigation and preservation of the current board.

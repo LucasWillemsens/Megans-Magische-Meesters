@@ -1,0 +1,3 @@
+Build the pre-battle experience, including deck ordering, challenge management, active games, and deck metadata.
+
+Includes: custom-deck-order, cancel-challenge, roaming-challenge-flow, active-games-interface, deck-page, game-page-metadata, history-page.

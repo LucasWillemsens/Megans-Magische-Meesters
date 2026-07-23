@@ -1,0 +1,1 @@
+Animate special draw sequences, detect the last drawn card, play special move animations in order, and show a shuffle-back effect.

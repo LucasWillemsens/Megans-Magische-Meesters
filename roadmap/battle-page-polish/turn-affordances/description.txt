@@ -1,0 +1,1 @@
+Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why.

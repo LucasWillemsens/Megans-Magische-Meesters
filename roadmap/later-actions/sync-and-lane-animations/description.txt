@@ -1,0 +1,1 @@
+Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions.

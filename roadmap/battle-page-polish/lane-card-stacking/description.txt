@@ -1,0 +1,1 @@
+Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.

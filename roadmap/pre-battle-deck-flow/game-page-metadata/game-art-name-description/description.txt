@@ -1,0 +1,1 @@
+Add artwork, name, and description support to the game page to make matches easier to identify.
