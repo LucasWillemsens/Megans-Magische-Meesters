@@ -177,7 +177,7 @@ def render_category(name, node, rset, dset, indent=0):
 
 
 def render_roadmap_section(merged, rset, dset):
-    lines = ["## \U0001f5fa Roadmap", ""]
+    lines = ["## Roadmap", ""]
 
     for section_name in SECTION_ORDER:
         if section_name not in merged:
@@ -229,7 +229,7 @@ def update_readme(section_text):
     end = None
 
     for i, line in enumerate(lines):
-        if line.startswith("## \U0001f5fa Roadmap"):
+        if line.startswith("## Roadmap"):
             start = i
         elif start is not None and line.startswith("## ") and i > start:
             end = i

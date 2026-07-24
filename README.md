@@ -16,7 +16,7 @@
   
 ---
 
-## 🗺 Roadmap
+## Roadmap
 
 ### Current state
 
