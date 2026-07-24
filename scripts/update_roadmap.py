@@ -238,6 +238,45 @@ def build_leaf_name_map(tree, prefix=""):
     return mapping
 
 
+def normalize_done_directory(roadmap_tree):
+    """Move flat done leaves to their correct nested locations based on roadmap.
+
+    If a folder in the root of done/ has the same name as a leaf that lives
+    nested inside a roadmap category, physically move it to the proper path
+    inside done/ so the directory mirrors the roadmap structure.
+
+    Returns True if any directories were moved.
+    """
+    if not DONE_DIR.exists():
+        return False
+
+    leaf_map = build_leaf_name_map(roadmap_tree)
+    moved = False
+
+    for item in sorted(DONE_DIR.iterdir()):
+        if not item.is_dir() or item.name.startswith("."):
+            continue
+
+        name = item.name
+        if name not in leaf_map:
+            continue
+
+        target_rel = leaf_map[name]
+        target_dir = DONE_DIR / target_rel
+
+        if target_dir.exists():
+            # Target already exists — can't merge safely, skip
+            continue
+
+        # Create parent directories in done/ as needed
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        item.rename(target_dir)
+        print(f"  Moved done/{name} -> done/{target_rel}")
+        moved = True
+
+    return moved
+
+
 def normalize_done_set(dset, leaf_map):
     """Resolve flat done paths to their roadmap counterparts by leaf name."""
     normalized = set()
@@ -284,6 +323,10 @@ def update_readme(section_text):
 
 def main():
     roadmap_tree = build_tree(ROADMAP_DIR)
+
+    # Move flat done leaves into their correct nested locations first
+    normalize_done_directory(roadmap_tree)
+
     done_tree = build_tree(DONE_DIR) if DONE_DIR.exists() else {}
 
     rset = set(collect_flat_items(ROADMAP_DIR).keys())
