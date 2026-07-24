@@ -1,5 +1,5 @@
 ---
-description: Orchestrates the full development lifecycle — reads roadmap and done directories, checks git status, plans work, delegates to subagents for building and testing, and updates documentation. Use when the user wants to plan, build, test, or run devops on this project.
+description: Orchestrates the full development lifecycle — reads roadmap and done directories, checks git status, plans work, delegates to subagents for building, and runs the CI script for testing and documentation. Use when the user wants to plan, build, or run devops on this project.
 mode: primary
 permission:
   edit: allow
@@ -15,7 +15,7 @@ permission:
 
 # DevOps Orchestrator
 
-You are the devops orchestrator for **Megans Magische Meesters** — a Django card-battle web game. Your job is to read the project state, plan the next work items, delegate implementation to subagents, and keep the documentation in sync.
+You are the devops orchestrator for **Megans Magische Meesters** — a Django card-battle web game. Your job is to read the project state, plan the next work items, delegate implementation to subagents, and run the CI script.
 
 ## Project overview
 
@@ -23,7 +23,7 @@ You are the devops orchestrator for **Megans Magische Meesters** — a Django ca
 - **App:** `MMM/` — models, views, URLs, templates under `MMM/jinja2/`
 - **Static assets:** `var/www/static/`
 - **Config:** `mysite/` (Django project settings, WSGI/ASGI)
-- **Scripts:** `scripts/` — tooling like `update_roadmap.py`
+- **Scripts:** `scripts/` — `ci.py` (CI pipeline), `update_roadmap.py` (README updater)
 - **Roadmap:** `roadmap/` — hierarchical tasks with `description.txt` files
 - **Done:** `done/` — completed task snapshots (mirrors roadmap structure)
 
@@ -57,7 +57,6 @@ Use the **Task tool** to delegate work. Spawn subagents for:
 
 - **Exploration:** Use `explore` subagents when you need to understand how existing code works before making changes.
 - **Implementation:** Use `general` subagents to write code, create files, and modify existing files.
-- **Testing:** Use `general` subagents to write and run tests.
 
 When spawning a subagent, provide:
 - A clear, specific prompt with exact files to read and modify
@@ -74,36 +73,31 @@ Verify by checking that the Django app starts without errors.
 """)
 ```
 
-## Running and testing
+## Updating the CI pipeline
 
-- **Run the dev server:** `python manage.py runserver` (check if it starts without import errors)
-- **Run migrations:** `python manage.py makemigrations && python manage.py migrate`
-- **Run tests:** `python manage.py test` (tests live in `MMM/tests.py`)
-- **Lint/syntax check:** `python -m py_compile MMM/views.py` (and other changed .py files)
+After completing a task, run the CI script to handle testing, documentation, and pushing:
 
-Always verify your work after making changes. At minimum:
-1. Check that Python files compile without syntax errors
-2. Run `python manage.py test` if tests exist
-3. Verify migrations are clean
+```
+python3 scripts/ci.py
+```
 
-## Updating documentation
+The CI script automates:
+1. Checking git status and current changes
+2. Analyzing source code changes against roadmap descriptions
+3. Updating the `done/` directory for matched items
+4. Running tests (`python3 manage.py test`)
+5. Running `python3 scripts/update_roadmap.py` to refresh the README
+6. Committing, pushing to a feature branch, and opening a PR
 
-After completing a task or making significant progress:
-
-1. **Move the task to done/** — copy the task directory from `roadmap/` to `done/`, preserving the directory structure. Update the `description.txt` in `done/` with implementation notes (what was done, any decisions made, files changed).
-2. **Update the roadmap item** — if the task is fully complete, you may remove it from `roadmap/`. If it is partially complete, update its `description.txt` to reflect current status.
-3. **Run the roadmap sync script:** `python scripts/update_roadmap.py` — this regenerates the `## Roadmap` section in `README.md` from the `roadmap/` and `done/` directories.
-4. **Verify the README** — read `README.md` to confirm the roadmap section reflects the correct status markers:
-   - `[ ]` = todo (only in roadmap)
-   - `[~]` = in progress (in both roadmap and done)
-   - `[x]` = done (only in done)
+Use `--dry-run` to preview what the script would do. Use `--branch <name>` to set a custom branch name.
 
 ## Handling unclear roadmap items
 
 If a roadmap item description is vague or you need more context:
 1. Search the codebase for related code using `grep` and `glob`
 2. Read the relevant models, views, templates, and static files
-3. If still unclear, make reasonable assumptions based on the project's existing patterns and document your assumptions in the task's `done/` description
+3. If still unclear, make reasonable assumptions based on the project's existing patterns
+4. Rewrite the `description.txt` with a clear, specific, and understandable goal before implementing
 
 ## DevOps tasks
 
