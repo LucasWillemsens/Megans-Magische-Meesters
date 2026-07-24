@@ -150,15 +150,14 @@ def render_leaf(name, description, st, done_desc=None):
     return line
 
 
-def render_category(name, node, rset, dset, indent=0):
+def render_category(name, node, rset, dset):
     lines = []
-    prefix = "  " * indent
     title = get_section_title(name)
-    lines.append(f"{prefix}### {title}")
+    lines.append(f"### {title}")
     lines.append("")
 
     if node.get("description"):
-        lines.append(f"{prefix}{node['description']}")
+        lines.append(node["description"])
         lines.append("")
 
     for child_name, child_node in sorted(node.get("children", {}).items()):
@@ -168,9 +167,11 @@ def render_category(name, node, rset, dset, indent=0):
             done_text = None
             if st == "in_progress" and done_desc.exists():
                 done_text = done_desc.read_text().strip()
-            lines.append(f"{prefix}{render_leaf(child_name, child_node['description'], st, done_text)}")
+            lines.append(render_leaf(child_name, child_node["description"], st, done_text))
         elif child_node["type"] == "category":
-            lines.extend(render_category(child_name, child_node, rset, dset, indent + 1))
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend(render_category(child_name, child_node, rset, dset))
 
     lines.append("")
     return lines

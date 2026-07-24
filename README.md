@@ -46,22 +46,23 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 - [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
 - [ ] Support canceling a pending challenge cleanly in the UI.
 - [ ] Allow the player to set a custom deck order before battle begins.
-  ### Deck page
 
-  Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
+### Deck page
 
-  - [ ] Show card artwork previews on the deck page to make each deck easier to scan and personalize.
-  - [ ] Support creating new decks from the deck page to let players experiment with multiple strategies.
-  - [ ] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.
-  - [ ] Allow deck name and description editing so players can label their decks clearly.
+Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
 
-  ### Game page metadata
+- [ ] Show card artwork previews on the deck page to make each deck easier to scan and personalize.
+- [ ] Support creating new decks from the deck page to let players experiment with multiple strategies.
+- [ ] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.
+- [ ] Allow deck name and description editing so players can label their decks clearly.
 
-  Improve game page metadata so each match feels like a distinct playable entry.
+### Game page metadata
 
-  - [ ] Ensure bot rematches shuffle the board and use a fresh deck automatically.
-  - [ ] Add artwork, name, and description support to the game page to make matches easier to identify.
-  - [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
+Improve game page metadata so each match feels like a distinct playable entry.
+
+- [ ] Ensure bot rematches shuffle the board and use a fresh deck automatically.
+- [ ] Add artwork, name, and description support to the game page to make matches easier to identify.
+- [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
 
 - [ ] Move completed games and challenges into a dedicated history page for better post-game navigation.
 - [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
@@ -87,24 +88,24 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 
 ### Low priority
 
-  ### Customization and card systems
+### Customization and card systems
 
-  Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
+Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
 
-  - [ ] Consider AI-assisted image generation and approval workflows for creating unique card upgrades.
-  - [ ] Make card links followable via middle-click to support quick navigation and preservation of the current board.
-  - [ ] Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.
-  - [ ] Explore card-soul and trial mechanics as a future expansion path for manifesting cards and symbols.
-  - [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
-  - [ ] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.
+- [ ] Consider AI-assisted image generation and approval workflows for creating unique card upgrades.
+- [ ] Make card links followable via middle-click to support quick navigation and preservation of the current board.
+- [ ] Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.
+- [ ] Explore card-soul and trial mechanics as a future expansion path for manifesting cards and symbols.
+- [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
+- [ ] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.
 
-  ### Sound design
+### Sound design
 
-  Add sound design to support the game's atmosphere, feedback, and rhythm.
+Add sound design to support the game's atmosphere, feedback, and rhythm.
 
-  - [ ] Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.
-  - [ ] Add supportive interaction sounds such as paper shuffle, writing, clicks, sparkles, and rolls.
-  - [ ] Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses.
+- [ ] Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.
+- [ ] Add supportive interaction sounds such as paper shuffle, writing, clicks, sparkles, and rolls.
+- [ ] Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses.
 
 
 ### Later actions
