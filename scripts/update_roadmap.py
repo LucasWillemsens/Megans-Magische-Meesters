@@ -106,10 +106,13 @@ def build_node(path, base_dir):
         }
 
 
-def merge_trees(roadmap_tree, done_tree):
+def merge_trees(roadmap_tree, done_tree, leaf_map=None):
     merged = dict(roadmap_tree)
     for name, node in done_tree.items():
         if name not in merged:
+            # Skip flat done leaves that belong somewhere inside the roadmap tree
+            if leaf_map and node["type"] == "leaf" and name in leaf_map:
+                continue
             merged[name] = node
         elif merged[name]["type"] == "category" and node["type"] == "category":
             merged[name]["children"] = merge_trees(
@@ -223,6 +226,34 @@ def collect_flat_items(base_dir):
     return items
 
 
+def build_leaf_name_map(tree, prefix=""):
+    """Map leaf directory names → full roadmap relative paths."""
+    mapping = {}
+    for name, node in tree.items():
+        full = f"{prefix}/{name}" if prefix else name
+        if node["type"] == "leaf":
+            mapping[name] = full
+        elif node["type"] == "category":
+            mapping.update(build_leaf_name_map(node.get("children", {}), full))
+    return mapping
+
+
+def normalize_done_set(dset, leaf_map):
+    """Resolve flat done paths to their roadmap counterparts by leaf name."""
+    normalized = set()
+    roadmap_paths = set(leaf_map.values())
+    for done_path in dset:
+        if done_path in roadmap_paths:
+            normalized.add(done_path)
+        else:
+            leaf = done_path.rsplit("/", 1)[-1]
+            if leaf in leaf_map:
+                normalized.add(leaf_map[leaf])
+            else:
+                normalized.add(done_path)
+    return normalized
+
+
 def update_readme(section_text):
     content = README_PATH.read_text()
     lines = content.split("\n")
@@ -258,7 +289,10 @@ def main():
     rset = set(collect_flat_items(ROADMAP_DIR).keys())
     dset = set(collect_flat_items(DONE_DIR).keys()) if DONE_DIR.exists() else set()
 
-    merged = merge_trees(roadmap_tree, done_tree)
+    leaf_map = build_leaf_name_map(roadmap_tree)
+    dset = normalize_done_set(dset, leaf_map)
+
+    merged = merge_trees(roadmap_tree, done_tree, leaf_map)
     section = render_roadmap_section(merged, rset, dset)
     s, e = update_readme(section)
 
