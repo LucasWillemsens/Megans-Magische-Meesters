@@ -43,18 +43,55 @@ You are the devops orchestrator for **Megans Magische Meesters** — a Django ca
 
 ## Planning work
 
-When planning, follow these steps:
+When planning, follow this three-phase workflow:
+
+### Phase 1: Brainstorm (abstract directions)
 
 1. Identify the highest-priority unfinished item from the roadmap. An item is "unfinished" if it exists in `roadmap/` but not in `done/`.
-2. Read the item's `description.txt` to understand the goal.
-3. If the description references code or behavior you do not understand, **search the codebase** — use `grep`, `glob`, and `read` to find the relevant models, views, templates, and static files. The Django models live in `MMM/models.py`, views in `MMM/views.py`, URL routes in `MMM/urls.py`, and templates in `MMM/jinja2/`.
-4. Break the task into concrete implementation steps.
-5. Use the `todowrite` tool to create a task list before delegating.
+2. Read the item's `description.txt` to understand the current goal.
+3. **Use the brainstorm agent** to explore abstract solution approaches:
+   ```
+   Task(subagent_type="brainstorm", prompt="Brainstorm the [goal-name] goal.")
+   ```
+   The brainstorm agent will:
+   - Read only `done/` for context (no codebase reading)
+   - Propose 2-4 different solution avenues with pros/cons
+   - Challenge assumptions in the current description
+   - Write findings to the description.txt file
+   - Return recommendations for your review
+
+### Phase 2: Manual steering
+
+After the brainstorm agent runs:
+4. **Review the output** — read the updated description.txt with the proposed avenues
+5. **Steer the direction** — edit the description.txt to select the preferred approach:
+   - Remove avenues you don't want to pursue
+   - Refine the chosen avenue with your vision
+   - Add any constraints or preferences
+   - Keep it at a high level — the planner will handle details
+
+### Phase 3: Planner (detailed implementation)
+
+6. **Use the planner agent** to break down the chosen approach into detailed steps:
+   ```
+   Task(subagent_type="planner", prompt="Plan the [goal-name] goal in detail.")
+   ```
+   The planner agent will:
+   - Search the codebase to understand current implementation
+   - Create subdirectories for complex steps
+   - Write detailed description.txt files with implementation steps, file paths, acceptance criteria, and dependencies
+
+### Phase 4: Implementation
+
+7. Use the `todowrite` tool to create a task list from the planner's output
+8. Delegate implementation to subagents
 
 ## Delegating to subagents
 
 Use the **Task tool** to delegate work. Spawn subagents for:
 
+- **Brainstorming:** Use `brainstorm` subagents to explore abstract solution approaches before planning. This agent reads only `done/` for context and proposes different directions without diving into the codebase.
+- **Planning:** Use `planner` subagents after brainstorming to break down the chosen approach into detailed, manageable steps with subdirectories and description.txt files.
 - **Exploration:** Use `explore` subagents when you need to understand how existing code works before making changes.
 - **Implementation:** Use `general` subagents to write code, create files, and modify existing files.
 
@@ -93,11 +130,26 @@ Use `--dry-run` to preview what the script would do. Use `--branch <name>` to se
 
 ## Handling unclear roadmap items
 
-If a roadmap item description is vague or you need more context:
-1. Search the codebase for related code using `grep` and `glob`
-2. Read the relevant models, views, templates, and static files
-3. If still unclear, make reasonable assumptions based on the project's existing patterns
-4. Rewrite the `description.txt` with a clear, specific, and understandable goal before implementing
+If a roadmap item description is vague or needs decomposition:
+
+1. **Use the brainstorm agent** to explore abstract solution approaches:
+   ```
+   Task(subagent_type="brainstorm", prompt="Brainstorm the [goal-name] goal.")
+   ```
+   The brainstorm agent reads only `done/` for context and proposes different directions without diving into the codebase.
+
+2. **Review and steer** — edit the description.txt to select the preferred approach and add your vision.
+
+3. **Use the planner agent** to break down the chosen approach into detailed steps:
+   ```
+   Task(subagent_type="planner", prompt="Plan the [goal-name] goal in detail.")
+   ```
+   The planner will search the codebase, create subdirectories, and write detailed description.txt files.
+
+4. If you need to understand the goal yourself before delegating:
+   - Search the codebase for related code using `grep` and `glob`
+   - Read the relevant models, views, templates, and static files
+   - Make reasonable assumptions based on the project's existing patterns
 
 ## DevOps tasks
 
