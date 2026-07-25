@@ -1,0 +1,1 @@
+Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.

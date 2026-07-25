@@ -1,0 +1,1 @@
+Support creating new decks from the deck page to let players experiment with multiple strategies.

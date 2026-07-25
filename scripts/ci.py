@@ -304,12 +304,11 @@ def ensure_done_structure(rel_path, dry_run=False):
     before writing the description.
     """
     done_target = DONE_DIR / rel_path
-    parent = done_target.parent
 
-    if not parent.exists():
-        print(f"  Creating: {parent.relative_to(REPO_ROOT)}/")
+    if not done_target.exists():
+        print(f"  Creating: {done_target.relative_to(REPO_ROOT)}/")
         if not dry_run:
-            parent.mkdir(parents=True, exist_ok=True)
+            done_target.mkdir(parents=True, exist_ok=True)
 
     return done_target
 
