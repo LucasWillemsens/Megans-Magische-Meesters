@@ -21,6 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+PYTHON = sys.executable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROADMAP_DIR = REPO_ROOT / "roadmap"
 DONE_DIR = REPO_ROOT / "done"
@@ -384,7 +385,7 @@ def run_tests():
     print("STEP 4: Running Tests")
     print("=" * 60)
 
-    rc, out, err = run("python3 manage.py test", check=False)
+    rc, out, err = run(f"{PYTHON} manage.py test", check=False)
     if out:
         print(f"  {out}")
     if err:
@@ -404,7 +405,7 @@ def run_update_readme():
     print("STEP 5: Updating README Roadmap")
     print("=" * 60)
 
-    rc, out, err = run(f"python3 {UPDATE_SCRIPT}", check=False)
+    rc, out, err = run(f"{PYTHON} {UPDATE_SCRIPT}", check=False)
     if out:
         print(f"  {out}")
     if err:

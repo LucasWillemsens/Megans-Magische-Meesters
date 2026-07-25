@@ -516,8 +516,12 @@ def _run_bot_turn(game, human_player_id):
                 if bot_participant.getNextDeckCard() is None:
                     specialActions(bot_participant)
                     bot_participant.shuffleBoard()
-            else:
-                error_message = f"No cards left in {bot_participant.player.name}'s deck."
+            # Re-check for hand cards after drawing
+            hand_card = (
+                GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
+                .select_related("card")
+                .first()
+            )
         if hand_card is not None:
             bot_participant.playCard(hand_card.id, flipFaceUp=True)
         bot_participant.resetTurn()
