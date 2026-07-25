@@ -463,7 +463,7 @@ def commit_and_push(branch, dry_run=False):
             "- Ran tests and refreshed README roadmap section"
         )
         rc, pr_out, pr_err = run(
-            f'gh pr create --title "ci: roadmap sync" --body "{pr_body}" --base main',
+            f'gh pr create --title "ci: roadmap sync" --body "{pr_body}" --base main --assignee LucasWillemsens',
             check=False,
         )
         if rc != 0:
