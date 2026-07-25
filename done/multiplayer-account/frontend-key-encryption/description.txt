@@ -1,0 +1,1 @@
+Consider encrypting frontend account keys before sending them to the server to protect account operations.

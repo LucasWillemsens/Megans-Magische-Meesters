@@ -1,0 +1,1 @@
+Build and verify the full match loop so a game can be played from start to finish without breaking.

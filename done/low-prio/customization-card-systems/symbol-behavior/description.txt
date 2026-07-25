@@ -1,0 +1,1 @@
+Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.

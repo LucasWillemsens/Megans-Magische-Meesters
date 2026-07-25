@@ -1,0 +1,24 @@
+Add a turn phase indicator in the board header showing whose turn it is.
+
+Summary: Display a clear "Your Turn" / "Enemy's Turn" label near the game title and round counter.
+
+Implementation:
+1. Modify `views.py` `viewBoard()` to pass a `isPlayerTurn` flag to the template context.
+   - Set `isPlayerTurn = True` by default (since bot turn completes before render).
+   - Also pass `lastBotActions` dict with what the bot did (drawn, played, flipped counts).
+2. Modify `MMM/jinja2/MMM/battle/viewBoard.jinja2` to add a turn phase banner in the `.title` div:
+   - Show "Your Turn" in green when `isPlayerTurn` is true.
+   - Show round number alongside.
+3. Add CSS in `var/www/static/style.css` for the turn phase indicator styling.
+
+Files to modify:
+- `MMM/views.py` (viewBoard function, ~line 170)
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (title div, ~line 6)
+- `var/www/static/style.css` (new .turn-phase class)
+
+Acceptance criteria:
+- The board header shows "Your Turn" with a distinct color.
+- The round number is displayed next to it.
+- The indicator is visually clear and does not overlap other elements.
+
+Dependencies: None.
