@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """CI script that automates the devops workflow:
   1. Check git status and current changes
   2. Analyze recent source code changes against roadmap descriptions
@@ -8,9 +8,9 @@
   6. Commit, push to feature branch, and open a PR
 
 Usage:
-    python3 scripts/ci.py
-    python3 scripts/ci.py --branch my-feature
-    python3 scripts/ci.py --dry-run
+    python scripts/ci.py
+    python scripts/ci.py --branch my-feature
+    python scripts/ci.py --dry-run
 """
 
 import argparse
@@ -383,7 +383,7 @@ def run_tests():
     print("STEP 4: Running Tests")
     print("=" * 60)
 
-    rc, out, err = run(f"python3 manage.py test", check=False)
+    rc, out, err = run(f"python manage.py test", check=False)
     if out:
         print(f"  {out}")
     if err:
@@ -403,7 +403,7 @@ def run_update_readme():
     print("STEP 5: Updating README Roadmap")
     print("=" * 60)
 
-    rc, out, err = run(f"python3 {UPDATE_SCRIPT}", check=False)
+    rc, out, err = run(f"python {UPDATE_SCRIPT}", check=False)
     if out:
         print(f"  {out}")
     if err:
@@ -439,7 +439,7 @@ def commit_and_push(branch, dry_run=False):
     if not dry_run:
         run("git add -A", check=True)
 
-    commit_msg = "ci: auto-sync roadmap and done directory from source analysis"
+    commit_msg = f"{branch} + auto ci changes"
     print(f"  Commit: {commit_msg}")
 
     if not dry_run:
@@ -456,10 +456,7 @@ def commit_and_push(branch, dry_run=False):
 
         print("  Opening PR...")
         pr_body = (
-            "Automated CI update:\\n"
-            "- Analyzed recent Django source changes against roadmap descriptions\\n"
-            "- Updated done/ directory for matched items\\n"
-            "- Ran tests and refreshed README roadmap section"
+            f"{commit_msg}"
         )
         rc, pr_out, pr_err = run(
             f'gh pr create --title "ci: roadmap sync" --body "{pr_body}" --base main --assignee LucasWillemsens',
