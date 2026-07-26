@@ -1,0 +1,21 @@
+Animate the recorded enemy actions on the board, the same way player actions animate.
+
+Implementation:
+1. Modify `_addLoadingAnimations()` in `MMM/views.py` to also mark enemy board cards:
+   - For each bot play, find the card in the matching `enemyBoards` entry and set `cssClass = "loading"` plus its source lane/ordinal, mirroring `_update_played_cards()`.
+2. Modify `MMM/jinja2/MMM/battle/viewBoard.jinja2`:
+   - Add `data-source-lane` / `data-source-ordinal` attributes to the enemy card containers (currently only the player's own cards have them).
+3. Extend `duplicateCard()` in `var/www/static/loadingAnimations.js`:
+   - Resolve drop targets inside the correct enemy board (not just `.playerBoard`), so enemy cards animate from their source position to their new position.
+
+Files to modify:
+- `MMM/views.py` (_addLoadingAnimations ~line 414, _update_played_cards ~line 468)
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (enemyBoard card containers ~line 32-92)
+- `var/www/static/loadingAnimations.js` (duplicateCard)
+
+Acceptance criteria:
+- After 'end turn', the enemy's drawn/played/flipped cards visibly animate inside the enemy board.
+- Enemy animations use the same 'loading' class mechanism as player animations.
+- Player animations still work exactly as before.
+
+Dependencies: enemy-action-cookies.

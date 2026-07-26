@@ -1,0 +1,17 @@
+Give the player a clear timeframe to watch the enemy actions before the board reloads.
+
+Implementation:
+1. Review the reload timing in `var/www/static/loadingAnimations.js`:
+   - The timeout scales with the number of `.loading` elements (`elements * delay / 2`). Make sure enemy actions are included in that count and the total window stays readable — not too fast, not endless.
+2. If enemy and player animations can appear in the same render, sequence them (enemy actions first, or staggered) so the player can follow what happened.
+3. Verify the redirect strips `action` from the URL and lands on the clean board URL after an end_turn POST, exactly like after a player draw.
+
+Files to modify:
+- `var/www/static/loadingAnimations.js` (Animate timing/sequencing)
+
+Acceptance criteria:
+- After 'end turn', all enemy animations finish before the reload fires.
+- The viewing window scales sensibly with the number of enemy actions.
+- The page lands on the board URL with no leftover `loading` classes or cookies.
+
+Dependencies: enemy-action-animation.

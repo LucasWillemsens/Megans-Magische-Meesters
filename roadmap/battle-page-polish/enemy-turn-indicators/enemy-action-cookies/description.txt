@@ -1,0 +1,20 @@
+Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
+
+Implementation:
+1. Modify `MMM/views.py` `_run_bot_turn()` to collect the actions each bot takes:
+   - drawn cards (deck -> hand), played cards (hand -> lane), flips.
+   - Record card id, source lane/ordinal and target lane for each action.
+2. In `boardAction()`, after `_run_bot_turn()`, set one cookie per bot action on the response using the existing JSON payload shape: {"laneValue", "sourceLane", "sourceOrdinal", "flipFaceUp"}.
+3. Namespace the bot cookies (e.g. prefix the cookie name with the bot participant id) so they are never confused with player cookies:
+   - Update `playcards()` to skip bot-namespaced cookies (it currently executes every cookie except csrftoken/sessionid).
+   - Update `_addLoadingAnimations()` to parse bot cookies into `plays` entries tagged with the owning enemy participant.
+
+Files to modify:
+- `MMM/views.py` (_run_bot_turn ~line 506, boardAction ~line 218, playcards ~line 254, _addLoadingAnimations ~line 414)
+
+Acceptance criteria:
+- Pressing 'end turn' creates one cookie per bot action, in the same payload format as player play cookies.
+- Bot cookies are never consumed by `playcards()` as player actions on the next POST.
+- Bot cookies are cleared after the board renders (existing clear_cookies flow in `_render`).
+
+Dependencies: None (first subgoal; enemy-action-animation and enemy-turn-viewing-window build on it).

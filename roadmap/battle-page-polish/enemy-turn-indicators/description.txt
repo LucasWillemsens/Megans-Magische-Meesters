@@ -1,24 +1,3 @@
-There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card. 
+There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card.
 
-Implementation:
-1. Modify `views.py` `_run_bot_turn()` to return a dict of actions taken by each bot participant.
-   - Track: cards drawn count, cards played count, cards flipped count.
-   - Store result in a local dict keyed by participant id.
-2. Modify `views.py` `boardAction()` to capture bot turn results and pass them to `viewBoard()`.
-   - Add `botTurnResults` to the context passed to the template.
-3. Modify `MMM/jinja2/MMM/battle/viewBoard.jinja2`:
-   - In each enemy board section, show a small action summary below the participant name.
-   - Example: "Drew 1, Played 1, Flipped 1" or icon-based indicators.
-4. Add CSS in `var/www/static/style.css` for `.enemy-action-summary` styling.
-
-Files to modify:
-- `MMM/views.py` (_run_bot_turn ~line 506, boardAction ~line 218, viewBoard ~line 170)
-- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (enemyBoard loop ~line 23)
-- `var/www/static/style.css` (new .enemy-action-summary class)
-
-Acceptance criteria:
-- After ending turn, each enemy board shows what the bot did that turn.
-- Summary appears briefly and is readable.
-- If bot drew 0, played 0, flipped 0, summary is hidden.
-
-Dependencies: None (can be done in parallel with turn-phase-header).
+Includes: enemy-action-cookies, enemy-action-animation, enemy-turn-viewing-window.

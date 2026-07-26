@@ -1,14 +1,4 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "devops",
-  "agent": {
-    "brainstorm": {
-      "description": "Explores abstract solution approaches for roadmap goals. Reads only the done directory for context, proposes different solution avenues, and challenges existing assumptions. Use BEFORE the planner agent.",
-      "mode": "subagent"
-    },
-    "planner": {
-      "description": "Breaks down roadmap goals into detailed, manageable steps. Use when the user wants to plan, decompose, or detail a specific roadmap item.",
-      "mode": "subagent"
-    }
-  }
+  "default_agent": "devops"
 }

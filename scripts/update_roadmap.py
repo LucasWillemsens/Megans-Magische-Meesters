@@ -153,28 +153,38 @@ def render_leaf(name, description, st, done_desc=None):
     return line
 
 
-def render_category(name, node, rset, dset):
+def render_category(name, node, rset, dset, level=3):
     lines = []
     title = get_section_title(name)
-    lines.append(f"### {title}")
+    lines.append(f"{'#' * level} {title}")
     lines.append("")
 
     if node.get("description"):
         lines.append(node["description"])
         lines.append("")
 
-    for child_name, child_node in sorted(node.get("children", {}).items()):
-        if child_node["type"] == "leaf":
-            st = status(child_node["rel_path"], rset, dset)
-            done_desc = DONE_DIR / child_node["rel_path"] / "description.txt"
-            done_text = None
-            if st == "in_progress" and done_desc.exists():
-                done_text = done_desc.read_text().strip()
-            lines.append(render_leaf(child_name, child_node["description"], st, done_text))
-        elif child_node["type"] == "category":
-            if lines and lines[-1] != "":
-                lines.append("")
-            lines.extend(render_category(child_name, child_node, rset, dset))
+    children = node.get("children", {})
+    # Render leaves before sub-categories so bullets never end up
+    # visually attached to a sub-category heading.
+    leaves = sorted(
+        (n, c) for n, c in children.items() if c["type"] == "leaf"
+    )
+    categories = sorted(
+        (n, c) for n, c in children.items() if c["type"] == "category"
+    )
+
+    for child_name, child_node in leaves:
+        st = status(child_node["rel_path"], rset, dset)
+        done_desc = DONE_DIR / child_node["rel_path"] / "description.txt"
+        done_text = None
+        if st == "in_progress" and done_desc.exists():
+            done_text = done_desc.read_text().strip()
+        lines.append(render_leaf(child_name, child_node["description"], st, done_text))
+
+    for child_name, child_node in categories:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(render_category(child_name, child_node, rset, dset, level + 1))
 
     lines.append("")
     return lines
