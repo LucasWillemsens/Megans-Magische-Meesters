@@ -1,3 +1,6 @@
+import json
+from http.cookies import SimpleCookie
+
 from django.test import TestCase
 from django.urls import reverse
 
@@ -128,3 +131,88 @@ class BattleFlowTests(TestCase):
 
         self.assertEqual(self.game.roundNumber, 2)
         self.assertGreater(bot_cards_after, bot_cards_before)
+
+    def test_end_turn_sets_bot_action_cookies_for_viewing_board(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+
+        bot_cookies = {
+            name: morsel for name, morsel in response.cookies.items() if name.isdigit()
+        }
+        self.assertTrue(bot_cookies)
+        for morsel in bot_cookies.values():
+            # a browser only returns cookies whose path prefixes the request
+            # URL, so bot action cookies must be scoped to the viewing player's
+            # board for the enemy animations to render there.
+            self.assertEqual(morsel["path"], f"/game/{self.game.id}/board/{self.human.id}/")
+            payload = json.loads(morsel.value)
+            self.assertIn("laneValue", payload)
+            self.assertIn("sourceLane", payload)
+            self.assertIn("sourceOrdinal", payload)
+            self.assertIn("flipFaceUp", payload)
+
+    def test_board_reload_renders_and_clears_enemy_animations(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        end_turn_response = self.client.post(end_turn_url, {"action": "end_turn"})
+        bot_cookie_names = [
+            name for name in end_turn_response.cookies if name.isdigit()
+        ]
+        self.assertTrue(bot_cookie_names)
+
+        # the reload after 'end turn' carries the bot cookies back to the
+        # viewing player's board, which renders the enemy actions as loading
+        # animations with their source lane/ordinal.
+        response = self.client.get(board_url)
+        self.assertContains(response, 'cardContainer loading')
+        self.assertContains(response, 'data-source-lane="-')
+
+        # the render clears the bot cookies again (existing clear_cookies flow)
+        for name in bot_cookie_names:
+            self.assertEqual(response.cookies[name].value, "")
+            self.assertEqual(response.cookies[name]["max-age"], 0)
+
+        # the test client keeps deleted cookies as empty values; real browsers
+        # drop them, so the next board load lands clean with no animations.
+        self.client.cookies = SimpleCookie()
+        response = self.client.get(board_url)
+        self.assertNotContains(response, "cardContainer loading")
+
+    def test_bot_cookies_not_consumed_as_player_actions(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(action_url, {"action": "end_turn"})
+
+        bot_lane_cards = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+
+        # the next action POST carries the bot cookies along, but playcards()
+        # must only ever execute the acting participant's own cookies.
+        response = self.client.post(action_url, {"action": "draw"})
+
+        self.assertNotContains(response, "Action error")
+        human_hand_cards = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__lane=0,
+        ).count()
+        self.assertEqual(human_hand_cards, 1)
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.bot_participant.id,
+                state__lane__gt=0,
+            ).count(),
+            bot_lane_cards,
+        )

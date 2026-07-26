@@ -179,6 +179,12 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     if finished:
         return redirect(f"/game/{game_id}/result/{player_id}/")
 
+    # enemy (bot) action cookies are scoped to this board's URL, so they arrive
+    # with the plain board reload after 'end turn'; render them as loading
+    # animations and clear them like action POST renders do.
+    if not clear_cookies:
+        clear_cookies = _has_enemy_play_cookies(game, current_participant, request.COOKIES)
+
     own_board = contextBoard(gameCards, current_participant.id)
     # _board_state(game.id, current_participant.id)
     enemy_boards = []
@@ -225,6 +231,7 @@ def boardAction(request, game_id, player_id):
 
     action = request.POST.get("action", "")
     error_message = ""
+    bot_actions = []
     try:
         playcards(game, request.COOKIES, current_participant)
         if action == "draw":
@@ -237,7 +244,7 @@ def boardAction(request, game_id, player_id):
                 error_message = f"No cards left in {current_participant}'s deck."
         elif action == "end_turn":
             current_participant.resetTurn()
-            _run_bot_turn(game, player_id)
+            bot_actions = _run_bot_turn(game, player_id)
             game.roundNumber = max(game.roundNumber, 1) + 1
             game.save(update_fields=["roundNumber"])
         else:
@@ -249,14 +256,19 @@ def boardAction(request, game_id, player_id):
     # if finished:
     #     return redirect(f"/game/{game_id}/result/{player_id}/")
     request.session['plays'] = [] #clear plays after action is done
-    return viewBoard(request, game_id, player_id, error_message=error_message, clear_cookies=True)
+    response = viewBoard(request, game_id, player_id, error_message=error_message, clear_cookies=True)
+    _set_bot_action_cookies(response, game, bot_actions, player_id)
+    return response
 
 def playcards(game, plays, participant):
     for play in plays:
         if play =="csrftoken" or play == "sessionid":
             continue
-        payload = _parse_play_cookie_value(plays[play])
         card_id = int(play)
+        if not GameCard.objects.filter(pk=card_id, game_id=game.id, user_id=participant.id).exists():
+            # cookies of other participants (e.g. bot action cookies) are never played here
+            continue
+        payload = _parse_play_cookie_value(plays[play])
         participant.playCard(
             card_id,
             int(payload["laneValue"]),
@@ -403,7 +415,12 @@ def _render(request, template_name, context, clear_cookies=False):
         # when clearing cookies, all playable cookies for current game will be transferred to animations
         context = _addLoadingAnimations(context, request)
     response = HttpResponse(template.render(context, request))
-    requestPath = request.path[0: request.path.rfind("action")]
+    # cookies are set on the board URL; on action POSTs strip the trailing
+    # "action" so delete_cookie targets the exact same path.
+    if "action" in request.path:
+        requestPath = request.path[0: request.path.rfind("action")]
+    else:
+        requestPath = request.path
 
     if clear_cookies:
         for cookie in request.COOKIES:
@@ -413,12 +430,17 @@ def _render(request, template_name, context, clear_cookies=False):
 
 def _addLoadingAnimations(context, request):
     plays = []
+    game = context.get("game")
     for cookie in request.COOKIES:
         if cookie != "sessionid" and cookie != "csrftoken":
+            if not request.COOKIES[cookie]:
+                # deleted cookies may echo back with an empty value; nothing to animate
+                continue
             payload = _parse_play_cookie_value(request.COOKIES[cookie])
             plays.append(
                 {
                     "cardId": cookie,
+                    "participantId": _get_play_cookie_participant_id(game, cookie),
                     "laneValue": payload["laneValue"],
                     "sourceLane": payload["sourceLane"],
                     "sourceOrdinal": payload["sourceOrdinal"],
@@ -429,7 +451,50 @@ def _addLoadingAnimations(context, request):
     print(f"Updating loading animations for plays: {plays} at {request.path}")
     context["handCards"] = _update_drawn_hand_cards(context["handCards"], plays)
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
+    # enemy actions animate inside the enemy board that owns the card,
+    # mirroring how the player's own plays mark ownLaneRows
+    for enemy_board in context.get("enemyBoards", []):
+        enemy_plays = [
+            play
+            for play in plays
+            if play["participantId"] == enemy_board["participant"].id
+        ]
+        if enemy_plays:
+            enemy_board["laneRows"] = _update_played_cards(enemy_board["laneRows"], enemy_plays)
     return context
+
+
+def _has_enemy_play_cookies(game, current_participant, cookies):
+    # True when the request carries play cookies of other participants (bot
+    # action cookies) for this game. own play cookies are ignored so a plain
+    # board reload never consumes staged player plays.
+    for name, value in cookies.items():
+        if name in ("sessionid", "csrftoken") or not value:
+            # deleted cookies may echo back with an empty value
+            continue
+        try:
+            card_id = int(name)
+        except (TypeError, ValueError):
+            continue
+        if (
+            GameCard.objects.filter(pk=card_id, game_id=game.id)
+            .exclude(user_id=current_participant.id)
+            .exists()
+        ):
+            return True
+    return False
+
+
+def _get_play_cookie_participant_id(game, card_id):
+    # play cookies are namespaced by path per participant, but the request does
+    # not expose cookie paths, so the owning participant is read from the card
+    if game is None:
+        return None
+    try:
+        game_card = GameCard.objects.only("user_id").get(game_id=game.id, pk=int(card_id))
+    except (GameCard.DoesNotExist, ValueError):
+        return None
+    return game_card.user_id
 
 
 def _parse_play_cookie_value(cookie_value):
@@ -505,6 +570,7 @@ def _ensure_game_initialized(game):
 
 def _run_bot_turn(game, human_player_id):
     bot_participants = game.history.participants.exclude(player_id=human_player_id).filter(computerControlled=True)
+    bot_actions = []
     for bot_participant in bot_participants:
         hand_card = (
             GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
@@ -512,7 +578,20 @@ def _run_bot_turn(game, human_player_id):
             .first()
         )
         if hand_card is None:
+            next_deck_card = bot_participant.getNextDeckCard()
             if bot_participant.drawCard() is not None:
+                # drawn card moved deck -> hand
+                bot_actions.append(
+                    {
+                        "participantId": bot_participant.id,
+                        "playerId": bot_participant.player_id,
+                        "cardId": next_deck_card.id,
+                        "laneValue": 0,
+                        "sourceLane": next_deck_card.state.lane,
+                        "sourceOrdinal": next_deck_card.state.laneOrdinal,
+                        "flipFaceUp": False,
+                    }
+                )
                 if bot_participant.getNextDeckCard() is None:
                     specialActions(bot_participant)
                     bot_participant.shuffleBoard()
@@ -523,8 +602,55 @@ def _run_bot_turn(game, human_player_id):
                 .first()
             )
         if hand_card is not None:
-            bot_participant.playCard(hand_card.id, flipFaceUp=True)
+            source_lane = hand_card.state.lane
+            source_ordinal = hand_card.state.laneOrdinal
+            played_card = bot_participant.playCard(hand_card.id, flipFaceUp=True)
+            # played card moved hand -> lane (and possibly flipped)
+            bot_actions.append(
+                {
+                    "participantId": bot_participant.id,
+                    "playerId": bot_participant.player_id,
+                    "cardId": played_card.id,
+                    "laneValue": played_card.state.lane,
+                    "sourceLane": source_lane,
+                    "sourceOrdinal": source_ordinal,
+                    "flipFaceUp": not played_card.state.faceDown,
+                }
+            )
         bot_participant.resetTurn()
+    return bot_actions
+
+
+def _set_bot_action_cookies(response, game, bot_actions, player_id):
+    # one cookie per bot action, same payload shape as player play cookies.
+    # cookies are scoped by path to the viewing player's board URL: a browser
+    # only returns a cookie whose path prefixes the request URL, so scoping to
+    # the viewing player's board is what makes the bot actions reach the board
+    # render where the enemy animations play (the bot's own board URL is never
+    # requested). bot cookies stay distinguishable from the viewing player's
+    # own cookies through the GameCard's user_id (see
+    # _get_play_cookie_participant_id), and playcards() skips cookies of other
+    # participants, so they are never consumed as player actions.
+    # cookies are keyed by card id, so actions on the same card merge into one
+    # cookie (first source, last target), just like repeated player drags.
+    payloads = {}
+    for bot_action in bot_actions:
+        card_id = str(bot_action["cardId"])
+        payload = payloads.get(card_id)
+        if payload is None:
+            payload = {
+                "laneValue": bot_action["laneValue"],
+                "sourceLane": bot_action["sourceLane"],
+                "sourceOrdinal": bot_action["sourceOrdinal"],
+                "flipFaceUp": bot_action["flipFaceUp"],
+            }
+            payloads[card_id] = payload
+        else:
+            payload["laneValue"] = bot_action["laneValue"]
+            payload["flipFaceUp"] = bot_action["flipFaceUp"]
+    path = f"/game/{game.id}/board/{player_id}/"
+    for card_id, payload in payloads.items():
+        response.set_cookie(card_id, json.dumps(payload), path=path)
 
 def newBoard():
     board = {

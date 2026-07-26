@@ -42,9 +42,9 @@ Polish the battle page to make the game feel responsive, readable, and exciting.
 
 There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card.
 
-- [ ] Animate the recorded enemy actions on the board, the same way player actions animate.
-- [ ] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
-- [ ] Give the player a clear timeframe to watch the enemy actions before the board reloads.
+- [x] Animate the recorded enemy actions on the board, the same way player actions animate.
+- [x] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
+- [x] Give the player a clear timeframe to watch the enemy actions before the board reloads.
 
 
 ### Pre-battle and deck flow

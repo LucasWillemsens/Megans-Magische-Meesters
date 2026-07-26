@@ -303,12 +303,11 @@ def ensure_done_structure(rel_path, dry_run=False):
     before writing the description.
     """
     done_target = DONE_DIR / rel_path
-    parent = done_target.parent
 
-    if not parent.exists():
-        print(f"  Creating: {parent.relative_to(REPO_ROOT)}/")
+    if not done_target.exists() and not done_target.suffix:
+        print(f"  Creating: {done_target.relative_to(REPO_ROOT)}/")
         if not dry_run:
-            parent.mkdir(parents=True, exist_ok=True)
+            done_target.mkdir(parents=True, exist_ok=True)
 
     return done_target
 
@@ -384,7 +383,7 @@ def run_tests():
     print("STEP 4: Running Tests")
     print("=" * 60)
 
-    rc, out, err = run(f"python manage.py test", check=False)
+    rc, out, err = run(f"python3 manage.py test", check=False)
     if out:
         print(f"  {out}")
     if err:
@@ -404,7 +403,7 @@ def run_update_readme():
     print("STEP 5: Updating README Roadmap")
     print("=" * 60)
 
-    rc, out, err = run(f"python {UPDATE_SCRIPT}", check=False)
+    rc, out, err = run(f"python3 {UPDATE_SCRIPT}", check=False)
     if out:
         print(f"  {out}")
     if err:
@@ -494,6 +493,15 @@ def main():
         action="store_true",
         help="Show what would be done without making changes",
     )
+    parser.add_argument(
+        "--match",
+        action="append",
+        default=[],
+        metavar="ROADMAP_PATH",
+        help="Explicitly mark a roadmap item as done (repeatable, e.g. "
+        "--match battle-page-polish/enemy-turn-indicators/enemy-action-cookies). "
+        "When given, auto-matching is bypassed for the done/ update.",
+    )
     args = parser.parse_args()
 
     os.chdir(REPO_ROOT)
@@ -535,7 +543,31 @@ def main():
     roadmap_descs = collect_descriptions(ROADMAP_DIR)
     done_descs = collect_descriptions(DONE_DIR) if DONE_DIR.exists() else {}
 
-    if changed_files or diff_text:
+    if args.match:
+        # Manual override: only the explicitly named items are candidates
+        # for the done/ update, regardless of the auto-match results.
+        new_matches = []
+        for path in args.match:
+            clean = path.strip().strip("/").replace("/description.txt", "")
+            desc = read_full_description(ROADMAP_DIR, clean)
+            if desc is None and (DONE_DIR / clean / "description.txt").exists():
+                # Already moved to done/ — still list it so the skip is visible
+                desc = ""
+            if desc is None:
+                print(f"  WARN: --match target not found in roadmap/ or done/: {clean}")
+                continue
+            new_matches.append({
+                "roadmap_path": clean,
+                "description": desc.split("\n")[0] if desc else clean,
+                "category": get_description_category(clean),
+                "matched_keywords": ["manual"],
+                "total_keywords": 1,
+                "score": 1.0,
+            })
+        print(f"\n  Manual --match override: {len(new_matches)} item(s) selected:")
+        for m in new_matches:
+            print(f"    - {m['roadmap_path']}")
+    elif changed_files or diff_text:
         matched, identifiers = match_changed_code_to_descriptions(
             diff_text, changed_files, roadmap_descs
         )

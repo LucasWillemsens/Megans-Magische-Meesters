@@ -31,12 +31,14 @@
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer {{ card.cssClass }} faceDown">
+                            <li class="cardContainer {{ card.cssClass }} faceDown" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card back smallCard">
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer {{ card.cssClass }}">
+                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"

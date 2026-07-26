@@ -1,0 +1,20 @@
+Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
+
+Implementation:
+1. Modify `MMM/views.py` `_run_bot_turn()` to collect the actions each bot takes:
+   - drawn cards (deck -> hand), played cards (hand -> lane), flips.
+   - Record card id, source lane/ordinal and target lane for each action.
+2. In `boardAction()`, after `_run_bot_turn()`, set one cookie per bot action on the response using the existing JSON payload shape: {"laneValue", "sourceLane", "sourceOrdinal", "flipFaceUp"}. Repeated actions on the same card merge into one cookie (first source, last target), mirroring the player flow.
+3. Namespace the bot cookies so they are never confused with player cookies by using the cookie path. The original plan put the bot player id in the path, but RFC 6265 path-prefix matching makes that undeliverable: the bot's board URL is never requested, so the browser would never send those cookies. As built, the path is scoped to the viewing player's board URL (`/game/<game_id>/board/<viewer_player_id>/`), and the owning participant is attributed server-side from the GameCard's user_id:
+   - Update `_addLoadingAnimations()` to tag `plays` entries with the owning participant id (via GameCard lookup). Make sure bot players have the correct participant id.
+   - `playcards()` skips cookies whose card does not belong to the acting participant, so bot cookies are never consumed as player actions.
+
+Files to modify:
+- `MMM/views.py` (_run_bot_turn ~line 506, boardAction ~line 218, playcards ~line 254, _addLoadingAnimations ~line 414)
+
+Acceptance criteria:
+- Pressing 'end turn' creates one cookie per bot action, in the same payload format as player play cookies, with the path scoped to the viewing player's board URL so the browser actually delivers them on the board reload.
+- Bot cookies are never consumed by `playcards()` as player actions on the next POST.
+- Bot cookies are cleared after the board renders (existing clear_cookies flow in `_render`).
+
+Dependencies: None (first subgoal; enemy-action-animation and enemy-turn-viewing-window build on it).
