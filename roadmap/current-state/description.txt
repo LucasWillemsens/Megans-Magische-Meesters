@@ -1,3 +1,0 @@
-Capture the current project state and prioritize the next development steps.
-
-Includes the existing data model, web flow, and missing match-loop work.

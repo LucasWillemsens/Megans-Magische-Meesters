@@ -1,0 +1,1 @@
+cardDragDrop.js appends a drop-zone div to each player lane; dragging a hand card highlights all zones, dropping removes the card from the hand DOM, adds a hologram preview to the zone, and writes a play cookie for the card id. Nothing is submitted until the next action POST.

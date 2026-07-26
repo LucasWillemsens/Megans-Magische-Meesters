@@ -1,0 +1,1 @@
+index lists all players and the 5 latest cards, plus a ResetGames link (resetGames wipes all game/battle/deck data). viewPlayer shows the player's challenges with lootPile, start time and participants, plus their owned card collection. viewCard shows a single card. base.jinja2 provides favicon and global stylesheets (style.css, cards.css) for every page.

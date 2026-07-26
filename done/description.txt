@@ -1,0 +1,3 @@
+Completed work on Megans Magische Meesters, a Django + Jinja2 + vanilla JS card-battle prototype.
+
+Entries also present in roadmap/ are partially done ([~] in README); entries only present here are complete ([x]). The foundation areas — core-data-model, game-mechanics, web-flow, battle-interaction, test-coverage — document what the codebase already does so agents can reason about goals without reading implementation files. current-state summarizes where the project stands.

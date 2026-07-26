@@ -1,0 +1,3 @@
+Battle board rendering and the cookie-driven play/flip/animation system. Template: MMM/jinja2/MMM/battle/viewBoard.jinja2. Frontend: var/www/static/cardDragDrop.js, cardDragDrop.css, loadingAnimations.js, cards.css.
+
+Includes: board-rendering, drag-drop-to-lane, hologram-previews, click-to-flip, play-cookies, loading-animations.

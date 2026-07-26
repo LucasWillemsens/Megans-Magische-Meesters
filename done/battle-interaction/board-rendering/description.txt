@@ -1,0 +1,1 @@
+viewBoard.jinja2 renders enemy boards (name, deck/hand counts, lanes with face-down backs, revealed smallCards, trusted-card rows) above the player board: four lanes each with a cards row, a lane value (revealed count) and a trustedCards row, a deck stack whose last card carries the Draw button, the hand, per-turn drawn/played/flipped counters, and the End turn form.

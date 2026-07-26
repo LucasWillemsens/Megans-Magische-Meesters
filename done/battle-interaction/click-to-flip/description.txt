@@ -1,0 +1,1 @@
+Clicking a face-down card container on the player board (or a hologram) writes a flip cookie (flipFaceUp=true) targeting its current lane and reveals the card client-side; the server applies the reveal on the next action POST. Listeners are one-shot ({once: true}) so a card can only be flipped once per render.

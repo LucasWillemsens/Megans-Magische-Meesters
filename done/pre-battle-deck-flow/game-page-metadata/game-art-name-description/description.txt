@@ -1,0 +1,1 @@
+Artwork (Game.artSource with fallback image) and an auto-generated name ("<challenger> vs <opponent>" title) are shown on the game page; a game description field is still missing.

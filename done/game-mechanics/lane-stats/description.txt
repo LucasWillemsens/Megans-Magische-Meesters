@@ -1,0 +1,1 @@
+BattleParticipant.getStats() counts the participant's revealed (face-up) cards per lane: intCount/spdCount/visCount/resCount, plus derived tactics (int+spd), power (vis+res), and influence (tactics+power). All turn limits and special actions read these stats.

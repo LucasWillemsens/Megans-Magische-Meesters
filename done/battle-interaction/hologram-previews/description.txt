@@ -1,0 +1,1 @@
+On drop, a face-down non-draggable copy of the card is appended to the lane's drop-zone as a .hologram; cardDragDrop.css stacks holograms with nth-child left offsets so multiple pending plays peek out of one zone. Holograms are excluded from normal face-down click handling and get their own one-shot click-to-flip listener.

@@ -1,0 +1,1 @@
+Challenged players join as computerControlled BattleParticipants with an auto-built random deck (createRobot). _run_bot_turn() in views.py runs when the human ends their turn: each bot draws when its hand is empty (special + shuffle on empty deck), plays its first hand card face-up, then calls resetTurn().

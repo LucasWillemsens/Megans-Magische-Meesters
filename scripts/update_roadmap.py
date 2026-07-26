@@ -207,7 +207,7 @@ def render_roadmap_section(merged, rset, dset):
         else:
             lines.extend(render_category(section_name, node, rset, dset))
 
-    for section_name, node in merged.items():
+    for section_name, node in sorted(merged.items()):
         if section_name in SECTION_ORDER:
             continue
         if node["type"] == "leaf":

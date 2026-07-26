@@ -1,0 +1,3 @@
+Turn rules, lane stats, special actions, bot turns, and win detection. Lives in MMM/models.py (BattleParticipant methods) and MMM/views.py (special actions, bot turn, game result).
+
+Includes: lane-stats, turn-action-limits, special-actions, deck-exhaustion-shuffle, bot-opponent, win-detection-and-result-page.
