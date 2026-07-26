@@ -1,1 +1,12 @@
 Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
+
+Ideas:
+- Offset stack — overlap cards with a slight vertical offset and shadow so each card peeks out, like a real card pile. Simple CSS (transforms + z-index), familiar card-game feel.
+- Expandable stack — compact stack with a count badge by default; fan the cards out on hover/tap.
+- Thumbnail grid — miniaturize the cards into a compact grid; everything visible at once, but less of a card-game feel.
+- Priority card — show only the most recent card prominently, with a count badge for the rest.
+
+Open questions:
+- What is the max number of cards expected in a lane?
+- Should stacked cards show artwork or just backs/icons?
+- hologram-row lands first — mirror whatever it does.

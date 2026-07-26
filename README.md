@@ -30,7 +30,6 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
-- [ ] Show enemy player turn indicators to improve multiplayer-like flow and make it obvious when the opponent is acting.
 - [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
 - [ ] Create a smooth draw-card animation that visually communicates when a card is drawn from the deck into play.
 - [ ] Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
@@ -39,6 +38,15 @@ Polish the battle page to make the game feel responsive, readable, and exciting.
 - [ ] Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why.
 - [ ] Add an undo button and a fallback board reload path that recovers the player state if the game is driven by cookie data.
 
+#### Enemy Turn Indicators
+
+There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card.
+
+- [ ] Animate the recorded enemy actions on the board, the same way player actions animate.
+- [ ] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
+- [ ] Give the player a clear timeframe to watch the enemy actions before the board reloads.
+
+
 ### Pre-battle and deck flow
 
 Build the pre-battle experience, including deck ordering, challenge management, active games, and deck metadata.
@@ -46,8 +54,10 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 - [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
 - [ ] Support canceling a pending challenge cleanly in the UI.
 - [ ] Allow the player to set a custom deck order before battle begins.
+- [ ] Move completed games and challenges into a dedicated history page for better post-game navigation.
+- [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
 
-### Deck page
+#### Deck page
 
 Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
 
@@ -56,7 +66,7 @@ Create a deck page that lets players manage decks with ordering, artwork, metada
 - [ ] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.
 - [ ] Allow deck name and description editing so players can label their decks clearly.
 
-### Game page metadata
+#### Game page metadata
 
 Improve game page metadata so each match feels like a distinct playable entry.
 
@@ -64,8 +74,6 @@ Improve game page metadata so each match feels like a distinct playable entry.
 - [ ] Add artwork, name, and description support to the game page to make matches easier to identify.
 - [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
 
-- [ ] Move completed games and challenges into a dedicated history page for better post-game navigation.
-- [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
 
 ### Tests and reliability
 
@@ -88,7 +96,7 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 
 ### Low priority
 
-### Customization and card systems
+#### Customization and card systems
 
 Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
 
@@ -99,7 +107,7 @@ Develop customization systems that grow the game beyond simple battles, includin
 - [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
 - [ ] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.
 
-### Sound design
+#### Sound design
 
 Add sound design to support the game's atmosphere, feedback, and rhythm.
 
@@ -116,4 +124,4 @@ Capture later action items that improve match polish and post-game flow after th
 - [ ] Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.
 - [ ] Implement pursuit and flee rules for chase sequences in multiplayer battles and split-out outcomes.
 - [ ] Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.
-- [ ] Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions.
+- [~] Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions. _(start of play card in lane animation)_

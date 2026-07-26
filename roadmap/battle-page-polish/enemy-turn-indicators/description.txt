@@ -1,1 +1,3 @@
-Show enemy player turn indicators to improve multiplayer-like flow and make it obvious when the opponent is acting.
+There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card.
+
+Includes: enemy-action-cookies, enemy-action-animation, enemy-turn-viewing-window.
