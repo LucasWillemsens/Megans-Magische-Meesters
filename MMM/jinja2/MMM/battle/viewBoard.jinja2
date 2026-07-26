@@ -1,6 +1,12 @@
 {% extends 'base.jinja2' %}
 
 {% block content %}
+{% if turnPhase %}
+{# cross-render turn sequence signal for loadingAnimations.js: "playerMoves"
+   (own moves, then reload), "enemy" (enemy markers + moves, then reload) or
+   "player" (own turn starts, no reload) #}
+<div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
+{% endif %}
 <div class="playerScreen playingCards fourColours rotateHand">
     <div class="players">
         <div class="title">
@@ -25,6 +31,38 @@
             <h2>{{ enemy.participant.player.name }} </h2>
             {# gameBoard #}
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
+            {# real face-down deck/hand elements: enemy draw/play animations
+               originate here (mirrors the player's deck stack) #}
+            <div class="enemyDeckHand">
+                <ul class="deck enemyDeck">
+                    {% if enemy.deckStack %}
+                        {% for card in enemy.deckStack %}
+                    <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
+                        data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        <div class="card back smallCard"></div>
+                    </li>
+                        {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back emptyDeck">Empty</div>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="hand enemyHand">
+                    {% if enemy.handCards %}
+                        {% for card in enemy.handCards %}
+                    <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                        data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        <div class="card back smallCard"></div>
+                    </li>
+                        {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back emptyHand"></div>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
             <ul class="lanes">
                 {% for lane in enemy.laneRows %}
                 <li class="lane {{lane.name}}">
@@ -284,7 +322,9 @@
         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
             {{ csrf_input }}
             <input type="hidden" name="action" value="end_turn">
-            <button type="submit" class="end-turn" title="End turn" autofocus>
+            {# during the enemy phase the focus stays at the top of the page, so
+               the end-turn button must not steal it back with autofocus #}
+            <button type="submit" class="end-turn" title="End turn" {% if turnPhase != "enemy" %}autofocus{% endif %}>
                 <span class="suit">End turn</span>
             </button>
         </form>

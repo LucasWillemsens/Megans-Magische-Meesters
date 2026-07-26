@@ -773,6 +773,35 @@ div.playerScreen{
     flex-wrap: nowrap;
 }
 
+/* enemy deck and hand: real face-down card elements so enemy draw/play
+   animations have a source to fly from, mirroring the player's deck stack */
+.playerScreen .enemyDeckHand {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 1rem;
+    width: 100%;
+    min-height: 9em;
+}
+.playerScreen .enemyDeckHand > .deck {
+    max-width: 20%;
+    max-height: 100%;
+}
+.playerScreen .enemyDeckHand > .hand {
+    width: 60%;
+    margin: 0 20%;
+}
+
+/* while the enemy turn plays, the focus sits on the enemy boards at the top
+   of the page and the player's own deck/hand is greyed out / de-emphasized */
+.playerScreen.enemyTurnFocus > .deckHand {
+    opacity: 0.3;
+    filter: grayscale(0.9);
+    pointer-events: none;
+    transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
+}
+
 button.end-turn{
     cursor: pointer;
     display: inline-block;
