@@ -1,0 +1,3 @@
+Automated tests for the battle flow, all passing via `python3 manage.py test`.
+
+Includes: battle-flow-tests.

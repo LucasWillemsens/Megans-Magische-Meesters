@@ -1,0 +1,1 @@
+Player (name, profilePictureSource), Symbol (iconName, effectDescription), and Card (title, artSource, cardType 0–3 = Intelligence/Speed/Viciousness/Resolve, symbols M2M) are modeled. CardOwnerHistory records each ownership acquisition; Player.getKnownCards() returns every card ever owned, getCollection() filters to cards whose latest owner is the player.

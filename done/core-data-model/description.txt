@@ -1,0 +1,3 @@
+Data layer for players, cards, decks, games, and in-play card state. Django models in MMM/models.py with migrations 0001–0014.
+
+Includes: ownership-and-collections, deck-model, game-and-participant-models, card-state-machine.

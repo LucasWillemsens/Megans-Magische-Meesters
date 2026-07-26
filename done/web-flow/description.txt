@@ -1,0 +1,3 @@
+Page flow from landing to a finished match: index → player page → create challenge → initialize → game detail/confirm → board → result. URLs in MMM/urls.py, views in MMM/views.py, Jinja2 templates in MMM/jinja2/MMM/.
+
+Includes: landing-and-player-pages, challenge-setup, game-initialization, board-action-endpoint.

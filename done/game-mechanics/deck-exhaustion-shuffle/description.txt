@@ -1,0 +1,1 @@
+When a draw empties the deck, specialActions() runs and then shuffleBoard() returns all untrusted revealed board cards plus all hand cards to the deck (CardState.shuffleBack → reset). Trusted cards stay on the board, so decks never run dry and trusted progress is preserved.

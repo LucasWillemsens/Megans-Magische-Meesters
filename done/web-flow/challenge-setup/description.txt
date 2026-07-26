@@ -1,0 +1,1 @@
+createGame renders a form (createGame.jinja2): pick an opponent, a deck (or "New" = whole collection), and a trusted starting card. initializeGame (POST) creates the human BattleParticipant, substitutes a fallback opponent when challenging yourself, adds the opponent as a robot challenger, and auto-titles the game "<challenger> vs <opponent>".

@@ -1,0 +1,1 @@
+Deck (title, description, artSource, cards M2M, player FK) groups cards for battle. Deck.create() defaults to the player's full collection with generated title/description. Deck.available() returns false when any card is no longer owned or already in use as a GameCard.
