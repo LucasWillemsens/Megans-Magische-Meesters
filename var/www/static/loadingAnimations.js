@@ -56,7 +56,7 @@ class loadingAnimationsSystem {
             }
             // nothing to fly in (no source position): never leave the card
             // stuck invisible behind the .loading CSS rule
-            element.classList.remove('loading');
+            // element.classList.remove('loading');
         };
 
         // player actions always play before enemy actions
