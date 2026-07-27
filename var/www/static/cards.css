@@ -1272,8 +1272,13 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
     transform: translate(var(--move-x, 0px), var(--move-y, 0px)) !important;
 }
 
-.animating{
-    transition: all 0.25s ease-in-out;
+/* a flip duplicate sits at the original's own slot showing the pre-flip
+   back; instead of flying it turns edge-on over --move-duration, then the
+   revealed original takes over (loadingAnimations.js swaps them on
+   transitionend). this rule must out-specificity the !important translate
+   above, which only applies to flight duplicates */
+.duplicate.flipFaceUp.to-original {
+    transform: rotateY(90deg) !important;
 }
 
 /* a card that is about to animate stays invisible in its final position from

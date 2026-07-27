@@ -174,6 +174,16 @@ class BattleFlowTests(TestCase):
         self.assertContains(response, 'cardContainer loading')
         self.assertContains(response, 'data-source-lane="-')
 
+        # the loading card's data-source-* must describe where the card came
+        # from (the bot drew from the deck: source ordinal 0), not the card's
+        # final position in the lane
+        loading_tag = re.search(
+            r'<li class="cardContainer loading"[^>]*>', response.content.decode()
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn('data-source-lane="-', loading_tag.group(0))
+        self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
+
         # the render clears the bot cookies again (existing clear_cookies flow)
         for name in bot_cookie_names:
             self.assertEqual(response.cookies[name].value, "")
@@ -309,6 +319,58 @@ class BattleFlowTests(TestCase):
         # position as the animation source (negative source lane)
         self.assertEqual(updated[0].cssClass, "loading")
         self.assertEqual(updated[0].state.lane, -2)
+        # the source ordinal must land in state.laneOrdinal: that is what the
+        # template renders as data-source-ordinal (a throwaway 'ordinal'
+        # attribute used to leave the final ordinal in the markup)
+        self.assertEqual(updated[0].state.laneOrdinal, 0)
+
+    def test_update_played_cards_marks_source_state(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        # let the bot play a card to a lane so there is an untrusted lane
+        # card (the trusted starting card lives in trustedCards, which
+        # _update_played_cards deliberately does not animate)
+        self.client.post(end_turn_url, {"action": "end_turn"})
+
+        bot_lane_card = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+            state__trusted=False,
+        ).first()
+        self.assertIsNotNone(bot_lane_card)
+        final_ordinal = bot_lane_card.state.laneOrdinal
+
+        lane_rows = views.contextBoard(
+            GameCard.objects.filter(game_id=self.game.id), self.bot_participant.id
+        )["laneRows"]
+        plays = [
+            {
+                "cardId": str(bot_lane_card.id),
+                "participantId": self.bot_participant.id,
+                "laneValue": bot_lane_card.state.lane,
+                "sourceLane": 0,
+                "sourceOrdinal": 2,
+                "flipFaceUp": True,
+            }
+        ]
+        updated = views._update_played_cards(lane_rows, plays)
+
+        marked = [
+            card
+            for row in updated
+            for card in row["cards"]
+            if card.id == bot_lane_card.id
+        ]
+        self.assertEqual(len(marked), 1)
+        self.assertEqual(marked[0].cssClass, "loading")
+        # data-source-* point at the hand the card came from, not at the
+        # card's final position in the lane
+        self.assertEqual(marked[0].state.lane, 0)
+        self.assertEqual(marked[0].state.laneOrdinal, 2)
+        self.assertNotEqual(marked[0].state.laneOrdinal, final_ordinal)
 
     def test_bot_cookies_not_consumed_as_player_actions(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])

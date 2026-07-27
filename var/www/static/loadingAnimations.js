@@ -47,16 +47,18 @@ class loadingAnimationsSystem {
                     duplicate.addEventListener('transitionend', revealElement, { once: true });
                     setTimeout(revealElement, moveDuration * 1000 + 100);
                     requestAnimationFrame(() => {
-                        if (lane <= 0){
-                            duplicate.classList.add('to-original');
-                        }
+                        // lane <= 0: fly from the deck/hand to the original's
+                        // rect (--move-x/y); lane > 0: the flip duplicate is
+                        // already at the original's slot and turns edge-on in
+                        // place (.flipFaceUp.to-original) before the swap
+                        duplicate.classList.add('to-original');
                     });
                     return;
                 }
             }
             // nothing to fly in (no source position): never leave the card
             // stuck invisible behind the .loading CSS rule
-            // element.classList.remove('loading');
+            element.classList.remove('loading');
         };
 
         // player actions always play before enemy actions
@@ -273,9 +275,20 @@ function duplicateCard(element, lane, ordinal)
         const duplicateRect = duplicate.getBoundingClientRect();
         // console.log(`Original Rect:`, originalRect, `Duplicate Rect:`, duplicateRect);
         if (lane > 0){
+            // a lane source means a flip in place: the source slot IS the
+            // original's slot, so the clone must NOT show the final face-up
+            // state it was cloned from (that is exactly the "card appears at
+            // its final position before the animation" bug, the clone being
+            // exempt from the .loading hiding rule). show the pre-flip back
+            // instead (mirroring the face-down card markup) and let CSS turn
+            // it edge-on before the original is revealed
             duplicate.classList.add('flipFaceUp');
-            // duplicate.style.setProperty('position', 'absolute');
-            // duplicate.style.setProperty('top', `${originalRect.top}px`);
+            duplicate.classList.add('faceDown');
+            const innerCard = duplicate.querySelector('.card');
+            if (innerCard) {
+                innerCard.classList.add('back');
+                innerCard.replaceChildren();
+            }
         } else{
             duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
             duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);

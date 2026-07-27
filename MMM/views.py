@@ -615,8 +615,13 @@ def _update_moved_hand_cards(hand_cards, plays):
         card_id = int(play["cardId"])
         for card in hand_cards:
             if card.id == card_id:
-                card.state.lane = play["sourceLane"]
-                card.state.ordinal = play["sourceOrdinal"]
+                # the template renders state.lane/state.laneOrdinal, so those
+                # are the fields to overwrite with the animation source (the
+                # in-memory state is never saved here)
+                if play["sourceLane"] is not None:
+                    card.state.lane = play["sourceLane"]
+                if play["sourceOrdinal"] is not None:
+                    card.state.laneOrdinal = play["sourceOrdinal"]
                 card.cssClass = "loading"
     return hand_cards
 
@@ -627,10 +632,16 @@ def _update_played_cards(lane_rows, plays):
         for row in lane_rows:
             for card in row["cards"]:
                 if card.id == card_id:
-                    card.state.lane = play["sourceLane"]
-                    card.state.ordinal = play["sourceOrdinal"]
+                    # see _update_moved_hand_cards: state.laneOrdinal, not a
+                    # throwaway 'ordinal' attribute, or the rendered
+                    # data-source-ordinal is the card's final position and the
+                    # duplicate launches from the wrong slot
+                    if play["sourceLane"] is not None:
+                        card.state.lane = play["sourceLane"]
+                    if play["sourceOrdinal"] is not None:
+                        card.state.laneOrdinal = play["sourceOrdinal"]
                     card.cssClass = "loading"
-                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.ordinal}) -> {row['name']} .")
+                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.laneOrdinal}) -> {row['name']} .")
     return lane_rows
 
 def _game_result(game, force_end=False):
