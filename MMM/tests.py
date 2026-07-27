@@ -195,6 +195,88 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         self.assertNotContains(response, "cardContainer loading")
 
+    def test_draw_renders_drawn_card_loading_from_deck(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # the player's draw is recorded server-side as a play, so the action
+        # response itself renders the drawn hand card as a loading animation
+        # (mirroring the bot draw flow, no cookie round-trip)
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertContains(response, 'cardContainer loading')
+        self.assertContains(response, 'data-source-lane="-')
+
+        # the loading card's data-source-* must describe where the card came
+        # from (the top of the deck: negative source lane, deck ordinal 0),
+        # not the card's final position in the hand
+        loading_tag = re.search(
+            r'<li class="cardContainer loading"[^>]*>', response.content.decode()
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn('data-source-lane="-', loading_tag.group(0))
+        self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
+
+        # the draw itself still happened: one card sits in the player's hand
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.human_participant.id,
+                state__lane=0,
+            ).count(),
+            1,
+        )
+
+    def test_draw_sets_no_play_cookie(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        drawn_card = GameCard.objects.get(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        )
+
+        # the draw play is server-recorded, not cookie-staged: the response
+        # sets no digit-named cookie for the drawn card (cookies are only for
+        # cross-request plays, but the draw animates on this very response)
+        self.assertNotIn(str(drawn_card.id), response.cookies)
+        self.assertFalse([name for name in response.cookies if name.isdigit()])
+
+    def test_action_posts_render_board_veil(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # action POST renders obfuscate the final board state behind a
+        # full-screen veil while the loading animations play above it
+        # (loadingAnimations.js lifts the veil only when the page will not
+        # navigate away)
+        response = self.client.post(action_url, {"action": "draw"})
+        self.assertContains(
+            response,
+            '<div id="boardVeil" class="boardVeil" aria-hidden="true"></div>',
+        )
+
+        response = self.client.post(action_url, {"action": "end_turn"})
+        self.assertContains(
+            response,
+            '<div id="boardVeil" class="boardVeil" aria-hidden="true"></div>',
+        )
+
+    def test_plain_board_get_renders_no_board_veil(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # a plain board render stays on screen, so nothing may obfuscate it
+        response = self.client.get(board_url)
+        self.assertNotContains(response, "boardVeil")
+
     def test_enemy_deck_and_hand_render_as_card_elements(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
@@ -452,3 +534,125 @@ class BattleFlowTests(TestCase):
 
         # the player's own controls are untouched (the deck still draws)
         self.assertContains(response, 'class="card back draw"')
+
+    def test_game_ending_end_turn_renders_player_moves_instead_of_redirecting(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # force the game to be over before the end_turn POST
+        self.human_participant.defeated = True
+        self.human_participant.save()
+
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+
+        # the game-ending action renders its own moves instead of
+        # short-circuiting to the result page: the turn-phase chain plays out
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-phase="playerMoves"')
+        # the playerMoves render always targets the board URL: the bot action
+        # cookies set on this response must still render in the enemy phase
+        self.assertContains(response, f'data-next-url="{board_url}"')
+        # boardAction keeps handing "enemy" to the next render even when
+        # finished: the enemy phase is where the final bot moves play
+        self.assertEqual(response.cookies["turn_phase"].value, "enemy")
+
+    def test_finished_game_enemy_phase_targets_result_and_ends_phase_chain(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        result_url = reverse("MMM:viewResult", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.human_participant.defeated = True
+        self.human_participant.save()
+
+        self.client.post(end_turn_url, {"action": "end_turn"})
+
+        # the following board GET carries the turn phase and bot action
+        # cookies: the enemy phase still renders (final bot moves + markers),
+        # but its navigation target is the result page
+        response = self.client.get(board_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertContains(response, f'data-next-url="{result_url}"')
+
+        # the phase chain terminates on game end: the turn phase cookie is
+        # deleted (empty value, max-age 0) instead of handing off "player" -
+        # a finished game never shows the "Your turn" marker
+        self.assertEqual(response.cookies["turn_phase"].value, "")
+        self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
+
+        # and with the phase cookie gone, the next plain board visit skips
+        # straight to the results
+        response = self.client.get(board_url)
+        self.assertRedirects(response, result_url)
+
+    def test_game_ending_draw_targets_result_url(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        result_url = reverse("MMM:viewResult", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # force the game to be over before the draw POST
+        self.bot_participant.defeated = True
+        self.bot_participant.save()
+
+        # a non-end_turn action render on a finished game still renders its
+        # animation (200, not a redirect), but navigates to the result page
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-next-url="{result_url}"')
+
+    def test_plain_board_get_on_finished_game_redirects_to_result(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        result_url = reverse("MMM:viewResult", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.human_participant.defeated = True
+        self.human_participant.save()
+
+        # a plain board visit on a finished game (no animation cookies, no
+        # phase signal) has nothing left to play out and skips to the results
+        self.client.cookies = SimpleCookie()
+        response = self.client.get(board_url)
+        self.assertRedirects(response, result_url)
+
+    def test_finished_game_redirect_deletes_stale_phase_cookie(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        result_url = reverse("MMM:viewResult", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.human_participant.defeated = True
+        self.human_participant.save()
+
+        # a stale phase signal never lingers on a finished game: the redirect
+        # response deletes it (a stale "player" signal renders nothing, so
+        # this visit has no sequence left to play out)
+        self.client.cookies = SimpleCookie()
+        self.client.cookies["turn_phase"] = "player"
+        response = self.client.get(board_url)
+        self.assertRedirects(response, result_url)
+        self.assertEqual(response.cookies["turn_phase"].value, "")
+        self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
+        self.assertEqual(
+            response.cookies["turn_phase"]["path"],
+            f"/game/{self.game.id}/board/{self.human.id}/",
+        )
+
+    def test_result_redirects_back_to_board_when_unfinished(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        result_url = reverse("MMM:viewResult", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # the viewResult guard is unchanged: an unfinished game has no result
+        # page yet and bounces back to the board
+        response = self.client.get(result_url)
+        self.assertRedirects(response, board_url)

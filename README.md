@@ -31,7 +31,6 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
 - [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
-- [ ] Create a smooth draw-card animation that visually communicates when a card is drawn from the deck into play.
 - [ ] Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
 - [ ] Highlight the affected lanes when special moves execute so players can instantly see the result of the action.
 - [ ] Animate special draw sequences, detect the last drawn card, play special move animations in order, and show a shuffle-back effect.
@@ -45,6 +44,15 @@ There should not be an action log. Enemy turns should work in the same way as if
 - [x] Animate the recorded enemy actions on the board, the same way player actions animate.
 - [x] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
 - [x] Give the player a clear timeframe to watch the enemy actions before the board reloads.
+
+#### Implement Draw Card Animation
+
+Obfuscate the board on the action URL while the loading animations play, animate drawn cards flying from the top of the deck into the player's and enemy's hand, and stop short-circuiting to the result page when the game ends so the turn sequence plays out first.
+
+- [x] Render a full-screen veil over the board on action-URL renders so the final board state is unreadable while the loading animations play above it; lift the veil only when the page will not navigate away.
+- [x] Teach duplicateCard() the player's deck source so a drawn card's clone starts at the top of the deck stack and flies into its hand slot, showing the card back during the flight - mirroring the enemy draw animation that already works.
+- [x] Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
+- [x] Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
 
 
 ### Pre-battle and deck flow

@@ -1261,6 +1261,27 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
     filter: drop-shadow(4px 4px 4px #000);
 }
 
+/* action-URL veil: obfuscates the final board state while the loading
+   animations play above it (duplicates z-999, turn markers z-1000);
+   loadingAnimations.js lifts it only when no navigation follows. z-index 500
+   sits above the board chrome (.playerScreen/.deckHand z-1) but below
+   .duplicate and .enemyTurnMarker, so the flying cards and turn markers stay
+   fully visible above the veil. pointer-events stay enabled while visible:
+   the veil double-duties as a click shield during the animation window */
+.boardVeil {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: rgba(12, 12, 24, 0.7);
+    backdrop-filter: blur(5px);
+    transition: opacity 0.35s ease-in-out;
+}
+
+.boardVeil.lifted {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .duplicate {
     pointer-events: none;
     z-index: 999;

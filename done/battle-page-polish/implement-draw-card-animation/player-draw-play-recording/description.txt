@@ -1,0 +1,44 @@
+Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
+
+Implementation:
+1. In MMM/views.py boardAction(), action == "draw" branch (currently views.py:279-286), capture the deck card and its state BEFORE drawing, exactly like _run_bot_turn() does (views.py:683-696):
+       next_deck_card = current_participant.getNextDeckCard()
+       source_lane = next_deck_card.state.lane if next_deck_card else None               # negative, e.g. -3
+       source_ordinal = next_deck_card.state.laneOrdinal if next_deck_card else None     # deck ordinals are 0
+       drawn_card = current_participant.drawCard()
+       if drawn_card is not None:
+           action_plays.append({
+               "cardId": str(drawn_card.id),
+               "participantId": current_participant.id,
+               "laneValue": 0,
+               "sourceLane": source_lane,
+               "sourceOrdinal": source_ordinal,
+               "flipFaceUp": False,
+           })
+           if current_participant.getNextDeckCard() is None:
+               specialActions(current_participant)
+               current_participant.shuffleBoard()
+   Reading source_lane/source_ordinal into locals before drawCard() is deliberate: drawCard() re-fetches and mutates a different CardState instance, so the pre-draw snapshot keeps the deck position. This is the same pattern _run_bot_turn() relies on.
+   Do NOT write a cookie for the draw: cookies are staged cross-request plays, but the draw animates on THIS response. playcards() already ran earlier in boardAction (views.py:278), so the recorded play is never re-executed as a game action.
+2. Plumb the recorded plays to the render: initialize action_plays = [] next to bot_actions = [] (views.py:276) and pass it into the viewBoard() call (views.py:305-312) as a new keyword argument action_plays=action_plays.
+3. viewBoard(): accept action_plays=None and expose it in the context dict (views.py:232-249) as "actionPlays": action_plays or [].
+4. _addLoadingAnimations() (views.py:499-540): seed the plays list with the server-recorded action plays before parsing request.COOKIES:
+       plays = list(context.get("actionPlays", []))
+       ... existing cookie parsing appends here ...
+   Server-recorded action plays and cookie plays then go through the exact same marking path.
+5. Replace the _update_drawn_hand_cards(context["handCards"], plays) call (views.py:523) with _update_moved_hand_cards(context["handCards"], plays). The moved variant additionally overwrites the in-memory state.lane/state.laneOrdinal with the play's source, so the template renders data-source-lane="-N" data-source-ordinal="0" for the drawn card (the in-memory state is never saved - see the comment in _update_moved_hand_cards, views.py:609-626). It degrades to plain loading-marking when sourceLane is None, so legacy cookie plays without source data behave exactly as _update_drawn_hand_cards did. Delete the now-unused _update_drawn_hand_cards() (views.py:599-606).
+6. No template change needed: the own-hand li already renders class="cardContainer {{ card.cssClass }}" with data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}" (MMM/jinja2/MMM/battle/viewBoard.jinja2:270-271).
+
+Files to create/modify:
+- MMM/views.py (boardAction draw branch records the draw play; action_plays plumbed through viewBoard into context; _addLoadingAnimations merges actionPlays and marks own hand cards with _update_moved_hand_cards; _update_drawn_hand_cards removed)
+- MMM/tests.py (new tests, see below)
+
+Acceptance criteria:
+- [ ] POST /game/<id>/board/<pid>/action/ with action=draw renders the drawn hand card as <li class="cardContainer loading" ... data-source-lane="-N" data-source-ordinal="0"> (N >= 1)
+- [ ] New test in MMM/tests.py mirroring test_board_reload_renders_and_clears_enemy_animations: POST draw, assertContains 'cardContainer loading' and 'data-source-lane="-'
+- [ ] New test: the draw response sets NO digit-named cookie for the drawn card (the play is server-recorded, not cookie-staged)
+- [ ] test_drawing_cards_never_duplicates and test_bot_cookies_not_consumed_as_player_actions stay green: the recorded play never re-executes via playcards() and changes no game state beyond the draw itself
+- [ ] python3 manage.py test green
+
+Dependencies:
+- none (leaf task, server-side only). Enables deck-origin-flight-animation, which keys on the negative data-source-lane this task produces.
