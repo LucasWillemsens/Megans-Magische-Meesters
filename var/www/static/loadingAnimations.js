@@ -1,21 +1,14 @@
 class loadingAnimationsSystem {
     constructor() {
-        // this.draggedCard = null;
-        // this.dropZones = new Map();
         this.init();
     }
 
     init() {
-        // console.log('Initializing Loading Animations System');
         this.Animate();
     }
 
     Animate(classSelector = 'loading', delay = 1200) {
         const animationsElements = Array.from(document.getElementsByClassName(classSelector));
-        // cross-render turn sequence, rendered by the server (see viewBoard):
-        // "playerMoves" (end_turn POST: own moves, then always reload),
-        // "enemy" (a floating marker per opponent + their moves, then reload),
-        // "player" (own turn starts again: marker only, no reload)
         const phase = document.getElementById('turnPhase')?.dataset.phase ?? '';
         const moveDuration = Math.max(0.2, Math.min(1.2, delay / 1000));
         const perElementWindow = delay / 2;
@@ -24,17 +17,12 @@ class loadingAnimationsSystem {
 
         const animateElement = (element) => {
             element.classList.add('animating');
-            // console.log(`animating element:`, element);
             const lane  = element.getAttribute('data-source-lane');
             const ordinal = element.getAttribute('data-source-ordinal');
             if (lane != null && ordinal != null && lane != "" && ordinal != ""){
                 const duplicate = duplicateCard(element, parseInt(lane), parseInt(ordinal));
                 if (duplicate) {
                     duplicate.style.setProperty('--move-duration', `${moveDuration}s`);
-                    // the original is hidden from page load by the .loading CSS
-                    // rule (also during any marker beat before this flight);
-                    // once the duplicate lands, the original takes over its
-                    // final position and the duplicate is removed again
                     let revealed = false;
                     const revealElement = () => {
                         if (revealed) {
@@ -47,28 +35,19 @@ class loadingAnimationsSystem {
                     duplicate.addEventListener('transitionend', revealElement, { once: true });
                     setTimeout(revealElement, moveDuration * 1000 + 100);
                     requestAnimationFrame(() => {
-                        // lane <= 0: fly from the deck/hand to the original's
-                        // rect (--move-x/y); lane > 0: the flip duplicate is
-                        // already at the original's slot and turns edge-on in
-                        // place (.flipFaceUp.to-original) before the swap
                         duplicate.classList.add('to-original');
                     });
                     return;
                 }
             }
-            // nothing to fly in (no source position): never leave the card
-            // stuck invisible behind the .loading CSS rule
             element.classList.remove('loading');
         };
 
-        // player actions always play before enemy actions
         const playerElements = animationsElements.filter((element) => element.closest('.enemyBoard') == null);
         const enemyElements = animationsElements.filter((element) => element.closest('.enemyBoard') != null);
 
         const reloadToBoard = () => {
-            // console.log('Reloading window after animations');
             const path = window.location.pathname;
-            // console.log('Current path:', path);
             let shortPath = path.substring(0, path.lastIndexOf('action'));
             if (!shortPath ) {
                 shortPath = path;
@@ -77,12 +56,7 @@ class loadingAnimationsSystem {
         };
 
         if (phase === 'player') {
-            // the player's own turn starts again: always show the marker, even
-            // when the player has no moves waiting, and hand the focus back to
-            // the player's deck and hand at the bottom of the page
             turnMarker(delay, 'Your turn');
-            // this render plays no animations and never reloads, so no card
-            // may stay hidden behind the .loading CSS rule here
             animationsElements.forEach((element) => element.classList.remove('loading'));
             const deckHand = document.querySelector('.playerScreen .deckHand');
             if (deckHand) {
@@ -92,8 +66,6 @@ class loadingAnimationsSystem {
         }
 
         if (phase === 'playerMoves') {
-            // the player's own moves after 'end turn'; reload afterwards even
-            // with zero moves so the enemy phase always follows
             playerElements.forEach(animateElement);
             const playerWindow = playerElements.length * perElementWindow;
             const playerFinished = playerElements.length > 0 ? moveDuration * 1000 : 0;
@@ -106,20 +78,15 @@ class loadingAnimationsSystem {
         }
 
         if (phase === 'enemy') {
-            // the enemy turn: focus slides up to the enemy boards and the
-            // player's deck/hand is de-emphasized while the opponents act
             focusEnemySide();
             playerElements.forEach(animateElement);
             let cursor = playerElements.length * perElementWindow;
             let lastFinish = cursor;
             const enemyBoards = Array.from(document.querySelectorAll('.enemyBoard'));
             if (enemyBoards.length > 0) {
-                // give the upward scroll a beat to land before the first marker
                 cursor += 300;
             }
             enemyBoards.forEach((board) => {
-                // every opponent gets a floating marker with their name, even
-                // an opponent without any actions this turn
                 const boardElements = enemyElements.filter((element) => element.closest('.enemyBoard') === board);
                 const name = (board.querySelector('h2')?.textContent || 'Enemy').trim();
                 const movesWindow = boardElements.length > 0
@@ -137,31 +104,22 @@ class loadingAnimationsSystem {
                 }
                 cursor += boardWindow;
             });
-            // stay readable: never endless, but never reload mid-animation
             const reloadWindow = Math.max(Math.min(cursor, maxWindow), lastFinish);
             setTimeout(reloadToBoard, reloadWindow);
             return;
         }
 
         if (animationsElements.length > 0) {
-            // console.log(`Found ${animationsElements.length} elements with '${classSelector}' class.`);
             playerElements.forEach(animateElement);
 
-            // the viewing window scales with every loading element, player and
-            // enemy alike, but stays readable: long enough for every enemy
-            // animation to finish before the reload fires, never endless
             const playerWindow = playerElements.length * perElementWindow;
             const enemyWindow = enemyElements.length * perElementWindow;
-            // the floating enemy turn marker gets a beat to land before the
-            // enemy cards move
             const enemyMarkerWindow = enemyElements.length > 0 ? markerWindow : 0;
             const enemyStart = playerWindow + enemyMarkerWindow;
             const enemyFinished = enemyElements.length > 0 ? enemyStart + moveDuration * 1000 : 0;
             const reloadWindow = Math.max(Math.min(enemyStart + enemyWindow, maxWindow), enemyFinished);
 
             if (enemyElements.length > 0) {
-                // mark the start of the enemy turn so the player can follow
-                // what happened, then play the enemy animations
                 setTimeout(() => {
                     turnMarker(reloadWindow - playerWindow - 300);
                 }, playerWindow);
@@ -177,8 +135,6 @@ class loadingAnimationsSystem {
     }
 }
 
-// floating text that marks whose turn it is, shown before that side's action
-// animations so the player can follow what happened
 function turnMarker(holdMs = 1200, text = 'Enemy turn') {
     const marker = document.createElement('div');
     marker.className = 'enemyTurnMarker';
@@ -212,9 +168,6 @@ function turnMarker(holdMs = 1200, text = 'Enemy turn') {
     return marker;
 }
 
-// during the enemy turn the focus slides up to the enemy boards (their deck
-// and hand live at the top of the page) and the player's own deck/hand is
-// greyed out until the player's turn starts again
 function focusEnemySide() {
     const playerScreen = document.querySelector('.playerScreen');
     if (playerScreen) {
@@ -223,7 +176,6 @@ function focusEnemySide() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// //adds a duplicate card in the lane or hand, based on the source lane integer
 function duplicateCard(element, lane, ordinal)
 {
     let laneElement  = null;
@@ -231,8 +183,6 @@ function duplicateCard(element, lane, ordinal)
     duplicate.classList.add('duplicate');
     const enemyBoard = element.closest('.enemyBoard');
     if (enemyBoard) {
-        // enemy cards animate from their source position inside their own
-        // board: the deck (negative source lane), the hand (0) or a lane
         const enemyLaneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
         if (lane < 0) {
             laneElement = enemyBoard.querySelector('.enemyDeckHand .deck');
@@ -260,7 +210,6 @@ function duplicateCard(element, lane, ordinal)
                 break;
         }
     }
-    // console.log("laneElement found: ", laneElement);
     if (laneElement) {
         const insertIndex = Math.min(ordinal - 1, laneElement.children.length);
         const beforeElement = laneElement.children[insertIndex] ?? null;
@@ -270,18 +219,9 @@ function duplicateCard(element, lane, ordinal)
         } else {
             laneElement.appendChild(duplicate);
         }
-        // console.log(`Duplicated element(${duplicate}) in lane ${lane} at ordinal ${ordinal}`);
         const originalRect = element.getBoundingClientRect();
         const duplicateRect = duplicate.getBoundingClientRect();
-        // console.log(`Original Rect:`, originalRect, `Duplicate Rect:`, duplicateRect);
         if (lane > 0){
-            // a lane source means a flip in place: the source slot IS the
-            // original's slot, so the clone must NOT show the final face-up
-            // state it was cloned from (that is exactly the "card appears at
-            // its final position before the animation" bug, the clone being
-            // exempt from the .loading hiding rule). show the pre-flip back
-            // instead (mirroring the face-down card markup) and let CSS turn
-            // it edge-on before the original is revealed
             duplicate.classList.add('flipFaceUp');
             duplicate.classList.add('faceDown');
             const innerCard = duplicate.querySelector('.card');
