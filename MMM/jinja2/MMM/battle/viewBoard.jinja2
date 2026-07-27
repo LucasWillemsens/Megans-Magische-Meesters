@@ -49,18 +49,14 @@
                     {% endif %}
                 </ul>
                 <ul class="hand enemyHand">
-                    {% if enemy.handCards %}
-                        {% for card in enemy.handCards %}
+                    {# an empty enemy hand renders no empty-hand indicator
+                       (unlike the player's own hand below) #}
+                    {% for card in enemy.handCards %}
                     <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
                         data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
                         <div class="card back smallCard"></div>
                     </li>
-                        {% endfor %}
-                    {% else %}
-                    <li>
-                        <div class="card back emptyHand"></div>
-                    </li>
-                    {% endif %}
+                    {% endfor %}
                 </ul>
             </div>
             <ul class="lanes">

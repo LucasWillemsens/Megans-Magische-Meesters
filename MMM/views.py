@@ -24,8 +24,13 @@ BASE_URL = "http://127.0.0.1:8000/"
 # cross-render turn sequence signal: set on the end_turn POST response
 # ("enemy"), consumed by the next board render (enemy turn markers + enemy
 # animations), which hands off "player" to the final reload so the board can
-# mark the start of the player's own turn. cleared after render like the play
-# cookies; never a card id, so playcards()/loading animations skip it.
+# mark the start of the player's own turn. never a card id, so playcards()/
+# loading animations skip it. its lifecycle is managed explicitly by
+# boardAction()/viewBoard() and NOT by _render's clear_cookies flow: deleting
+# and re-setting the same cookie on one response poisons the fresh morsel
+# with the delete's Max-Age=0, which a real browser honours by dropping the
+# handoff cookie immediately (the test client ignores expiry, so only real
+# browsers lost the "player" handoff and never showed the "Your turn" marker).
 TURN_PHASE_COOKIE = "turn_phase"
 
 def index(request):
@@ -244,10 +249,11 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
 
-    # hand off the turn sequence to the next render (clear-after-render: the
-    # consumed phase cookie is deleted by _render's clear_cookies flow, or
-    # explicitly here for the player phase which renders without clearing the
-    # player's own staged play cookies).
+    # hand off the turn sequence to the next render. the phase cookie is never
+    # touched by _render's clear_cookies flow (a delete-then-set on one
+    # response would stick Max-Age=0 on the handoff value and real browsers
+    # would drop it instantly); it is set ("enemy"), overwritten ("player")
+    # and deleted (after the player phase) exclusively here/in boardAction.
     if phase_from_cookie:
         cookie_path = f"/game/{game.id}/board/{player_id}/"
         if turn_phase == "enemy":
@@ -481,8 +487,13 @@ def _render(request, template_name, context, clear_cookies=False):
 
     if clear_cookies:
         for cookie in request.COOKIES:
-            if cookie != "sessionid" and cookie != "csrftoken":
-                response.delete_cookie(cookie, path=requestPath)
+            if cookie in ("sessionid", "csrftoken", TURN_PHASE_COOKIE):
+                # the turn phase signal outlives this render: boardAction()/
+                # viewBoard() overwrite or delete it explicitly, and a
+                # delete-then-set on one response would stick Max-Age=0 on the
+                # fresh value (browsers drop it instantly, see TURN_PHASE_COOKIE)
+                continue
+            response.delete_cookie(cookie, path=requestPath)
     return response
 
 def _addLoadingAnimations(context, request):

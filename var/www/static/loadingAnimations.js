@@ -31,14 +31,32 @@ class loadingAnimationsSystem {
                 const duplicate = duplicateCard(element, parseInt(lane), parseInt(ordinal));
                 if (duplicate) {
                     duplicate.style.setProperty('--move-duration', `${moveDuration}s`);
+                    // the original is hidden from page load by the .loading CSS
+                    // rule (also during any marker beat before this flight);
+                    // once the duplicate lands, the original takes over its
+                    // final position and the duplicate is removed again
+                    let revealed = false;
+                    const revealElement = () => {
+                        if (revealed) {
+                            return;
+                        }
+                        revealed = true;
+                        duplicate.remove();
+                        element.classList.remove('loading');
+                    };
+                    duplicate.addEventListener('transitionend', revealElement, { once: true });
+                    setTimeout(revealElement, moveDuration * 1000 + 100);
                     requestAnimationFrame(() => {
                         if (lane <= 0){
                             duplicate.classList.add('to-original');
                         }
                     });
+                    return;
                 }
-                element.setAttribute("hidden","true");
             }
+            // nothing to fly in (no source position): never leave the card
+            // stuck invisible behind the .loading CSS rule
+            element.classList.remove('loading');
         };
 
         // player actions always play before enemy actions
@@ -61,6 +79,9 @@ class loadingAnimationsSystem {
             // when the player has no moves waiting, and hand the focus back to
             // the player's deck and hand at the bottom of the page
             turnMarker(delay, 'Your turn');
+            // this render plays no animations and never reloads, so no card
+            // may stay hidden behind the .loading CSS rule here
+            animationsElements.forEach((element) => element.classList.remove('loading'));
             const deckHand = document.querySelector('.playerScreen .deckHand');
             if (deckHand) {
                 deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });

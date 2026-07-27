@@ -1,4 +1,5 @@
 import json
+import re
 from http.cookies import SimpleCookie
 
 from django.test import TestCase
@@ -226,6 +227,12 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
         self.assertEqual(response.cookies["turn_phase"].value, "player")
+        # the handoff cookie must survive a real browser: a delete-then-set of
+        # the same cookie on one response leaves the delete's Max-Age=0 on the
+        # fresh value, and browsers then drop the cookie instantly (the test
+        # client ignores expiry, which is why this must be asserted explicitly)
+        self.assertEqual(response.cookies["turn_phase"]["max-age"], "")
+        self.assertEqual(response.cookies["turn_phase"]["expires"], "")
 
         # the final reload marks the start of the player's turn and clears the
         # turn phase cookie (clear-after-render, like the play cookies)
@@ -335,3 +342,51 @@ class BattleFlowTests(TestCase):
             ).count(),
             bot_lane_cards,
         )
+
+    def test_empty_enemy_hand_renders_no_empty_indicator(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # both participants start with empty hands (the starting card is
+        # played straight to a lane), so no setup is needed here
+        self.assertFalse(
+            GameCard.objects.filter(game_id=self.game.id, state__lane=0).exists()
+        )
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # the player's own empty hand keeps its empty-hand indicator...
+        self.assertEqual(content.count("emptyHand"), 1)
+
+        # ...but an empty enemy hand renders nothing at all
+        enemy_hand = re.search(
+            r'<ul class="hand enemyHand">(.*?)</ul>', content, re.DOTALL
+        )
+        self.assertIsNotNone(enemy_hand)
+        self.assertNotIn("emptyHand", enemy_hand.group(1))
+        self.assertEqual(enemy_hand.group(1).strip(), "")
+
+    def test_enemy_deck_and_hand_have_no_interactive_hooks(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # the enemy deck/hand is display-only: no forms, buttons or draggable
+        # elements (interactivity is also never bound to it in cardDragDrop.js)
+        enemy_deck_hand = re.search(
+            r'<div class="enemyDeckHand">(.*?)<ul class="lanes">', content, re.DOTALL
+        )
+        self.assertIsNotNone(enemy_deck_hand)
+        block = enemy_deck_hand.group(1)
+        self.assertNotIn("<form", block)
+        self.assertNotIn("<button", block)
+        self.assertNotIn("draggable", block)
+
+        # the player's own controls are untouched (the deck still draws)
+        self.assertContains(response, 'class="card back draw"')

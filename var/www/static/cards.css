@@ -774,14 +774,18 @@ div.playerScreen{
 }
 
 /* enemy deck and hand: real face-down card elements so enemy draw/play
-   animations have a source to fly from, mirroring the player's deck stack */
+   animations have a source to fly from, mirroring the player's deck stack.
+   horizontally spaced exactly like the player's .deckHand group (deck on the
+   left, hand centered); only the vertical sizing differs (the enemy board is
+   auto-height, so a min-height stands in for the player's height: 25%) */
 .playerScreen .enemyDeckHand {
+    z-index: 1;
+    position: relative;
     display: flex;
+    width: 100%;
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: flex-end;
-    gap: 1rem;
-    width: 100%;
     min-height: 9em;
 }
 .playerScreen .enemyDeckHand > .deck {
@@ -791,6 +795,14 @@ div.playerScreen{
 .playerScreen .enemyDeckHand > .hand {
     width: 60%;
     margin: 0 20%;
+}
+
+/* the enemy deck and hand are display-only: no click, drag, cursor or hover
+   affordances (cardDragDrop.js also never binds listeners inside them) */
+.playerScreen .enemyDeckHand,
+.playerScreen .enemyDeckHand * {
+    pointer-events: none;
+    cursor: default;
 }
 
 /* while the enemy turn plays, the focus sits on the enemy boards at the top
@@ -1262,4 +1274,13 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
 
 .animating{
     transition: all 0.25s ease-in-out;
+}
+
+/* a card that is about to animate stays invisible in its final position from
+   page load on - through any turn-marker beats before the flight starts -
+   until its duplicate lands; loadingAnimations.js then removes the 'loading'
+   class (and the duplicate) so the original takes over. the duplicate itself
+   is a clone of the loading card, so it must be excluded to stay visible. */
+.playerScreen .cardContainer.loading:not(.duplicate) {
+    visibility: hidden;
 }

@@ -30,7 +30,11 @@ class CardDragDropSystem {
     }
 
     setupCardDragListeners() {
-        const draggableCards = document.querySelectorAll('.cardContainer[draggable="true"]');
+        // the enemy deck/hand (.enemyDeckHand) is display-only: never bind
+        // drag behaviour to its card containers
+        const draggableCards = Array.from(
+            document.querySelectorAll('.cardContainer[draggable="true"]')
+        ).filter((card) => card.closest('.enemyDeckHand') == null);
         draggableCards.forEach((card, index) => {
             card.addEventListener('dragstart', this.onCardDragStart.bind(this));
             card.addEventListener('dragend', this.onCardDragEnd.bind(this));
@@ -39,8 +43,12 @@ class CardDragDropSystem {
 
     //TODO check if card in lane is valid or move to other lane
     setupFaceDownCardClickListeners() {
-        const faceDownCards = document.querySelector('.playerBoard')
-        .querySelectorAll(':not(.hologram) .cardContainer.faceDown');
+        const faceDownCards = Array.from(
+            document.querySelector('.playerBoard')
+            .querySelectorAll(':not(.hologram) .cardContainer.faceDown')
+            // the enemy deck/hand (.enemyDeckHand) is display-only: its
+            // face-down cards never get click handlers
+        ).filter((card) => card.closest('.enemyDeckHand') == null);
 
         faceDownCards.forEach((card, index) => {
             let laneValue = null;
