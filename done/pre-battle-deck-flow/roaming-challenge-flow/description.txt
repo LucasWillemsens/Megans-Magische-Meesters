@@ -1,1 +1,0 @@
-Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
