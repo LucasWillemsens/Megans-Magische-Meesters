@@ -187,41 +187,57 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     if not gameCards.exists():
         return redirect(f"/game/{game_id}/{player_id}/")
 
-    # computed early, but the redirect to the result page is deferred until
-    # the render mode is known (see below): a finished game that still has
-    # animations or turn phases to play out renders them first, and the JS
-    # navigates to nextUrl (the result page) at the end of the sequence
-    finished, _, _ = _game_result(game)
-
     # the turn phase for this render either comes from the caller (action POST
     # renders) or from the turn phase cookie that coordinates the end_turn
     # sequence across reloads: "enemy" (enemy markers + enemy animations),
     # then "player" (the player's own turn starts again).
     # an explicit turn_phase argument means this render answers an action POST
     # (boardAction is the only caller that passes one, "" for draw/unknown
-    # actions and "playerMoves" for end_turn); only those action renders
-    # obfuscate the final board state behind the board veil while the loading
-    # animations play above it. derived from the render mode, not from
-    # request.path, so it stays unit-testable and independent of URL formatting.
+    # actions and "playerMoves" for end_turn). derived from the render mode,
+    # not from request.path, so it stays unit-testable and independent of URL
+    # formatting.
     action_render = turn_phase is not None
     phase_from_cookie = turn_phase is None
     if phase_from_cookie:
         turn_phase = request.COOKIES.get(TURN_PHASE_COOKIE, "")
 
-    # enemy (bot) action cookies are scoped to this board's URL, so they arrive
-    # with the plain board reload after 'end turn'; render them as loading
-    # animations and clear them like action POST renders do. the enemy phase
-    # renders even when the bots had no actions, so the markers always show.
+    # the enemy signal is single-use (this response overwrites or deletes the
+    # phase cookie), so the bots run exactly once per end_turn. a plain board
+    # GET must never 500: a bot failure degrades to an error message instead
+    if phase_from_cookie and turn_phase == "enemy":
+        try:
+            bot_actions = _run_bot_turn(game, player_id)
+        except Exception as exc:
+            bot_actions = []
+            error_message = str(exc)
+        game.roundNumber = max(game.roundNumber, 1) + 1
+        game.save(update_fields=["roundNumber"])
+        # one play per moved card, keeping the first source: a card drawn and
+        # played in the same bot turn animates from the deck, not the hand
+        plays_by_card = {}
+        for bot_action in bot_actions:
+            play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
+            play["laneValue"] = bot_action["laneValue"]
+            play["flipFaceUp"] = bot_action["flipFaceUp"]
+        action_plays = (action_plays or []) + list(plays_by_card.values())
+
+    # computed after the bot run (bot specialActions can defeat/flee
+    # participants), but the redirect to the result page is deferred until
+    # the render mode is known (see below): a finished game that still has
+    # animations or turn phases to play out renders them first, and the JS
+    # navigates to nextUrl (the result page) at the end of the sequence
+    finished, _, _ = _game_result(game)
+
+    # clear_cookies makes _render run _addLoadingAnimations, which marks the
+    # recorded bot actions loading
     if not clear_cookies:
-        clear_cookies = _has_enemy_play_cookies(
-            game, current_participant, request.COOKIES
-        ) or turn_phase == "enemy"
+        clear_cookies = turn_phase == "enemy"
 
     # this render still has animations or phases to play out: action renders
-    # animate the (possibly game-ending) action itself, and a render carrying
-    # enemy cookies or the enemy phase still shows the final moves/markers.
-    # only a finished game with nothing left to play redirects straight to
-    # the result page; sequence renders hand the JS nextUrl instead (below)
+    # animate the (possibly game-ending) action itself, and the enemy phase
+    # still shows the final moves/markers. only a finished game with nothing
+    # left to play redirects straight to the result page; sequence renders
+    # hand the JS nextUrl instead (below)
     sequence_render = action_render or clear_cookies or turn_phase == "enemy"
     if finished and not sequence_render:
         response = redirect(f"/game/{game_id}/result/{player_id}/")
@@ -272,25 +288,21 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "turnPhase": turn_phase,
         # where loadingAnimations.js navigates after this render's animations
         # (path-only, so it compares cleanly against window.location.pathname).
-        # after a game-ending end_turn the bot action cookies are already set
-        # on the playerMoves response and MUST still render: playerMoves ->
-        # reload to board -> enemy phase (the final bot moves animate there)
-        # -> result. so playerMoves always targets the board; only the enemy
-        # phase render - or a non-end_turn action render on a finished game,
-        # e.g. a draw whose specialActions() defeated someone - targets the
-        # result page
+        # after a game-ending end_turn the final bot moves still have to play
+        # out: playerMoves -> reload to board -> enemy phase (the bots run and
+        # animate there) -> result. so playerMoves always targets the board;
+        # only the enemy phase render - or a non-end_turn action render on a
+        # finished game, e.g. a draw whose specialActions() defeated someone -
+        # targets the result page
         "nextUrl": (
             f"/game/{game_id}/result/{player_id}/"
             if finished and turn_phase != "playerMoves"
             else f"/game/{game_id}/board/{player_id}/"
         ),
-        # action-URL renders only: obfuscate the board behind #boardVeil while
-        # the loading animations play above it; loadingAnimations.js lifts the
-        # veil when the page will not navigate away
-        "obfuscateBoard": action_render,
-        # plays recorded by the action POST itself (e.g. the player's draw);
-        # _addLoadingAnimations seeds its plays list with them so they go
-        # through the same loading-marking path as cookie plays
+        # plays recorded server-side: the player's draw on the action POST, or
+        # the bot actions on the enemy-phase render. _addLoadingAnimations
+        # seeds its plays list with them so they go through the same
+        # loading-marking path as cookie plays
         "actionPlays": action_plays or [],
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
@@ -327,7 +339,6 @@ def boardAction(request, game_id, player_id):
 
     action = request.POST.get("action", "")
     error_message = ""
-    bot_actions = []
     # plays performed by this action itself (currently only the player's
     # draw), recorded so the response render can animate them. unlike play
     # cookies these are not staged cross-request: the draw animates on THIS
@@ -360,17 +371,11 @@ def boardAction(request, game_id, player_id):
                 error_message = f"No cards left in {current_participant}'s deck."
         elif action == "end_turn":
             current_participant.resetTurn()
-            bot_actions = _run_bot_turn(game, player_id)
-            game.roundNumber = max(game.roundNumber, 1) + 1
-            game.save(update_fields=["roundNumber"])
         else:
             error_message = "Unknown action."
     except Exception as exc:
         error_message = str(exc)
 
-    # finished, _, _ = _game_result(game)
-    # if finished:
-    #     return redirect(f"/game/{game_id}/result/{player_id}/")
     request.session['plays'] = [] #clear plays after action is done
     # a successful end_turn starts the cross-render turn sequence: this render
     # plays the player's own moves and always reloads ("playerMoves"), the next
@@ -385,7 +390,6 @@ def boardAction(request, game_id, player_id):
         turn_phase="playerMoves" if end_turn_done else "",
         action_plays=action_plays,
     )
-    _set_bot_action_cookies(response, game, bot_actions, player_id)
     if end_turn_done:
         # consumed by the next board render, which renders the enemy phase
         # (markers for every opponent, even opponents without actions)
@@ -404,7 +408,7 @@ def playcards(game, plays, participant):
             # non-card cookies (e.g. the turn phase signal) are never plays
             continue
         if not GameCard.objects.filter(pk=card_id, game_id=game.id, user_id=participant.id).exists():
-            # cookies of other participants (e.g. bot action cookies) are never played here
+            # cookies of other participants are never played here
             continue
         payload = _parse_play_cookie_value(plays[play])
         participant.playCard(
@@ -617,27 +621,6 @@ def _addLoadingAnimations(context, request):
     return context
 
 
-def _has_enemy_play_cookies(game, current_participant, cookies):
-    # True when the request carries play cookies of other participants (bot
-    # action cookies) for this game. own play cookies are ignored so a plain
-    # board reload never consumes staged player plays.
-    for name, value in cookies.items():
-        if name in ("sessionid", "csrftoken") or not value:
-            # deleted cookies may echo back with an empty value
-            continue
-        try:
-            card_id = int(name)
-        except (TypeError, ValueError):
-            continue
-        if (
-            GameCard.objects.filter(pk=card_id, game_id=game.id)
-            .exclude(user_id=current_participant.id)
-            .exists()
-        ):
-            return True
-    return False
-
-
 def _get_play_cookie_participant_id(game, card_id):
     # play cookies are namespaced by path per participant, but the request does
     # not expose cookie paths, so the owning participant is read from the card
@@ -789,37 +772,6 @@ def _run_bot_turn(game, human_player_id):
         bot_participant.resetTurn()
     return bot_actions
 
-
-def _set_bot_action_cookies(response, game, bot_actions, player_id):
-    # one cookie per bot action, same payload shape as player play cookies.
-    # cookies are scoped by path to the viewing player's board URL: a browser
-    # only returns a cookie whose path prefixes the request URL, so scoping to
-    # the viewing player's board is what makes the bot actions reach the board
-    # render where the enemy animations play (the bot's own board URL is never
-    # requested). bot cookies stay distinguishable from the viewing player's
-    # own cookies through the GameCard's user_id (see
-    # _get_play_cookie_participant_id), and playcards() skips cookies of other
-    # participants, so they are never consumed as player actions.
-    # cookies are keyed by card id, so actions on the same card merge into one
-    # cookie (first source, last target), just like repeated player drags.
-    payloads = {}
-    for bot_action in bot_actions:
-        card_id = str(bot_action["cardId"])
-        payload = payloads.get(card_id)
-        if payload is None:
-            payload = {
-                "laneValue": bot_action["laneValue"],
-                "sourceLane": bot_action["sourceLane"],
-                "sourceOrdinal": bot_action["sourceOrdinal"],
-                "flipFaceUp": bot_action["flipFaceUp"],
-            }
-            payloads[card_id] = payload
-        else:
-            payload["laneValue"] = bot_action["laneValue"]
-            payload["flipFaceUp"] = bot_action["flipFaceUp"]
-    path = f"/game/{game.id}/board/{player_id}/"
-    for card_id, payload in payloads.items():
-        response.set_cookie(card_id, json.dumps(payload), path=path)
 
 def newBoard():
     board = {

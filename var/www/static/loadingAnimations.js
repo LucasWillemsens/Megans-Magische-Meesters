@@ -17,10 +17,6 @@ class loadingAnimationsSystem {
         // "enemy" (a floating marker per opponent + their moves, then reload),
         // "player" (own turn starts again: marker only, no reload)
         const phase = document.getElementById('turnPhase')?.dataset.phase ?? '';
-        // action-URL renders obfuscate the final board state behind a
-        // full-screen veil (viewBoard.jinja2 #boardVeil) while the loading
-        // animations play above it; absent on plain board renders
-        const veil = document.getElementById('boardVeil');
         // server-provided navigation target (viewBoard.jinja2 #boardNext):
         // the board URL, or the result URL once a finished game has played
         // its sequence out. path-only, so it compares cleanly against
@@ -94,21 +90,6 @@ class loadingAnimationsSystem {
             window.location.href = nextUrl || boardPath();
         };
 
-        // lift the veil only when the page will NOT navigate away: branches
-        // that reload leave it up (the reload renders the clean board), so a
-        // render that stays on screen must fade it out or the board stays
-        // unreadable. the node is removed once the opacity fade completes;
-        // the timeout is a fallback in case transitionend never fires (e.g.
-        // a hidden tab throttling transitions)
-        const liftVeil = () => {
-            if (!veil) {
-                return;
-            }
-            veil.classList.add('lifted');
-            veil.addEventListener('transitionend', () => veil.remove(), { once: true });
-            setTimeout(() => veil.remove(), 400);
-        };
-
         if (phase === 'player') {
             // the player's own turn starts again: always show the marker, even
             // when the player has no moves waiting, and hand the focus back to
@@ -121,10 +102,6 @@ class loadingAnimationsSystem {
             if (deckHand) {
                 deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
-            // defensive: this phase only renders on the board URL, which never
-            // renders the veil, but never leave a veil up on a render that
-            // stays on screen
-            liftVeil();
             return;
         }
 
@@ -138,8 +115,6 @@ class loadingAnimationsSystem {
                 Math.min(Math.max(playerWindow, delay / 2), maxWindow),
                 playerFinished,
             );
-            // the veil stays up: the page navigates away and the reload
-            // renders the clean board
             setTimeout(reloadToBoard, reloadWindow);
             return;
         }
@@ -178,8 +153,6 @@ class loadingAnimationsSystem {
             });
             // stay readable: never endless, but never reload mid-animation
             const reloadWindow = Math.max(Math.min(cursor, maxWindow), lastFinish);
-            // the veil stays up: the page navigates away and the reload
-            // renders the clean board
             setTimeout(reloadToBoard, reloadWindow);
             return;
         }
@@ -211,25 +184,20 @@ class loadingAnimationsSystem {
                 }, enemyStart);
             }
 
-            // the veil stays up: the page navigates away and the reload
-            // renders the clean board
             setTimeout(reloadToBoard, reloadWindow);
         } else if (nextUrl && nextUrl !== boardPath()) {
             // nothing to animate, but this render is not where the sequence
             // ends (e.g. a game-ending action with nothing left to play out):
-            // navigate on to the target after a short beat, with the veil
-            // still up so the final board state is never read mid-sequence
+            // navigate on to the target after a short beat
             setTimeout(() => {
                 window.location.href = nextUrl;
             }, delay / 2);
         } else {
             // nothing to animate and nowhere to go (e.g. an action POST that
-            // produced an error message): this render stays on screen, so
-            // lift the veil to make the board and the error message readable
-            // - and keep the no-reload behaviour so the error message is not
-            // lost (a clean board render's nextUrl equals its own path, so
-            // it lands here too and never reload-loops)
-            liftVeil();
+            // produced an error message): this render stays on screen - keep
+            // the no-reload behaviour so the error message is not lost (a
+            // clean board render's nextUrl equals its own path, so it lands
+            // here too and never reload-loops)
             console.log(`No elements found with '${classSelector}' class.`);
         }
     }

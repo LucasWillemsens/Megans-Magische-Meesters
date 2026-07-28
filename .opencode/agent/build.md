@@ -43,6 +43,7 @@ Understand the existing patterns and follow them.
 - Make the minimal changes that satisfy the description and acceptance criteria.
 - Follow the existing code style (naming, structure, template conventions).
 - Do not refactor unrelated code or change existing tests unless the description says to.
+- **Minimize code comments.** Write self-explanatory code (clear names, small functions) instead of comments. Do not narrate what the code does, restate the plan, or add multi-line comment blocks. A short comment is only acceptable for a genuinely non-obvious constraint or workaround (e.g. a browser quirk that would re-break if "cleaned up"). When editing existing code, do not preserve stale comments that no longer apply, and do not replace removed code with comments explaining what used to be there.
 
 ### Step 4: Verify
 

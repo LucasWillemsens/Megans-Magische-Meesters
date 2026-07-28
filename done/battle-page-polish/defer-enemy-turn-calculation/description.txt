@@ -1,0 +1,34 @@
+Remove the action-URL board veil again and defer the enemy turn calculation: 'end turn' renders only the player's own moves, and the bot moves are computed in the board GET that renders the enemy phase (after the browser has left the action URL), passed straight into that render via the server-side actionPlays mechanism instead of bot action cookies.
+
+User direction (verbatim):
+"obfuscate board should be removed again. It is not the preferred way to go in the end. The better solution would be to make sure that the enemy player moves aren't immediately calculated when the end turn button is pressed, but only after the board is redirected away from the action url."
+
+Why this replaces the veil: the veil (done/battle-page-polish/implement-draw-card-animation/action-url-board-veil) was added because the end_turn POST already mutated the enemy board (bots ran on the POST), so the playerMoves render showed a board state the animations had not played out yet. Once the bots only run in the enemy-phase GET, the POST render reflects nothing but the player's own moves - which the player made themselves - and the enemy phase render marks exactly the moved enemy cards .loading. Nothing is left that needs obfuscation, so the veil goes away entirely.
+
+Current state (verified against the code on branch implement-draw-card-animation, 24 tests OK):
+- boardAction(action=="end_turn") calls current_participant.resetTurn(), then bot_actions = _run_bot_turn(game, player_id) IMMEDIATELY on the POST, increments game.roundNumber, renders viewBoard(turn_phase="playerMoves", clear_cookies=True) and sets one cookie per bot action via _set_bot_action_cookies() plus TURN_PHASE_COOKIE="enemy" (MMM/views.py:361-365, 379-394, 793-822).
+- The next board GET reads the phase cookie ("enemy"), _has_enemy_play_cookies() detects the bot cookies so clear_cookies=True (views.py:215-218), _addLoadingAnimations() marks the enemy cards loading from those cookies (views.py:574-617), the enemy phase renders and hands off "player"; the final GET shows the "Your turn" marker and deletes the phase cookie (views.py:304-317).
+- The veil: viewBoard() sets "obfuscateBoard" in context when turn_phase is not None (views.py:287-290), viewBoard.jinja2:19 renders <div id="boardVeil" class="boardVeil">, cards.css:1264-1283 has .boardVeil/.boardVeil.lifted, loadingAnimations.js has the veil lookup (lines 20-23), liftVeil() (lines 97-110) and veil branches, and tests.py has test_action_posts_render_board_veil / test_plain_board_get_renders_no_board_veil (lines 248-278).
+- The deferred-result flow (nextUrl via #boardNext, sequence_render guard) lives in the same viewBoard() code (views.py:190-233, 282-286) and MUST keep working: viewBoard's action_render variable feeds both "obfuscateBoard" (removed here) and sequence_render (kept).
+- _run_bot_turn (views.py:740-790) already returns dicts with participantId/cardId/laneValue/sourceLane/sourceOrdinal/flipFaceUp - the exact shape _addLoadingAnimations consumes, so the recorded bot actions can be seeded into context "actionPlays" and marked loading precisely like the cookie plays are today.
+
+Target request-by-request flow:
+1. POST /game/<id>/board/<pid>/action/ action=end_turn: playcards() consumes the staged player cookies, current_participant.resetTurn(), NO _run_bot_turn(), NO bot action cookies, NO roundNumber change; renders viewBoard(turn_phase="playerMoves", clear_cookies=True) with nextUrl = board URL and sets TURN_PHASE_COOKIE="enemy" exactly as today.
+2. GET /game/<id>/board/<pid>/ carrying turn_phase="enemy": viewBoard() resolves the phase from the cookie, runs _run_bot_turn() once (wrapped in try/except so a bot failure degrades to an error message, never a 500 on a plain GET), increments game.roundNumber, computes finished AFTER the bot run (bot specialActions can defeat/flee participants), builds the boards, marks the recorded bot actions loading through the existing actionPlays path, renders the enemy phase (nextUrl = /result/ when finished), and hands off "player" - or deletes the phase cookie when the game finished (game-over chain unchanged).
+3. GET /game/<id>/board/<pid>/ carrying turn_phase="player": the "Your turn" marker, phase cookie deleted - unchanged.
+4. Plain GET on a finished game with nothing left to play out: redirect to /result/ - unchanged deferred-result flow.
+
+Idempotency argument: the phase cookie is single-use. The same response that runs the bots overwrites the cookie ("player") or deletes it (finished), so no refresh, back-button re-request or repeated GET can ever carry "enemy" twice; the bots run exactly once per end_turn. The bot-cookie transport disappears entirely, so there is no cross-request bot state left to double-consume either.
+
+roundNumber decision: the increment moves from the end_turn POST to the enemy-phase GET, right after _run_bot_turn() - the round is only complete once every participant (bots included) has acted, and the single-use phase cookie guarantees the increment happens exactly once. (roundNumber is display-only: viewBoard.jinja2:24, viewGame.jinja2:56-58; no game logic keys on it.)
+
+Supersession note: this goal supersedes the bot-action-cookie transport built in done/battle-page-polish/enemy-turn-indicators/enemy-action-cookies (bot actions no longer travel as cookies; they are calculated and rendered in the same request). That done entry stays as history; this goal's own done text will record the supersession. This goal also reverts the action-url-board-veil done entry, which is removed as part of the bookkeeping subgoal.
+
+Subgoals (implement in this order):
+1. remove-board-veil - delete the veil end to end: obfuscateBoard context, #boardVeil template block, .boardVeil CSS, liftVeil()/veil wiring in loadingAnimations.js, and the two veil tests (independent of 2; land first, zero behavior risk beyond the veil itself).
+2. run-bots-in-enemy-phase - boardAction(end_turn) stops running the bots and setting bot cookies; viewBoard runs _run_bot_turn() in the enemy-phase GET before finished/contextBoard are computed, increments roundNumber there, and marks the bot actions loading via actionPlays; flow tests rewritten (independent of 1).
+3. remove-bot-cookie-transport - delete the now-dead _set_bot_action_cookies()/_has_enemy_play_cookies(), rebase the playcards()-guard test onto a manually staged foreign cookie, and do the done/ bookkeeping so the README stops claiming the veil exists (depends on 2).
+
+Includes: remove-board-veil, run-bots-in-enemy-phase, remove-bot-cookie-transport.
+
+Verification: python3 manage.py test - baseline 24 tests OK on branch implement-draw-card-animation; target 23 tests OK (the 2 veil tests removed, 1 no-veil regression test added, the bot-cookie flow tests rewritten to the cookie-free flow with equivalent coverage).

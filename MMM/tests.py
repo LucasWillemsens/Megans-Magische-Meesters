@@ -1,4 +1,3 @@
-import json
 import re
 from http.cookies import SimpleCookie
 
@@ -109,70 +108,73 @@ class BattleFlowTests(TestCase):
         self.assertEqual(payload["sourceOrdinal"], 3)
         self.assertTrue(payload["flipFaceUp"])
 
-    def test_end_turn_advances_round_and_bot_plays(self):
+    def test_end_turn_defers_bot_turn_to_enemy_phase_get(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
 
-        bot_cards_before = GameCard.objects.filter(
-            game_id=self.game.id,
-            user_id=self.bot_participant.id,
-            state__lane__gt=0,
-        ).count()
+        def bot_state():
+            return {
+                "lane": GameCard.objects.filter(
+                    game_id=self.game.id, user_id=self.bot_participant.id, state__lane__gt=0
+                ).count(),
+                "hand": GameCard.objects.filter(
+                    game_id=self.game.id, user_id=self.bot_participant.id, state__lane=0
+                ).count(),
+                "deck": GameCard.objects.filter(
+                    game_id=self.game.id, user_id=self.bot_participant.id, state__inDeck=True
+                ).count(),
+            }
 
-        self.client.post(end_turn_url, {"action": "end_turn"})
+        # the end_turn POST mutates no bot state and sets no bot cookies
+        before = bot_state()
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
 
         self.game.refresh_from_db()
-        bot_cards_after = GameCard.objects.filter(
-            game_id=self.game.id,
-            user_id=self.bot_participant.id,
-            state__lane__gt=0,
-        ).count()
+        self.assertEqual(bot_state(), before)
+        self.assertEqual(self.game.roundNumber, 1)
+        self.assertFalse([name for name in response.cookies if name.isdigit()])
 
+        # the board GET carrying the enemy phase runs the bots exactly once
+        self.client.get(board_url)
+        self.game.refresh_from_db()
+        after = bot_state()
+        self.assertGreater(after["lane"], before["lane"])
         self.assertEqual(self.game.roundNumber, 2)
-        self.assertGreater(bot_cards_after, bot_cards_before)
 
-    def test_end_turn_sets_bot_action_cookies_for_viewing_board(self):
+        # the phase cookie is single-use: further GETs never re-run the bots
+        self.client.get(board_url)
+        self.client.get(board_url)
+        self.game.refresh_from_db()
+        self.assertEqual(bot_state(), after)
+        self.assertEqual(self.game.roundNumber, 2)
+
+    def test_end_turn_sets_no_bot_action_cookies(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
         response = self.client.post(end_turn_url, {"action": "end_turn"})
 
-        bot_cookies = {
-            name: morsel for name, morsel in response.cookies.items() if name.isdigit()
-        }
-        self.assertTrue(bot_cookies)
-        for morsel in bot_cookies.values():
-            # a browser only returns cookies whose path prefixes the request
-            # URL, so bot action cookies must be scoped to the viewing player's
-            # board for the enemy animations to render there.
-            self.assertEqual(morsel["path"], f"/game/{self.game.id}/board/{self.human.id}/")
-            payload = json.loads(morsel.value)
-            self.assertIn("laneValue", payload)
-            self.assertIn("sourceLane", payload)
-            self.assertIn("sourceOrdinal", payload)
-            self.assertIn("flipFaceUp", payload)
+        self.assertFalse([name for name in response.cookies if name.isdigit()])
+        self.assertEqual(response.cookies["turn_phase"].value, "enemy")
 
-    def test_board_reload_renders_and_clears_enemy_animations(self):
+    def test_enemy_phase_get_runs_bots_and_marks_moves_loading(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-        end_turn_response = self.client.post(end_turn_url, {"action": "end_turn"})
-        bot_cookie_names = [
-            name for name in end_turn_response.cookies if name.isdigit()
-        ]
-        self.assertTrue(bot_cookie_names)
+        self.client.post(end_turn_url, {"action": "end_turn"})
 
-        # the reload after 'end turn' carries the bot cookies back to the
-        # viewing player's board, which renders the enemy actions as loading
-        # animations with their source lane/ordinal.
+        # the reload after 'end turn' carries the enemy phase, runs the bots
+        # and renders their moves as loading animations with the source
+        # lane/ordinal the cards came from
         response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
         self.assertContains(response, 'cardContainer loading')
-        self.assertContains(response, 'data-source-lane="-')
 
         # the loading card's data-source-* must describe where the card came
         # from (the bot drew from the deck: source ordinal 0), not the card's
@@ -184,13 +186,7 @@ class BattleFlowTests(TestCase):
         self.assertIn('data-source-lane="-', loading_tag.group(0))
         self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
 
-        # the render clears the bot cookies again (existing clear_cookies flow)
-        for name in bot_cookie_names:
-            self.assertEqual(response.cookies[name].value, "")
-            self.assertEqual(response.cookies[name]["max-age"], 0)
-
-        # the test client keeps deleted cookies as empty values; real browsers
-        # drop them, so the next board load lands clean with no animations.
+        # the next board load lands clean with no animations
         self.client.cookies = SimpleCookie()
         response = self.client.get(board_url)
         self.assertNotContains(response, "cardContainer loading")
@@ -245,36 +241,16 @@ class BattleFlowTests(TestCase):
         self.assertNotIn(str(drawn_card.id), response.cookies)
         self.assertFalse([name for name in response.cookies if name.isdigit()])
 
-    def test_action_posts_render_board_veil(self):
+    def test_action_posts_render_no_board_veil(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
 
-        # action POST renders obfuscate the final board state behind a
-        # full-screen veil while the loading animations play above it
-        # (loadingAnimations.js lifts the veil only when the page will not
-        # navigate away)
         response = self.client.post(action_url, {"action": "draw"})
-        self.assertContains(
-            response,
-            '<div id="boardVeil" class="boardVeil" aria-hidden="true"></div>',
-        )
+        self.assertNotContains(response, "boardVeil")
 
         response = self.client.post(action_url, {"action": "end_turn"})
-        self.assertContains(
-            response,
-            '<div id="boardVeil" class="boardVeil" aria-hidden="true"></div>',
-        )
-
-    def test_plain_board_get_renders_no_board_veil(self):
-        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
-        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
-
-        self.client.post(confirm_url)
-
-        # a plain board render stays on screen, so nothing may obfuscate it
-        response = self.client.get(board_url)
         self.assertNotContains(response, "boardVeil")
 
     def test_enemy_deck_and_hand_render_as_card_elements(self):
@@ -409,12 +385,14 @@ class BattleFlowTests(TestCase):
     def test_update_played_cards_marks_source_state(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
         # let the bot play a card to a lane so there is an untrusted lane
         # card (the trusted starting card lives in trustedCards, which
         # _update_played_cards deliberately does not animate)
         self.client.post(end_turn_url, {"action": "end_turn"})
+        self.client.get(board_url)
 
         bot_lane_card = GameCard.objects.filter(
             game_id=self.game.id,
@@ -454,21 +432,27 @@ class BattleFlowTests(TestCase):
         self.assertEqual(marked[0].state.laneOrdinal, 2)
         self.assertNotEqual(marked[0].state.laneOrdinal, final_ordinal)
 
-    def test_bot_cookies_not_consumed_as_player_actions(self):
+    def test_foreign_play_cookies_not_consumed_as_player_actions(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-        self.client.post(action_url, {"action": "end_turn"})
 
+        bot_card = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.bot_participant.id
+        ).first()
         bot_lane_cards = GameCard.objects.filter(
             game_id=self.game.id,
             user_id=self.bot_participant.id,
             state__lane__gt=0,
         ).count()
 
-        # the next action POST carries the bot cookies along, but playcards()
-        # must only ever execute the acting participant's own cookies.
+        # a manually staged play cookie naming another participant's card must
+        # never be consumed: playcards() only executes the acting
+        # participant's own cookies
+        self.client.cookies[str(bot_card.id)] = (
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
         response = self.client.post(action_url, {"action": "draw"})
 
         self.assertNotContains(response, "Action error")
@@ -552,8 +536,8 @@ class BattleFlowTests(TestCase):
         # short-circuiting to the result page: the turn-phase chain plays out
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-phase="playerMoves"')
-        # the playerMoves render always targets the board URL: the bot action
-        # cookies set on this response must still render in the enemy phase
+        # the playerMoves render always targets the board URL: the final bot
+        # moves still have to run and play out in the enemy phase
         self.assertContains(response, f'data-next-url="{board_url}"')
         # boardAction keeps handing "enemy" to the next render even when
         # finished: the enemy phase is where the final bot moves play
@@ -571,8 +555,8 @@ class BattleFlowTests(TestCase):
 
         self.client.post(end_turn_url, {"action": "end_turn"})
 
-        # the following board GET carries the turn phase and bot action
-        # cookies: the enemy phase still renders (final bot moves + markers),
+        # the following board GET carries the enemy phase: the bot turn runs
+        # here and the enemy phase still renders (final bot moves + markers),
         # but its navigation target is the result page
         response = self.client.get(board_url)
         self.assertEqual(response.status_code, 200)
