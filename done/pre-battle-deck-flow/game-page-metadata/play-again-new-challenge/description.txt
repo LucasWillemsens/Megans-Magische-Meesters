@@ -1,1 +1,0 @@
-Make the "Play again" action create a new challenge instead of reusing the old one.
