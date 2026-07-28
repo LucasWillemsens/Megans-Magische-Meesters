@@ -1,1 +1,0 @@
-Highlight the affected lanes when special moves execute so players can instantly see the result of the action.

@@ -1,1 +1,1 @@
-Animate special draw sequences, detect the last drawn card, play special move animations in order, and show a shuffle-back effect.
+Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.

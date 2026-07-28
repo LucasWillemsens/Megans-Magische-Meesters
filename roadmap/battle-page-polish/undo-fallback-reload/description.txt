@@ -1,1 +1,0 @@
-Add an undo button and a fallback board reload path that recovers the player state if the game is driven by cookie data.
