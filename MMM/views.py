@@ -20,17 +20,6 @@ from .models import (
 )
 
 BASE_URL = "http://127.0.0.1:8000/"
-
-# cross-render turn sequence signal: set on the end_turn POST response
-# ("enemy"), consumed by the next board render (enemy turn markers + enemy
-# animations), which hands off "player" to the final reload so the board can
-# mark the start of the player's own turn. never a card id, so playcards()/
-# loading animations skip it. its lifecycle is managed explicitly by
-# boardAction()/viewBoard() and NOT by _render's clear_cookies flow: deleting
-# and re-setting the same cookie on one response poisons the fresh morsel
-# with the delete's Max-Age=0, which a real browser honours by dropping the
-# handoff cookie immediately (the test client ignores expiry, so only real
-# browsers lost the "player" handoff and never showed the "Your turn" marker).
 TURN_PHASE_COOKIE = "turn_phase"
 
 def index(request):
@@ -95,14 +84,6 @@ def viewGame(request, game_id):
 def viewGameAsPlayer(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
     current_battler = Player.objects.get(pk=player_id)
-
-    
-    # response = HttpResponse("Cookie set")
-    # request.set_cookie('cookie_name', 'cookie_value', max_age=3600)
-
-        #     // read cookie
-        # window.location.href = `${shortPath}`;
-
     request.session['player_id'] = player_id
     request.session.get('player_id')
 
@@ -186,24 +167,12 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
 
     if not gameCards.exists():
         return redirect(f"/game/{game_id}/{player_id}/")
-
-    # the turn phase for this render either comes from the caller (action POST
-    # renders) or from the turn phase cookie that coordinates the end_turn
-    # sequence across reloads: "enemy" (enemy markers + enemy animations),
-    # then "player" (the player's own turn starts again).
-    # an explicit turn_phase argument means this render answers an action POST
-    # (boardAction is the only caller that passes one, "" for draw/unknown
-    # actions and "playerMoves" for end_turn). derived from the render mode,
-    # not from request.path, so it stays unit-testable and independent of URL
-    # formatting.
+        
     action_render = turn_phase is not None
     phase_from_cookie = turn_phase is None
     if phase_from_cookie:
         turn_phase = request.COOKIES.get(TURN_PHASE_COOKIE, "")
 
-    # the enemy signal is single-use (this response overwrites or deletes the
-    # phase cookie), so the bots run exactly once per end_turn. a plain board
-    # GET must never 500: a bot failure degrades to an error message instead
     if phase_from_cookie and turn_phase == "enemy":
         try:
             bot_actions = _run_bot_turn(game, player_id)
@@ -212,8 +181,6 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             error_message = str(exc)
         game.roundNumber = max(game.roundNumber, 1) + 1
         game.save(update_fields=["roundNumber"])
-        # one play per moved card, keeping the first source: a card drawn and
-        # played in the same bot turn animates from the deck, not the hand
         plays_by_card = {}
         for bot_action in bot_actions:
             play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
@@ -221,39 +188,24 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             play["flipFaceUp"] = bot_action["flipFaceUp"]
         action_plays = (action_plays or []) + list(plays_by_card.values())
 
-    # computed after the bot run (bot specialActions can defeat/flee
-    # participants), but the redirect to the result page is deferred until
-    # the render mode is known (see below): a finished game that still has
-    # animations or turn phases to play out renders them first, and the JS
-    # navigates to nextUrl (the result page) at the end of the sequence
     finished, _, _ = _game_result(game)
 
-    # clear_cookies makes _render run _addLoadingAnimations, which marks the
-    # recorded bot actions loading
     if not clear_cookies:
         clear_cookies = turn_phase == "enemy"
 
-    # this render still has animations or phases to play out: action renders
-    # animate the (possibly game-ending) action itself, and the enemy phase
-    # still shows the final moves/markers. only a finished game with nothing
-    # left to play redirects straight to the result page; sequence renders
-    # hand the JS nextUrl instead (below)
     sequence_render = action_render or clear_cookies or turn_phase == "enemy"
     if finished and not sequence_render:
         response = redirect(f"/game/{game_id}/result/{player_id}/")
         if TURN_PHASE_COOKIE in request.COOKIES:
-            # a stale phase signal never lingers on a finished game
             response.delete_cookie(
                 TURN_PHASE_COOKIE, path=f"/game/{game.id}/board/{player_id}/"
             )
         return response
 
     own_board = contextBoard(gameCards, current_participant.id)
-    # _board_state(game.id, current_participant.id)
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
         enemy_board = contextBoard(gameCards, enemy_participant.id)
-        #  _board_state(game.id, enemy_participant.id)
 
         enemy_boards.append(
             {
@@ -261,9 +213,6 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
                 "laneRows": enemy_board["laneRows"],
                 "deckCount": enemy_board["deckCount"],
                 "handCount": enemy_board["handCount"],
-                # real (face-down) deck/hand elements: enemy draw/play
-                # animations fly from these, and they are what the enemy turn
-                # focuses at the top of the screen
                 "deckStack": enemy_board["deckStack"],
                 "handCards": enemy_board["handCards"],
             }
@@ -286,41 +235,19 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "flippedCardsAmount": current_participant.flippedCardsAmount,
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
-        # where loadingAnimations.js navigates after this render's animations
-        # (path-only, so it compares cleanly against window.location.pathname).
-        # after a game-ending end_turn the final bot moves still have to play
-        # out: playerMoves -> reload to board -> enemy phase (the bots run and
-        # animate there) -> result. so playerMoves always targets the board;
-        # only the enemy phase render - or a non-end_turn action render on a
-        # finished game, e.g. a draw whose specialActions() defeated someone -
-        # targets the result page
         "nextUrl": (
             f"/game/{game_id}/result/{player_id}/"
             if finished and turn_phase != "playerMoves"
             else f"/game/{game_id}/board/{player_id}/"
         ),
-        # plays recorded server-side: the player's draw on the action POST, or
-        # the bot actions on the enemy-phase render. _addLoadingAnimations
-        # seeds its plays list with them so they go through the same
-        # loading-marking path as cookie plays
         "actionPlays": action_plays or [],
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
 
-    # hand off the turn sequence to the next render. the phase cookie is never
-    # touched by _render's clear_cookies flow (a delete-then-set on one
-    # response would stick Max-Age=0 on the handoff value and real browsers
-    # would drop it instantly); it is set ("enemy"), overwritten ("player")
-    # and deleted (after the player phase, or on game end) exclusively
-    # here/in boardAction.
     if phase_from_cookie:
         cookie_path = f"/game/{game.id}/board/{player_id}/"
         if turn_phase == "enemy":
             if finished:
-                # the chain ends at the result page: the enemy phase is the
-                # last render (nextUrl points there) and a finished game never
-                # shows the "Your turn" marker. never a delete-then-set on one
-                # response (see TURN_PHASE_COOKIE), so this is a plain delete
                 response.delete_cookie(TURN_PHASE_COOKIE, path=cookie_path)
             else:
                 response.set_cookie(TURN_PHASE_COOKIE, "player", path=cookie_path)
@@ -339,18 +266,10 @@ def boardAction(request, game_id, player_id):
 
     action = request.POST.get("action", "")
     error_message = ""
-    # plays performed by this action itself (currently only the player's
-    # draw), recorded so the response render can animate them. unlike play
-    # cookies these are not staged cross-request: the draw animates on THIS
-    # response, and playcards() already ran above, so a recorded play is
-    # never re-executed as a game action.
     action_plays = []
     try:
         playcards(game, request.COOKIES, current_participant)
         if action == "draw":
-            # snapshot the deck card's position before drawCard() mutates a
-            # re-fetched CardState instance (same pattern as _run_bot_turn),
-            # so the drawn hand card can fly in from the deck
             next_deck_card = current_participant.getNextDeckCard()
             source_lane = next_deck_card.state.lane if next_deck_card else None
             source_ordinal = next_deck_card.state.laneOrdinal if next_deck_card else None
@@ -376,10 +295,7 @@ def boardAction(request, game_id, player_id):
     except Exception as exc:
         error_message = str(exc)
 
-    request.session['plays'] = [] #clear plays after action is done
-    # a successful end_turn starts the cross-render turn sequence: this render
-    # plays the player's own moves and always reloads ("playerMoves"), the next
-    # render runs the enemy phase, the final one marks the player's new turn.
+    request.session['plays'] = []
     end_turn_done = action == "end_turn" and not error_message
     response = viewBoard(
         request,
@@ -391,8 +307,6 @@ def boardAction(request, game_id, player_id):
         action_plays=action_plays,
     )
     if end_turn_done:
-        # consumed by the next board render, which renders the enemy phase
-        # (markers for every opponent, even opponents without actions)
         response.set_cookie(
             TURN_PHASE_COOKIE, "enemy", path=f"/game/{game.id}/board/{player_id}/"
         )
@@ -405,10 +319,8 @@ def playcards(game, plays, participant):
         try:
             card_id = int(play)
         except (TypeError, ValueError):
-            # non-card cookies (e.g. the turn phase signal) are never plays
             continue
         if not GameCard.objects.filter(pk=card_id, game_id=game.id, user_id=participant.id).exists():
-            # cookies of other participants are never played here
             continue
         payload = _parse_play_cookie_value(plays[play])
         participant.playCard(
@@ -439,7 +351,6 @@ def specialActions(participant):
 def intSpecial(participant,count):
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
     handCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0)
-            # .all()
     random.shuffle(handCards)
     for i in range(min(count,len(handCards))):
         newCard = handCards[i]
@@ -448,7 +359,7 @@ def intSpecial(participant,count):
 def spdSpecial(participant,speed, power, opponentId = None):
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     if opponentPower < power:
@@ -461,17 +372,17 @@ def spdSpecial(participant,speed, power, opponentId = None):
             return f"{participant.id} fled from {opponent.id}"
         else:
             print(f"{participant.player.name} fails to flee from {opponent.player.name}")
-            #maybe have the slower participants lose these participant and oppopent?
+            #todo maybe have the slower participants lose these participant and oppopent?
     return ""
 
 def visSpecial(participant,visciouisness, opponentId = None):
     #attack opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
-    #we need a res card that we can trust in order to follow through with the attack
+    #attacking player needs a res card to trust in order to follow through with the attack
     newTrustedResCard = None
     newTrustedResCards = getTrustableCards(participant,[4])
     if len(newTrustedResCards) > 0:  
@@ -507,8 +418,6 @@ def resSpecial(participant,count):
         newCard = newCards[i]
         newCard.state.trust()
         newCard.state.save()
-    # participant.playedCardsAmount = -count
-    # participant.save(update_fields=["playedCardsAmount"])
 
 def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
@@ -547,14 +456,10 @@ def resetGames(request):
 
 def _render(request, template_name, context, clear_cookies=False):
     template = loader.get_template(template_name)
-    # print(f"Clearing cookies: {context.get('player_id', '?')} at {requestPath}") 
     
     if clear_cookies:
-        # when clearing cookies, all playable cookies for current game will be transferred to animations
         context = _addLoadingAnimations(context, request)
     response = HttpResponse(template.render(context, request))
-    # cookies are set on the board URL; on action POSTs strip the trailing
-    # "action" so delete_cookie targets the exact same path.
     if "action" in request.path:
         requestPath = request.path[0: request.path.rfind("action")]
     else:
@@ -563,26 +468,18 @@ def _render(request, template_name, context, clear_cookies=False):
     if clear_cookies:
         for cookie in request.COOKIES:
             if cookie in ("sessionid", "csrftoken", TURN_PHASE_COOKIE):
-                # the turn phase signal outlives this render: boardAction()/
-                # viewBoard() overwrite or delete it explicitly, and a
-                # delete-then-set on one response would stick Max-Age=0 on the
-                # fresh value (browsers drop it instantly, see TURN_PHASE_COOKIE)
                 continue
             response.delete_cookie(cookie, path=requestPath)
     return response
 
 def _addLoadingAnimations(context, request):
-    # server-recorded action plays (e.g. the player's draw on the action POST)
-    # and cookie-staged plays go through the exact same marking path
     plays = list(context.get("actionPlays", []))
     game = context.get("game")
     for cookie in request.COOKIES:
         if cookie != "sessionid" and cookie != "csrftoken":
             if not request.COOKIES[cookie]:
-                # deleted cookies may echo back with an empty value; nothing to animate
                 continue
             if not cookie.isdigit():
-                # non-card cookies (e.g. the turn phase signal) name no card
                 continue
             payload = _parse_play_cookie_value(request.COOKIES[cookie])
             plays.append(
@@ -599,8 +496,6 @@ def _addLoadingAnimations(context, request):
     print(f"Updating loading animations for plays: {plays} at {request.path}")
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
-    # enemy actions animate inside the enemy board that owns the card,
-    # mirroring how the player's own plays mark ownLaneRows
     for enemy_board in context.get("enemyBoards", []):
         enemy_plays = [
             play
@@ -609,8 +504,6 @@ def _addLoadingAnimations(context, request):
         ]
         if enemy_plays:
             enemy_board["laneRows"] = _update_played_cards(enemy_board["laneRows"], enemy_plays)
-            # drawn enemy cards land in the enemy hand, which now renders real
-            # face-down elements; mark them so the draw animation plays too
             enemy_board["handCards"] = _update_moved_hand_cards(
                 enemy_board["handCards"], enemy_plays
             )
@@ -618,8 +511,6 @@ def _addLoadingAnimations(context, request):
 
 
 def _get_play_cookie_participant_id(game, card_id):
-    # play cookies are namespaced by path per participant, but the request does
-    # not expose cookie paths, so the owning participant is read from the card
     if game is None:
         return None
     try:
@@ -653,17 +544,10 @@ def _parse_play_cookie_value(cookie_value):
     }
 
 def _update_moved_hand_cards(hand_cards, plays):
-    # flat-list variant of _update_played_cards for hands: marks the moved
-    # card loading and points its data-source-* at where it came from (a
-    # negative source lane means the deck), so the animation can fly the card
-    # in from the deck/hand area it was drawn or played from.
     for play in plays:
         card_id = int(play["cardId"])
         for card in hand_cards:
             if card.id == card_id:
-                # the template renders state.lane/state.laneOrdinal, so those
-                # are the fields to overwrite with the animation source (the
-                # in-memory state is never saved here)
                 if play["sourceLane"] is not None:
                     card.state.lane = play["sourceLane"]
                 if play["sourceOrdinal"] is not None:
@@ -678,10 +562,6 @@ def _update_played_cards(lane_rows, plays):
         for row in lane_rows:
             for card in row["cards"]:
                 if card.id == card_id:
-                    # see _update_moved_hand_cards: state.laneOrdinal, not a
-                    # throwaway 'ordinal' attribute, or the rendered
-                    # data-source-ordinal is the card's final position and the
-                    # duplicate launches from the wrong slot
                     if play["sourceLane"] is not None:
                         card.state.lane = play["sourceLane"]
                     if play["sourceOrdinal"] is not None:
@@ -692,8 +572,6 @@ def _update_played_cards(lane_rows, plays):
 
 def _game_result(game, force_end=False):
     participants = list(game.history.participants.all())
-    # for participant in participants:
-        # print(f" {participant.player.name} {participant.defeated and 'was defeated' or participant.fled and 'has fled' or 'is in the game'}")
     if not participants:
         return False,False, None
 
@@ -717,6 +595,7 @@ def _ensure_game_initialized(game):
 
 
 def _run_bot_turn(game, human_player_id):
+    #todo add potential action for bot to flip over faceDown cards in lane
     bot_participants = game.history.participants.exclude(player_id=human_player_id).filter(computerControlled=True)
     bot_actions = []
     for bot_participant in bot_participants:
@@ -728,7 +607,6 @@ def _run_bot_turn(game, human_player_id):
         if hand_card is None:
             next_deck_card = bot_participant.getNextDeckCard()
             if bot_participant.drawCard() is not None:
-                # drawn card moved deck -> hand
                 bot_actions.append(
                     {
                         "participantId": bot_participant.id,
