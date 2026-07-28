@@ -454,8 +454,7 @@
 }
 
 
-/* hand (in your hand or on table or as a deck)
-********************************************************************/
+/*in play */
 
 .playingCards ul.table,
 .playingCards ul.hand,
@@ -472,7 +471,6 @@
 .playingCards ul.table li,
 .playingCards ul.hand li,
 .playingCards ul.deck li {
-    /* margin: 0;
     padding: 0; */
     list-style-type: none;
     float: left;
@@ -662,7 +660,6 @@ div.playerScreen{
         height: 10%;
         margin: 0;
         z-index: 1;
-        /* text-decoration: underline; */
         opacity: 0.15;
         color: #114503;
         transform: translateX(-25px) translatey(-83px) rotate(-17deg);
@@ -690,22 +687,18 @@ div.playerScreen{
         }
         ul.lanes li.lane.Intelligence {
             background-color: 
-            /* rgb(217, 158, 196); */
             rgb(213 193 235);
         }
         ul.lanes li.lane.Speed {
             background-color: 
-            /* rgb(199, 193, 142); */
             rgb(252 247 207);
         }
         ul.lanes li.lane.Visciousness {
             background-color: 
-            /* rgb(203, 125, 125); */
             rgb(215 155 155);
         }
         ul.lanes li.lane.Resolve {
             background-color: 
-            /* rgb(162, 202, 162); */
             rgb(178 193 180);
         }
 
@@ -772,12 +765,6 @@ div.playerScreen{
     flex-direction: column;
     flex-wrap: nowrap;
 }
-
-/* enemy deck and hand: real face-down card elements so enemy draw/play
-   animations have a source to fly from, mirroring the player's deck stack.
-   horizontally spaced exactly like the player's .deckHand group (deck on the
-   left, hand centered); only the vertical sizing differs (the enemy board is
-   auto-height, so a min-height stands in for the player's height: 25%) */
 .playerScreen .enemyDeckHand {
     z-index: 1;
     position: relative;
@@ -797,16 +784,12 @@ div.playerScreen{
     margin: 0 20%;
 }
 
-/* the enemy deck and hand are display-only: no click, drag, cursor or hover
-   affordances (cardDragDrop.js also never binds listeners inside them) */
 .playerScreen .enemyDeckHand,
 .playerScreen .enemyDeckHand * {
     pointer-events: none;
     cursor: default;
 }
 
-/* while the enemy turn plays, the focus sits on the enemy boards at the top
-   of the page and the player's own deck/hand is greyed out / de-emphasized */
 .playerScreen.enemyTurnFocus > .deckHand {
     opacity: 0.3;
     filter: grayscale(0.9);
@@ -846,14 +829,12 @@ button.draw{
 }
 
 
-/* the stars of the show */
 .fit-picture{
     object-fit: cover;
     vertical-align: middle;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     background: #ddd;
 }
-/* the stars of the show */
 .playerInfo .fit-picture{
     margin: 0 1rem;
     width: 4rem;
@@ -876,13 +857,11 @@ button.draw{
     gap: 1rem;
     padding: 0;
     margin: 0;
-    /* margin-bottom: 2rem; */
     height: fit-content;
     width:100%;
 }
     .cards h2{
         margin:0;
-        /* margin-bottom: 2rem; */
     }
     .cards p{
         margin: 0;
@@ -898,13 +877,11 @@ button.draw{
     gap: 1rem;
     padding: 0;
     margin: 0;
-    /* margin-bottom: 2rem; */
     height: fit-content;
     width:100%;
 }
     .decks h2{
         margin:0;
-        /* margin-bottom: 2rem; */
     }
     .decks p{
         margin: 0;
@@ -928,22 +905,6 @@ button.draw{
         justify-content: space-between;
         width: 5rem;
     }
-    /* card batlle shuffle wip */
-/* .cardOptions .smallCard {
-    display: flex;
-    flex-direction: column-reverse;
-    height: 9rem;
-    align-items: center;
-    align-content: center;
-    justify-content: space-between;
-    width: 5rem;
-    margin-right: -300px !important;
-    margin-bottom: -132px;
-    border-style: double;
-    border-width: thick;
-    padding-top: 0.5rem;
-    background: aqua;
-} */
 
         .cardOptions .smallCard label{
             display: flex;
@@ -1272,20 +1233,10 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
     transform: translate(var(--move-x, 0px), var(--move-y, 0px)) !important;
 }
 
-/* a flip duplicate sits at the original's own slot showing the pre-flip
-   back; instead of flying it turns edge-on over --move-duration, then the
-   revealed original takes over (loadingAnimations.js swaps them on
-   transitionend). this rule must out-specificity the !important translate
-   above, which only applies to flight duplicates */
 .duplicate.flipFaceUp.to-original {
     transform: rotateY(90deg) !important;
 }
 
-/* a card that is about to animate stays invisible in its final position from
-   page load on - through any turn-marker beats before the flight starts -
-   until its duplicate lands; loadingAnimations.js then removes the 'loading'
-   class (and the duplicate) so the original takes over. the duplicate itself
-   is a clone of the loading card, so it must be excluded to stay visible. */
 .playerScreen .cardContainer.loading:not(.duplicate) {
     visibility: hidden;
 }
