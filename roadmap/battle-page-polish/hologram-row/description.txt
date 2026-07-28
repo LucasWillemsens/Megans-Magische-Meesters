@@ -1,1 +1,10 @@
 Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
+
+Refined goal:
+When a card is dropped on a lane, the original card stays in the hand as a ghostly duplicate and the hologram appears in the hologram row - two ghostly copies of the same card (which one is technically the duplicate does not matter). When either copy is hovered, a bent arrow appears from the hand card to the hologram and both copies come to the front. This way, even when the card is played face down, it can still be read in the hand. When the play executes, the flight animation fires from the hand.
+
+Ideas:
+- One hologram row per lane, directly above that lane's cards row, so a pending play stays visually tied to its lane. Player side only - the enemy never has pending plays.
+- Same stacked/tilted card language as lane-card-stacking, but ghostly (translucent, outlined, maybe a soft glow) so "pending" never reads as "committed". The row hologram stays face-down as today; the hand copy stays face-up and readable.
+- Keep the existing one-shot click-to-flip on the row hologram working in the new row.
+- The drop-zone stays in the lane; only the hologram preview renders in the row above. Note this changes current drop behavior, which removes the card from the hand DOM - now it stays as the ghost copy.

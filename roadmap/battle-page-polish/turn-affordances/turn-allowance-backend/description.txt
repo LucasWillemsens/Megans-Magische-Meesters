@@ -1,0 +1,63 @@
+Compute remaining draw/play/flip allowances from the existing getStats() turn-limit formulas, expose them to the board template as a hidden #turnLimits data block (the backend→frontend contract for all affordance work), and pin parity with the enforcement checks in drawCard()/playCard().
+
+## Implementation
+
+### 1. MMM/models.py — BattleParticipant.getTurnAllowances()
+
+Add `getTurnAllowances()` next to `getStats()` (after line 345). Mirror the three limit formulas from `drawCard()` (line 282) and `playCard()` (lines 314-315):
+
+- `draws_left = intCount + 1 + min(0, spdCount + 1 − flippedCardsAmount − playedCardsAmount) − drawnCardsAmount`
+- `flips_left = spdCount + 1 + min(0, intCount + 1 − drawnCardsAmount − playedCardsAmount) − flippedCardsAmount`
+- `plays_left = 2 + tactics − drawnCardsAmount − flippedCardsAmount − playedCardsAmount`
+
+Clamp each at 0 (`max(0, ...)`). Return a dict with:
+- `draws_left`, `flips_left`, `plays_left`
+- Raw ingredients the client needs to re-derive allowances while staging: `int_count`, `spd_count`, `tactics`, `drawn`, `played`, `flipped`
+- Blocked title strings: `blocked_titles` dict with keys `draw`, `play`, `flip` containing rule-teaching messages like:
+  - `"Draw limit reached (Intelligence + 1 per turn)"`
+  - `"Play limit reached (2 + tactics − cards already played)"`
+  - `"Flip limit reached (Speed + 1 per turn)"`
+
+Comment: *"Keep in sync with drawCard()/playCard() enforcement."*
+
+### 2. MMM/views.py — viewBoard()
+
+Compute `allowances = current_participant.getTurnAllowances()` and add `"turnAllowances"` to the context dict (next to the existing `drawnCardsAmount` entries, views.py lines 233-235). Keep the existing counter context keys untouched.
+
+### 3. MMM/jinja2/MMM/battle/viewBoard.jinja2
+
+Render a hidden data block next to `#boardNext` (lines 4-7):
+
+```html
+<div id="turnLimits" hidden
+  data-draws-left="{{ turnAllowances.draws_left }}"
+  data-plays-left="{{ turnAllowances.plays_left }}"
+  data-flips-left="{{ turnAllowances.flips_left }}"
+  data-int-count="{{ turnAllowances.int_count }}"
+  data-spd-count="{{ turnAllowances.spd_count }}"
+  data-tactics="{{ turnAllowances.tactics }}"
+  data-drawn="{{ turnAllowances.drawn }}"
+  data-played="{{ turnAllowances.played }}"
+  data-flipped="{{ turnAllowances.flipped }}"
+  data-draw-blocked-title="{{ turnAllowances.blocked_titles.draw }}"
+  data-play-blocked-title="{{ turnAllowances.blocked_titles.play }}"
+  data-flip-blocked-title="{{ turnAllowances.blocked_titles.flip }}">
+</div>
+```
+
+### 4. MMM/tests.py — Parity + contract tests
+
+- `test_turn_allowances_match_fresh_board`: After confirm, all-4-type deck — compute expected from `getStats`; assert `getTurnAllowances` values. Default setUp deck has starting card Human-0 type 0 (Intelligence) trusted+revealed in lane 1 → int=1, others 0, tactics=1: draws=2, flips=1, plays=3. Verify all dict keys present.
+- `test_draw_parity`: Drawing succeeds exactly `draws_left` times then raises (loop POST draw; assert error message appears on the `(draws_left+1)`th POST; also assert `getTurnAllowances()["draws_left"] == 0` at that point). With default setUp: draws_left=2 → two draws OK, third POST draw shows "cannot draw more cards" error.
+- `test_board_renders_turn_limits_data`: Board GET contains `id="turnLimits"`, `data-draws-left="2"`, `data-plays-left="3"`, `data-flips-left="1"` (default setUp), and still contains the d/p/f counter text ("0d", "0p", "0f") for debugging.
+
+## Acceptance criteria
+
+- [ ] `getTurnAllowances()` returns draws/flips/plays left matching the formulas, clamped ≥ 0
+- [ ] Board response carries `#turnLimits` with all nine `data-*` values + three tooltip strings
+- [ ] Parity: draw succeeds exactly `draws_left` times before the server error; allowance reads 0 exactly when enforcement raises
+- [ ] Existing `drawnCardsAmount`/`playedCardsAmount`/`flippedCardsAmount` context keys and counter text unchanged; `python3 manage.py test` green
+
+## Dependencies
+
+None. Blocks `blocked-board-visuals` and `staged-action-blocking`.
