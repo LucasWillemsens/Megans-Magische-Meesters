@@ -1,0 +1,1 @@
+Prevent cookies from consuming state incorrectly when the opponent is not active.

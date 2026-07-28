@@ -153,8 +153,8 @@
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer faceDown {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}">
+                            <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}>
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
                                 <div class="card back smallCard">
                                     {% if card.card.artSource == "" %}
@@ -230,12 +230,10 @@
     </ul>
     <div class="deckHand">
         <p>
-            Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }} (
-            {{drawnCardsAmount}}d
-            {{playedCardsAmount}}p
-            {{flippedCardsAmount}}f this turn )
+            Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
+            <span id="turnCounters" hidden>( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn )</span>
             </p>
-        <ul class="deck">
+        <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}">
         {% if ownDeckCount > 0 %}
             {% for _ in ownDeckStack %}
             <li>
@@ -243,7 +241,7 @@
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                     {{ csrf_input }}
                     <input type="hidden" name="action" value="draw">
-                    <button type="submit" class="card back draw" title="Draw card">Draw</button>
+                    <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
                 </form>
                 {% else %}
                 <div class="card back">*</div>
@@ -261,7 +259,7 @@
         <ul class="hand">
             {% if handCards %}
                 {% for card in handCards %}
-            <li class="cardContainer {{ card.cssClass }}" draggable="true" data-source-lane="{{ card.state.lane }}"
+            <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true"{% endif %} data-source-lane="{{ card.state.lane }}"
                 data-source-ordinal="{{ card.state.laneOrdinal }}">
                 <div class="card smallCard">
 

@@ -696,3 +696,129 @@ class BattleFlowTests(TestCase):
         # page yet and bounces back to the board
         response = self.client.get(result_url)
         self.assertRedirects(response, board_url)
+
+    # ------------------------------------------------------------------
+    # Blocked-board-visuals tests
+    # ------------------------------------------------------------------
+
+    def _create_all_resolve_game(self):
+        """Create a game where the human has 4 all-Resolve cards (intCount=0, spdCount=0, tactics=0)."""
+        player = Player.objects.create(name="ResolvePlayer")
+        owner = CardOwnerHistory.objects.create(cardOwner=player)
+        cards = [self._create_owned_card(owner, f"Resolve-{i}", 3) for i in range(4)]
+        deck = Deck.create(
+            player.id, deckTitle="All Resolve", newDescription="all resolve", newDeckCards=cards
+        )
+        bot = Player.objects.create(name="ResolveBot")
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=bot)
+        bot_cards = [self._create_owned_card(bot_owner, f"Bot-{i}", i % 4) for i in range(4)]
+        bot_deck = Deck.create(
+            bot.id, deckTitle="Bot deck", newDescription="test", newDeckCards=bot_cards
+        )
+        history = BattleHistory.objects.create(challenger=player)
+        game = Game.objects.create(title="ResolveGame", history=history, roundNumber=0)
+        participant = history.addHumanChallenger(
+            challengerPlayer_id=player.id, startingCard_id=cards[0].id, deck_id=deck.id,
+        )
+        history.addRobotChallenger(
+            challengerPlayer_id=bot.id, startingCard_id=bot_cards[0].id, deck_id=bot_deck.id,
+        )
+        return game, player, participant
+
+    def test_fresh_board_no_blocked(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # No element has "blocked" as a CSS class on a fresh board
+        for pattern in ('class="deck blocked"', 'class="card back draw blocked"'):
+            self.assertNotIn(pattern, content)
+        self.assertNotRegex(content, r'class="[^"]*blocked[^"]*"')
+
+        # The draw button renders with its standard class
+        self.assertContains(response, 'class="card back draw"')
+
+    def test_hand_cards_draggable_when_not_blocked(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # Hand card has draggable="true" when plays_left > 0
+        self.assertIn('draggable="true"', content)
+        # No blocked class on the hand card container
+        self.assertNotIn('blocked"', content)
+
+    def test_all_resolve_draw_exhaustion(self):
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Exhaust the single draw (intCount=0 → draws_left=1)
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        self.assertContains(response, 'class="deck blocked"')
+        self.assertContains(response, "disabled")
+        self.assertContains(response, "Draw limit reached")
+
+    def test_mid_turn_play_flip_exhaustion(self):
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+        end_turn_url = reverse("MMM:boardAction", args=[game.id, player.id])
+        board_url = reverse("MMM:viewBoard", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Round 1: draw, end_turn, enemy GET, board GET (to clear phase)
+        self.client.post(draw_url, {"action": "draw"})
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        self.client.get(board_url)
+        self.client.get(board_url)
+
+        # Round 2: draw 1 card into hand
+        self.client.post(draw_url, {"action": "draw"})
+
+        # Find a card in hand (there are 2 — one from each round)
+        hand_card = GameCard.objects.filter(
+            game_id=game.id, user_id=participant.id, state__lane=0
+        ).first()
+
+        # Stage a play cookie that plays the card face-down (no flip) to consume
+        # both a play and leave the card face-down in the lane
+        self.client.cookies[str(hand_card.id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        # POST draw: cookie consumption exhausts plays+flips, then draw fails
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # Hand cards are blocked with draggable="false" and play tooltip
+        self.assertIn('draggable="false"', content)
+        self.assertIn("Play limit reached", content)
+
+        # Face-down lane cards are blocked with flip tooltip
+        self.assertIn("faceDown", content)
+        self.assertIn("Flip limit reached", content)
+
+    def test_turn_counters_hidden(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # id="turnCounters" hidden is in the DOM
+        self.assertContains(response, 'id="turnCounters"')
+        self.assertContains(response, "hidden")
+        # Counter text still rendered inside the hidden span
+        self.assertIn("1d", content)

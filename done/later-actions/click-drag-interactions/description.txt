@@ -1,0 +1,6 @@
+Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.
+
+Code locations:
+- var/www/static/cardDragDrop.js — `setupFaceDownCardClickListeners()` (and the dragstart/dragend wiring above it): check whether a card placed in a lane is valid there, or move it to the correct lane instead of accepting any drop.
+- var/www/static/cardDragDrop.js — `onCardDragStart()` / `onCardDragEnd()`: drag lifecycle hooks where lane validation and drop feedback belong.
+- Unstage a pending play: once hologram-row lands, the played card stays visible in hand as a ghost copy, so players will expect to take it back (click/drag the ghost to cancel the staged play cookie). There is no unstage path today.

@@ -1238,3 +1238,37 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
 .playerScreen .cardContainer.loading:not(.duplicate) {
     visibility: hidden;
 }
+
+/* Blocked state for exhausted action budgets */
+li.cardContainer.blocked {
+    filter: grayscale(0.85);
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+ul.deck.blocked {
+    filter: grayscale(0.85);
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+ul.deck.blocked button.draw:disabled {
+    filter: grayscale(0.85);
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+ul.hand li.cardContainer.blocked > .card.smallCard {
+    transform: translateY(-0.5em);
+}
+
+li.cardContainer.blocked:hover {
+    cursor: not-allowed !important;
+}
+
+/* Guard green backing-card slide from blocked cards */
+ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
+    right: 80%;
+    top: 80%;
+    filter: drop-shadow(4px 4px 4px #000);
+}

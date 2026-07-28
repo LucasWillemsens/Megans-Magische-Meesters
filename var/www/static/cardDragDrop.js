@@ -42,7 +42,7 @@ class CardDragDropSystem {
     setupFaceDownCardClickListeners() {
         const faceDownCards = Array.from(
             document.querySelector('.playerBoard')
-            .querySelectorAll(':not(.hologram) .cardContainer.faceDown')
+            .querySelectorAll(':not(.hologram) .cardContainer.faceDown:not(.blocked)')
         ).filter((card) => card.closest('.enemyDeckHand') == null);
 
         faceDownCards.forEach((card, index) => {

@@ -96,6 +96,6 @@ div.drop-zone-active {
     opacity: 0.15;
 }
 
-ul.hand li.cardContainer:hover > .card.smallCard{
+ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }
