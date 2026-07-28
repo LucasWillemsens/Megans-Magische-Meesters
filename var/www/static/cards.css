@@ -471,7 +471,7 @@
 .playingCards ul.table li,
 .playingCards ul.hand li,
 .playingCards ul.deck li {
-    padding: 0; */
+    padding: 0;
     list-style-type: none;
     float: left;
 }
