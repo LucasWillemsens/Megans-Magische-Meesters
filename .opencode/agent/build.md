@@ -43,7 +43,19 @@ Understand the existing patterns and follow them.
 - Make the minimal changes that satisfy the description and acceptance criteria.
 - Follow the existing code style (naming, structure, template conventions).
 - Do not refactor unrelated code or change existing tests unless the description says to.
+- Apply the general best practices below.
 - **Minimize code comments.** Write self-explanatory code (clear names, small functions) instead of comments. Do not narrate what the code does, restate the plan, or add multi-line comment blocks. A short comment is only acceptable for a genuinely non-obvious constraint or workaround (e.g. a browser quirk that would re-break if "cleaned up"). When editing existing code, do not preserve stale comments that no longer apply, and do not replace removed code with comments explaining what used to be there.
+
+## General best practices
+
+- **DRY (no duplicate lines).** Never copy-paste a block of logic or markup. The second time you need the same query, response-building block, or template fragment, extract it into a shared function, helper, macro, or include.
+- **Small, single-purpose functions.** A function does one thing and fits on one screen. Split when it grows branches for multiple responsibilities.
+- **Thin views, fat logic modules.** Views only parse input, call logic, and render/redirect. Game rules, queries, and state changes live in importable functions that take plain arguments — so they can be unit-tested without HTTP machinery.
+- **Testable by default.** Structure every new piece of logic so a test can call it directly. Add or extend tests for behavior you add; prefer testing logic functions over going through the test client.
+- **Descriptive naming.** Names say what a thing is or does (`trustable_cards`, not `tc`; `run_bot_turn`, not `process`). No single-letter or abbreviated names outside tight loops.
+- **Simplicity first.** Write the least code that correctly solves the problem. Delete dead code instead of commenting it out. No speculative abstractions or options nobody asked for.
+- **Django/Jinja2 specifics.** Keep business logic out of templates (compute in Python, pass plain context). Use `select_related`/`prefetch_related` when looping over related objects. Use `get_object_or_404` for lookups that must exist. Shared template markup goes in Jinja2 macros or includes.
+- **Errors.** Let exceptions surface or handle them explicitly with a clear message; never swallow an exception into silent no-op behavior.
 
 ### Step 4: Verify
 

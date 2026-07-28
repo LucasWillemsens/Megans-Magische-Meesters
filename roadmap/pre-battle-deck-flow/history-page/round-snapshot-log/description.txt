@@ -1,0 +1,13 @@
+Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.
+
+Code locations:
+- MMM/models.py — `BattleParticipant`: the per-turn counters (`drawnCardsAmount`, `playedCardsAmount`, `flippedCardsAmount`) reset each round; add a "board per round snapshot" log alongside them so board state is preserved before `resetTurn()`.
+
+Implementation notes:
+- Add a model (e.g. `RoundSnapshot`) keyed to game/participant/round capturing lane layout, face-up/trusted state, and stats at end of turn.
+- Write snapshots from the end-turn flow (`resetTurn()` callers in MMM/views.py) rather than on every board action.
+- This log is the data source the history page can later render as a replay/round breakdown.
+
+Acceptance criteria:
+- Every completed turn persists a snapshot of the participant's board.
+- Snapshots for a finished game are queryable in round order per participant.

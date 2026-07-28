@@ -1,0 +1,17 @@
+Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated.
+
+Code locations (source being re-implemented):
+- MMM/jinja2/MMM/ — index, detail, createGame, viewCard, viewGame, viewPlayer, results.
+- MMM/jinja2/MMM/battle/ — viewBoard.jinja2 (the largest, with repeated lane/card/hologram blocks), viewResult.jinja2.
+
+Implementation notes:
+- Extract a macro (or include) for rendering a single card container and reuse it for hand, lanes, holograms, and enemy board — one source of truth for card markup.
+- Extract repeated page chrome (header, buttons, navigation) into a shared base template or includes.
+- Keep templates logic-light: lane grouping, stat computation, and state checks happen in views/logic functions, not in Jinja conditionals.
+- Templates must stay Jinja2 syntax (not Django template language) and keep working with the mysite.jinja2.environment setup.
+- Preserve every CSS class and id that var/www/static/*.js and *.css reference (cardDragDrop.js hooks, loadingAnimations.js hooks, hologram classes) unless the JS is cleaned up in the same change.
+
+Acceptance criteria:
+- Card markup exists in exactly one macro/include used everywhere a card is shown.
+- All pages render with identical visual output to the current site.
+- No duplicated markup blocks between templates.

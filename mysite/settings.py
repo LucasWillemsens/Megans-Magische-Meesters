@@ -58,9 +58,6 @@ SESSION_COOKIE_SAMESITE = 'Lax'  # Adjust as needed (None, Lax, Strict)
 
 ROOT_URLCONF = 'mysite.urls'
 
-#TODO update templates naar
-#django.template.backends.jinja2.Jinja2 ipv django.template.backends.django.DjangoTemplates 
-
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.jinja2.Jinja2',

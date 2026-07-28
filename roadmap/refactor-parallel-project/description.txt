@@ -1,0 +1,11 @@
+Rebuild the project as a clean parallel codebase with every existing feature present, refactored into readable, testable modules with less code clutter and no duplicate lines.
+
+The current codebase works but has grown organically: MMM/views.py is an ~800-line monolith mixing game flow, board actions, bot turns, and special actions, and the Jinja2 templates repeat card and board markup across pages. This goal creates a second, parallel Django app inside the same repository that re-implements all current functionality with clean structure.
+
+Ground rules:
+- Feature parity only — no new gameplay features; the parallel project must do everything the current one does, nothing more.
+- The existing MMM app keeps working untouched until the parallel project reaches full parity; only then is the switch made.
+- Reuse the existing models and database (MMM/models.py) initially; this goal targets views and templates, not the data layer.
+- Every piece of game logic must live in importable, unit-testable functions — not buried inside view functions or template logic.
+
+Includes: project-scaffold, views-modules, template-cleanup, feature-parity-tests.

@@ -1,0 +1,14 @@
+Evaluate moving lane-stat calculation out of per-action checks into a single end-of-turn computation to reduce repeated queries and centralise stat logic.
+
+Code locations:
+- MMM/models.py — `BattleParticipant.drawCard()`: calls `self.getStats()` on every draw to enforce the draw limit; the same recalculation happens across play/flip/special paths.
+- MMM/models.py — `BattleParticipant.getStats()`: counts revealed cards per lane plus derived tactics/power/influence; currently recomputed on demand everywhere.
+
+Implementation notes:
+- This was noted as a "maybe" — first measure whether per-action `getStats()` is a real cost or correctness risk before changing behaviour.
+- If deferred, turn limits must still be enforced during the turn (draw/play/flip limits read stats mid-turn), so likely only derived values or caching move, not the whole check.
+- Related: done/game-mechanics/lane-stats documents the current on-demand design.
+
+Acceptance criteria:
+- A decision is documented: keep on-demand stats (with reasoning) or implement cached/end-of-turn calculation.
+- If implemented: turn-limit enforcement is unchanged and existing tests pass.
