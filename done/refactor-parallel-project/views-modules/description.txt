@@ -1,0 +1,17 @@
+Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions.
+
+Code locations (source being re-implemented):
+- MMM/views.py (~805 lines) — split into modules by responsibility: challenge/game flow (createGame, challenge handling, game initialization), board actions (drawcard, playcards, end_turn), bot turns (_run_bot_turn), special actions (specialActions, intSpecial, spdSpecial, visSpecial, resSpecial, getTrustableCards), and results.
+- MMM/urls.py — re-create every URL route in the parallel app so all pages exist.
+
+Implementation notes:
+- Views become thin: parse request, call a logic function, render or redirect. No queries or game rules inline in views.
+- Logic functions take plain arguments (participant ids, card ids) and return plain results, so tests can call them without RequestFactory or the test client.
+- Eliminate duplicate query blocks (e.g. repeated GameCard filtering patterns) by extracting shared helpers.
+- Cookie-based play animation state (playcards / _parse_play_cookie_value) must keep working — isolate cookie read/write in one small module.
+- Keep bot logic (_run_bot_turn) behavior identical to done/battle-page-polish/defer-enemy-turn-calculation.
+
+Acceptance criteria:
+- No view function contains game rules; all rules live in importable functions with direct unit tests.
+- Every URL and page that exists in MMM exists in the parallel app with identical behavior.
+- No copy-pasted query or response-building blocks between modules.

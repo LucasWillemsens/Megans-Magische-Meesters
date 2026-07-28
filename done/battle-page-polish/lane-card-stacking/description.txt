@@ -1,0 +1,6 @@
+Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
+
+The cards should be spread out horizontally with the lowest ordinal cards laying below the card after it in the lowest row if there are multiple rows of cards. 
+The cards should lay side-by-side but partly on top of each other with their faces pointing to the top of the screen but with a small random angle to the left or right.
+When there are too many cards, they should overflow to a row below. The quantity of cards in an overflow row should only depend on the viewport and card readabillity. The cards should always be readable and otherwise move to another row.
+When hovered over, the card should come fully into view before any card that lays on top of it, just like the cards in hand do.

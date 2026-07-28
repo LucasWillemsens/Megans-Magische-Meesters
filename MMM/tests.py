@@ -1,3 +1,4 @@
+import json
 import re
 from http.cookies import SimpleCookie
 
@@ -822,3 +823,85 @@ class BattleFlowTests(TestCase):
         self.assertContains(response, "hidden")
         # Counter text still rendered inside the hidden span
         self.assertIn("1d", content)
+
+    # ------------------------------------------------------------------
+    # Staged-action-blocking tests
+    # ------------------------------------------------------------------
+
+    def test_staged_play_blocks_remaining_hand(self):
+        """After staging a play via cookie, remaining hand cards get .blocked and draggable="false"."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # Draw 2 cards into hand (intCount=1 → draws_left=2)
+        for _ in range(2):
+            self.client.post(draw_url, {"action": "draw"})
+
+        self.human_participant.refresh_from_db()
+        # plays_left = max(0, 2+tactics-drawn-flipped-played) = max(0, 2+1-2-0-0) = 1
+        self.assertEqual(self.human_participant.getTurnAllowances()["plays_left"], 1)
+
+        hand_cards = list(GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        ))
+        self.assertEqual(len(hand_cards), 2)
+
+        # Stage 1 play via cookie (play to lane 4, face-down, no flip)
+        self.client.cookies[str(hand_cards[0].id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        # POST draw: cookie consumption exhausts the single play slot
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        # Remaining hand card must be blocked (draggable="false" on the hand card,
+        # not the profile image)
+        self.assertIn("Play limit reached", response.content.decode())
+
+    def test_staged_flip_blocks_remaining_lane_cards(self):
+        """After exhausting flips via a play+flip cookie, face-down lane cards show blocked."""
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Draw 1 card into hand
+        self.client.post(draw_url, {"action": "draw"})
+
+        hand_card = GameCard.objects.filter(
+            game_id=game.id, user_id=participant.id, state__lane=0
+        ).first()
+
+        # Play it face-down to lane 4 (flipFaceUp=false).
+        # With int=0, spd=0, after 1 draw + 1 face-down play:
+        # flips_left = max(0, 1+min(0, 1-1-1)-0) = 0
+        self.client.cookies[str(hand_card.id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertIn("Flip limit reached", response.content.decode())
+
+    def test_over_playing_shrinks_draw_budget(self):
+        """With low int+spd, staging plays reduces draws_left via the min clause so the deck shows .blocked."""
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        board_url = reverse("MMM:viewBoard", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # int=0, spd=0 → draws_left = max(0, 1 + min(0, 1-played-flipped) - drawn)
+        # Over-playing: played=2, drawn=0 → min(0, 1-2) = -1 → draws_left = 0
+        participant.playedCardsAmount = 2
+        participant.save()
+
+        allowances = participant.getTurnAllowances()
+        self.assertEqual(allowances["draws_left"], 0)
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'class="deck blocked"')
+
+

@@ -6,14 +6,79 @@ class CardDragDropSystem {
     constructor() {
         this.draggedCard = null;
         this.dropZones = new Map();
+        this.turnAllowances = { int: 0, spd: 0, tactics: 0, drawn: 0, played: 0, flipped: 0 };
+        this.staged = { plays: 0, flips: 0 };
+        this.tooltips = { draw: "", play: "", flip: "" };
         this.init();
     }
 
     init() {
+        const limitsEl = document.getElementById('turnLimits');
+        if (limitsEl) {
+            const d = limitsEl.dataset;
+            this.turnAllowances = {
+                int: parseInt(d.intCount),
+                spd: parseInt(d.spdCount),
+                tactics: parseInt(d.tactics),
+                drawn: parseInt(d.drawn),
+                played: parseInt(d.played),
+                flipped: parseInt(d.flipped),
+            };
+            this.tooltips = {
+                draw: d.drawBlockedTitle,
+                play: d.playBlockedTitle,
+                flip: d.flipBlockedTitle,
+            };
+        }
         this.createDropZones();
         this.setupCardDragListeners();
         this.setupDropZoneListeners();
         this.setupFaceDownCardClickListeners();
+        this.applyTurnAffordances();
+    }
+
+    remainingAllowances() {
+        const { int, spd, tactics, drawn, played, flipped } = this.turnAllowances;
+        const { plays: stagedPlays, flips: stagedFlips } = this.staged;
+        const effectivePlayed = played + stagedPlays;
+        const effectiveFlipped = flipped + stagedFlips;
+        return {
+            draws: Math.max(0, int + 1 + Math.min(0, spd + 1 - effectiveFlipped - effectivePlayed) - drawn),
+            flips: Math.max(0, spd + 1 + Math.min(0, int + 1 - drawn - effectivePlayed) - effectiveFlipped),
+            plays: Math.max(0, 2 + tactics - drawn - effectiveFlipped - effectivePlayed),
+        };
+    }
+
+    applyTurnAffordances() {
+        const remaining = this.remainingAllowances();
+
+        if (remaining.plays <= 0) {
+            document.querySelectorAll('ul.hand li.cardContainer:not(.blocked)').forEach(card => {
+                card.classList.add('blocked');
+                card.setAttribute('draggable', 'false');
+                card.title = this.tooltips.play;
+            });
+        }
+
+        if (remaining.flips <= 0) {
+            document.querySelectorAll(
+                '.playerBoard .cardContainer.faceDown:not(.blocked), ' +
+                '.hologram .cardContainer.faceDown:not(.blocked)'
+            ).forEach(card => {
+                card.classList.add('blocked');
+                card.title = this.tooltips.flip;
+            });
+        }
+
+        if (remaining.draws <= 0) {
+            const deck = document.querySelector('ul.deck');
+            if (deck) deck.classList.add('blocked');
+            const drawBtn = document.querySelector('button.draw');
+            if (drawBtn) {
+                drawBtn.disabled = true;
+                drawBtn.title = this.tooltips.draw;
+            }
+        }
     }
 
     createDropZones() {
@@ -74,6 +139,10 @@ class CardDragDropSystem {
     }
 
     onCardDragStart(e) {
+        if (this.remainingAllowances().plays <= 0) {
+            e.preventDefault();
+            return;
+        }
         this.draggedCard = e.currentTarget;
         this.draggedCard.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
@@ -133,11 +202,14 @@ class CardDragDropSystem {
                 sourceOrdinal,
             );
             this.draggedCard.remove();
+            this.staged.plays++;
+            this.applyTurnAffordances();
         }
         return false;
     }
 
     onFaceDownCardClick(e, laneValue) {
+        if (this.remainingAllowances().flips <= 0) return;
         const card = e.currentTarget ?? e.target.closest('.cardContainer');
         const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
         const sourceLane = card.dataset.sourceLane ?? '0';
@@ -145,6 +217,8 @@ class CardDragDropSystem {
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
         card.classList.remove('faceDown');
         card.children[0].classList.remove('back');
+        this.staged.flips++;
+        this.applyTurnAffordances();
     }
 
     createupdateCookie(cardId, laneValue, flipFaceUp=false, sourceLane=null, sourceOrdinal=null) {

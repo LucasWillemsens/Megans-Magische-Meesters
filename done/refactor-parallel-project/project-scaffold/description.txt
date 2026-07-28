@@ -1,0 +1,15 @@
+Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.
+
+Code locations:
+- mysite/settings.py — register the new app in INSTALLED_APPS.
+- mysite/urls.py — mount the parallel app's URLs under their own prefix (e.g. /v2/) so both versions run side by side.
+- MMM/models.py — reused as the shared data layer; the parallel app imports these models instead of defining its own.
+
+Implementation notes:
+- Pick a clear app name (e.g. mmm_refactored) and keep it fully separate from MMM/: own views package, own jinja2 template tree, own urls.py.
+- Static assets can be shared from var/www/static/ at first; only fork them when a cleaned-up template needs different markup.
+- Do not modify or delete anything in the existing MMM app in this subgoal.
+
+Acceptance criteria:
+- The parallel app boots and serves a landing page under its own URL prefix.
+- The existing MMM app and all 23 current tests still pass unchanged.
