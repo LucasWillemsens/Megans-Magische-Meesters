@@ -30,6 +30,7 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
+- [ ] Mirror the enemy side of the battle mat with a flipped background image so the board reads as one continuous play surface.
 - [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
 - [ ] Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
 - [ ] Highlight the affected lanes when special moves execute so players can instantly see the result of the action.
@@ -69,7 +70,6 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 - [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
 - [ ] Support canceling a pending challenge cleanly in the UI.
 - [ ] Allow the player to set a custom deck order before battle begins.
-- [ ] Move completed games and challenges into a dedicated history page for better post-game navigation.
 - [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
 
 #### Deck page
@@ -89,6 +89,12 @@ Improve game page metadata so each match feels like a distinct playable entry.
 - [~] Add artwork, name, and description support to the game page to make matches easier to identify. _(Artwork (Game.artSource with fallback image) and an auto-generated name ("<challenger> vs <opponent>" title) are shown on the game page; a game description field is still missing.)_
 - [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
 
+#### History Page
+
+Move completed games and challenges into a dedicated history page for better post-game navigation.
+
+- [ ] Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.
+
 
 ### Tests and reliability
 
@@ -96,8 +102,10 @@ Add tests and reliability work to make the prototype stable before sharing.
 
 - [ ] Add tests for active game discovery so live sessions are shown accurately in the UI.
 - [ ] Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.
+- [ ] Evaluate moving lane-stat calculation out of per-action checks into a single end-of-turn computation to reduce repeated queries and centralise stat logic.
 - [ ] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
 - [ ] Build and verify the full match loop so a game can be played from start to finish without breaking.
+- [ ] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.
 
 ### Multiplayer and account model
 
@@ -105,6 +113,7 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 
 - [ ] Prevent cookies from consuming state incorrectly when the opponent is not active.
 - [ ] Consider encrypting frontend account keys before sending them to the server to protect account operations.
+- [ ] Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.
 - [ ] Implement login through secure account links or email key tokens for account-based play.
 - [ ] Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.
 - [ ] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.
@@ -140,6 +149,16 @@ Capture later action items that improve match polish and post-game flow after th
 - [ ] Implement pursuit and flee rules for chase sequences in multiplayer battles and split-out outcomes.
 - [ ] Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.
 - [~] Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions. _(Play-to-lane movement animations via .duplicate card clones and the post-action board reload are done; refresh, sync and lane-flip visuals remain.)_
+- [ ] Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots and meaningful for players.
+
+### Refactor: parallel project
+
+Rebuild the project as a clean parallel codebase with every existing feature present, refactored into readable, testable modules with less code clutter and no duplicate lines.
+
+- [ ] Prove the parallel project has every existing functionality by porting the test suite and completing a feature-parity checklist.
+- [ ] Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.
+- [ ] Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated.
+- [ ] Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions.
 
 ### Battle Interaction
 

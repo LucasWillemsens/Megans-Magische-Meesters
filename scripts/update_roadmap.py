@@ -28,6 +28,7 @@ SECTION_ORDER = [
     "multiplayer-account",
     "low-prio",
     "later-actions",
+    "refactor-parallel-project",
 ]
 
 SECTION_TITLES = {
@@ -39,6 +40,7 @@ SECTION_TITLES = {
     "multiplayer-account": "Multiplayer and account model",
     "low-prio": "Low priority",
     "later-actions": "Later actions",
+    "refactor-parallel-project": "Refactor: parallel project",
     "deck-page": "Deck page",
     "game-page-metadata": "Game page metadata",
     "customization-card-systems": "Customization and card systems",

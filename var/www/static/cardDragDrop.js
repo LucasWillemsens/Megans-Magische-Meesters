@@ -41,7 +41,6 @@ class CardDragDropSystem {
         });
     }
 
-    //TODO check if card in lane is valid or move to other lane
     setupFaceDownCardClickListeners() {
         const faceDownCards = Array.from(
             document.querySelector('.playerBoard')

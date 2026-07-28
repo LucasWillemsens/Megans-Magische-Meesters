@@ -1,1 +1,5 @@
 Implement pursuit and flee rules for chase sequences in multiplayer battles and split-out outcomes.
+
+Code locations:
+- MMM/views.py — `spdSpecial()`: implement pursuit of a slower fleeing opponent; the current logic only handles rush-down, successful flee, and failed flee against one opponent.
+- MMM/models.py — `BattleParticipant.flee()`: existing design notes state that pursuing participants also count as fled, the slowest possible pursuer who acted last chooses first, and the speed stat difference could determine how many turns can be waited before the enemy has fled.

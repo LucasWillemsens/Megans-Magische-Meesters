@@ -429,7 +429,6 @@ def specialActions(participant):
 
     if spdCount >= intCount and spdCount >= visCount and spdCount >= resCount:
         response = spdSpecial(participant, spdCount, power)
-        #TODO use response object check if there are more people in the game and check their status
 
     if response == "" and visCount >= intCount and visCount >= spdCount and visCount >= resCount:
         response = visSpecial(participant, visCount)
@@ -441,14 +440,12 @@ def intSpecial(participant,count):
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
     handCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0)
             # .all()
-    #TODO implement selection of card to play, random for now
     random.shuffle(handCards)
     for i in range(min(count,len(handCards))):
         newCard = handCards[i]
         participant.playCard(newCard.id,flipFaceUp=True, specialClause=True)
 
 def spdSpecial(participant,speed, power, opponentId = None):
-    #TODO implement pursuit of slower fleeing opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
         opponent = participant.getGame().history.participants.get(id=opponentId) #overwrite with chosen opponent
@@ -505,7 +502,6 @@ def resSpecial(participant,count):
     newCards = getTrustableCards(participant)
     if newCards == None or len(newCards) < 1:
         return
-    #TODO implement selection of card to trust, random for now
     random.shuffle(newCards)
     for i in range(min(count,len(newCards))):
         newCard = newCards[i]

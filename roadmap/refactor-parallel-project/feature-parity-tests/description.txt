@@ -1,0 +1,15 @@
+Prove the parallel project has every existing functionality by porting the test suite and completing a feature-parity checklist.
+
+Code locations:
+- MMM/tests.py (and any test modules) — port to the parallel app, extending coverage where logic is now directly unit-testable.
+- done/ descriptions — use as the authoritative list of implemented behavior: core-data-model, game-mechanics (bot-opponent, deck-exhaustion-shuffle, lane-stats, special-actions, turn-action-limits, win-detection), web-flow, battle-interaction, and the battle-page-polish items already done.
+
+Implementation notes:
+- Write a parity checklist covering: challenge create/accept flow, game initialization, draw/play/flip/trust, end turn, bot turns with deferred calculation, deck exhaustion shuffle, special actions, win detection and result page, play-cookie animations, drag/drop and click-to-flip front-end behavior.
+- New logic modules get direct unit tests (no HTTP layer) for their core paths.
+- The old MMM test suite must keep passing until the switchover subgoal runs.
+
+Acceptance criteria:
+- Every item on the parity checklist is demonstrated working in the parallel app.
+- The parallel app's test suite passes with coverage at least equal to the current 23 tests.
+- A final report lists any behavior intentionally changed and why.

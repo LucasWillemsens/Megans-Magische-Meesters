@@ -1,0 +1,13 @@
+Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.
+
+Code locations:
+- MMM/views.py — `specialActions(participant)`: after `spdSpecial()` returns a response (e.g. someone fled), the remaining special checks bail out early. Use the response object to check whether there are more participants in the game and what their status (fled/defeated) is before skipping vis/res resolution.
+- MMM/views.py — `spdSpecial()` / `visSpecial()`: opponent pick is `participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()`, i.e. an arbitrary single opponent; multiplayer needs target selection across all active opponents.
+
+Implementation notes:
+- Define how a flee/defeat caused by one opponent's special interacts with the remaining participants' pending specials in the same chain.
+- `spdSpecial()` and `visSpecial()` already accept an optional `opponentId` override; extend the caller chain to pass chosen targets once multiplayer targeting exists.
+
+Acceptance criteria:
+- Special actions in a 3+ player game resolve against all eligible opponents in a defined order.
+- A participant fleeing or being defeated mid-chain does not silently cancel unrelated remaining specials.

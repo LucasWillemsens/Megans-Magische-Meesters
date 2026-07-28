@@ -129,7 +129,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     drawnCardsAmount = models.IntegerField(default=0) 
     playedCardsAmount = models.IntegerField(default=0)
     flippedCardsAmount = models.IntegerField(default=0)
-    #TODO could add a "board per round snapshot" as a log
 
     @classmethod
     def createRandomDeck(cls, player_id, starting_card_id=-1, deck_label="random deck"):
@@ -277,7 +276,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         )
 
     def drawCard(self):
-        #TODO maybe move the calculation of stats to end of turn
         #check if allowed
         intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
                                     #int + 1 minus cards played with int
@@ -351,7 +349,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         #the slowest possible pursuer who acted last must choose first
         #maybe use the speed stat difference to determine the amount of turns that can be waited before vijand fled
         self.fled = True
-        #TODO update lootpile of game to release all trusted cards on board
         self.save()
 
     def resetTurn(self):
@@ -377,7 +374,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         if (boardCards is None or len(boardCards) < 1) and (handCards is None or len(handCards) < 1):
             # print(f" {self.player.name} has no cards to shuffle back")
             return
-        # TODO fix join filter or to list and make order random
         for card in boardCards:
             # print(f"{card.card.title} is shuffled from board: {card.__str__()}")
             card.state.shuffleBack()
