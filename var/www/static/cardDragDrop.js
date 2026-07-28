@@ -30,8 +30,6 @@ class CardDragDropSystem {
     }
 
     setupCardDragListeners() {
-        // the enemy deck/hand (.enemyDeckHand) is display-only: never bind
-        // drag behaviour to its card containers
         const draggableCards = Array.from(
             document.querySelectorAll('.cardContainer[draggable="true"]')
         ).filter((card) => card.closest('.enemyDeckHand') == null);
@@ -46,8 +44,6 @@ class CardDragDropSystem {
         const faceDownCards = Array.from(
             document.querySelector('.playerBoard')
             .querySelectorAll(':not(.hologram) .cardContainer.faceDown')
-            // the enemy deck/hand (.enemyDeckHand) is display-only: its
-            // face-down cards never get click handlers
         ).filter((card) => card.closest('.enemyDeckHand') == null);
 
         faceDownCards.forEach((card, index) => {
@@ -66,8 +62,6 @@ class CardDragDropSystem {
             }
             card.addEventListener('click', (e) => this.onFaceDownCardClick(e, laneValue), {once : true});
         });
-
-        // console.log(`Setup click listeners for ${faceDownCards.length} cards`);
     }
 
     setupDropZoneListeners() {
@@ -149,7 +143,6 @@ class CardDragDropSystem {
         const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
         const sourceLane = card.dataset.sourceLane ?? '0';
         const sourceOrdinal = card.dataset.sourceOrdinal ?? '0';
-        // console.log('Face-down card clicked:', card, `cardId: ${cardId}, laneValue: ${laneValue}`);
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
         card.classList.remove('faceDown');
         card.children[0].classList.remove('back');
@@ -157,7 +150,6 @@ class CardDragDropSystem {
 
     createupdateCookie(cardId, laneValue, flipFaceUp=false, sourceLane=null, sourceOrdinal=null) {
         const path = window.location.pathname;
-        // console.log('Current path:', path);
         let shortPath = path.substring(0, path.lastIndexOf('action'));
         if (!shortPath ) {
             shortPath = path;
@@ -191,5 +183,4 @@ class CardDragDropSystem {
 
 document.addEventListener('DOMContentLoaded', () => {
     window.cardDragDrop = new CardDragDropSystem();
-    // console.log('Card Drag and Drop System initialized');
 });
