@@ -1,0 +1,21 @@
+Animate drawn cards flying from the top of the deck into the player's and enemy's hand, and stop short-circuiting to the result page when the game ends so the turn sequence plays out first. (The action-URL board veil this goal originally added was later reverted and removed - see defer-enemy-turn-calculation.)
+
+User requirements (verbatim):
+"update the loadinganimations and view.py so that the board is obfuscated during at the action url before the animations play out. When drawing a card, update the animations so that a card moves from the top of the deck to the players hand, same for the enemy. Also update the game files to not immediately go to the results page when the game is over. Instead move through the turns and move cards over untill special moves play. We will implement animations for special moves in more detail later"
+
+Current state (verified against the code):
+- boardAction() renders viewBoard() directly on /game/<id>/board/<pid>/action/ (MMM/views.py:266-320); loadingAnimations.js animates the .loading cards there, then reloads to the clean board URL. Nothing hides the final board state during that render.
+- Enemy draws already animate from the deck: _run_bot_turn() captures the deck card's negative sourceLane/sourceOrdinal 0 before drawCard() (views.py:683-696), bot action cookies carry it to the board render, _update_moved_hand_cards() marks the enemy hand card loading with that source (views.py:609-626), and duplicateCard() flies a clone from .enemyDeckHand .deck (var/www/static/loadingAnimations.js:237-238).
+- Player draws record nothing: boardAction action=="draw" (views.py:279-286) writes no cookie and no play entry, and no JS writes draw cookies (cardDragDrop.js only writes cookies on drag-drop and face-down click), so _update_drawn_hand_cards() (views.py:599-606) never fires for draws. duplicateCard() also has no player case for a negative source lane (loadingAnimations.js:244-261 switches on lanes 0-4 only), so there is currently no player draw animation at all.
+- viewBoard() redirects straight to /game/<id>/result/<pid>/ whenever _game_result() reports finished (views.py:190-192) - including action renders and mid turn-phase sequence - so game-ending plays and specials are never animated.
+- Special-move animations themselves are explicitly OUT OF SCOPE here (see roadmap/battle-page-polish/special-draw-sequence and lane-highlight-on-special); this goal only makes the flow reach the specials' board effects instead of skipping them.
+
+Subgoals (implement in this order):
+1. player-draw-play-recording - boardAction() records the player's draw as a first-class play with the deck card as animation source, and _addLoadingAnimations() marks the drawn hand card loading with a negative data-source-lane (no cookies involved).
+2. deck-origin-flight-animation - duplicateCard() gets a player deck source (.playerScreen .deckHand .deck) so the drawn card's clone starts at the top of the deck stack and flies into the hand slot, showing the card back in flight (depends on 1).
+3. action-url-board-veil - action-URL renders carry a full-screen veil that obfuscates the board while animations play above it; loadingAnimations.js lifts it only when no navigation follows (independent of 1-2; same JS file as 2, so land after it). [reverted and removed by defer-enemy-turn-calculation]
+4. deferred-result-redirect - viewBoard() no longer redirects to results mid-sequence; it renders the remaining phases and hands the JS a nextUrl (board or result) that replaces the hard-coded strip-'action' reload (depends on 3; soft-depends on 1+2 so game-ending draws animate).
+
+Includes: player-draw-play-recording, deck-origin-flight-animation, deferred-result-redirect.
+
+Verification: python3 manage.py test (baseline before this work: 14 tests OK in MMM/tests.py; the turn-phase, bot-cookie and enemy-animation tests must stay green, and each subgoal adds its own tests).

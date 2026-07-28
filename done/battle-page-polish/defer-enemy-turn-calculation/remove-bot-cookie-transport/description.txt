@@ -1,0 +1,32 @@
+Remove the now-dead bot action cookie transport (_set_bot_action_cookies, _has_enemy_play_cookies), rebase the remaining bot-cookie test onto a manually staged foreign cookie, and do the done/ bookkeeping so the generated README stops claiming the board veil exists.
+
+Implementation:
+1. MMM/views.py dead-code removal (verify with grep first that boardAction no longer calls either helper after run-bots-in-enemy-phase):
+   - Delete _set_bot_action_cookies (views.py:793-822) - no callers remain; bot actions are rendered in the same request that computes them now.
+   - Delete _has_enemy_play_cookies (views.py:620-638) and simplify viewBoard's clear_cookies resolution (views.py:215-218) to clear_cookies = turn_phase == "enemy", updating the comment block above it (views.py:211-214): the enemy phase still needs clear_cookies=True because that is what makes _render run _addLoadingAnimations, which marks the server-recorded bot actions loading.
+   - KEEP the playcards() per-participant guard (views.py:406-408) but drop the "bot action cookies" mention from its comment - the guard still protects against manually staged or foreign-participant cookies (covered by the rebased test below).
+   - KEEP _get_play_cookie_participant_id (views.py:641-650): _addLoadingAnimations still uses it for the player's own cookie plays.
+   - Optional tidy: remove the dead commented-out finished redirect in boardAction (views.py:371-373).
+2. MMM/tests.py: rebase test_bot_cookies_not_consumed_as_player_actions (tests.py:457-488) onto the cookie-free world as e.g. test_foreign_play_cookies_not_consumed_as_player_actions: after confirm, manually stage a play cookie on the test client naming a BOT GameCard id (self.client.cookies[str(bot_card.id)] = a JSON payload like the player play cookies), POST action=draw, and assert: no "Action error", the human draw happened (1 hand card), and the bot's card counts are unchanged. This keeps equivalent coverage of the playcards() participant guard without the bot-cookie transport existing.
+3. done/ bookkeeping (lands in the same change as the code removal, so history and code never disagree):
+   - Delete the whole directory done/battle-page-polish/implement-draw-card-animation/action-url-board-veil/ - the feature it describes is reverted by this goal, so its done entry is removed rather than kept.
+   - done/battle-page-polish/implement-draw-card-animation/description.txt: rewrite the first paragraph to: "Animate drawn cards flying from the top of the deck into the player's and enemy's hand, and stop short-circuiting to the result page when the game ends so the turn sequence plays out first. (The action-URL board veil this goal originally added was later reverted and removed - see defer-enemy-turn-calculation.)" Also drop action-url-board-veil from the "Includes:" line and annotate subgoal 3 in the numbered list as reverted/removed by defer-enemy-turn-calculation. Only the first paragraph renders in the README, but keep the file internally consistent.
+   - Leave done/battle-page-polish/enemy-turn-indicators/enemy-action-cookies/ untouched: it stays as history. The supersession by this goal is recorded in roadmap/battle-page-polish/defer-enemy-turn-calculation/description.txt and must be repeated in this goal's own done text when it is completed.
+   - Regenerate README.md (python3 scripts/update_roadmap.py, or let CI sync) and confirm the battle-page-polish section no longer shows the action-url-board-veil bullet and the Implement Draw Card Animation paragraph no longer mentions obfuscation.
+
+Files to create/modify:
+- MMM/views.py (delete _set_bot_action_cookies + _has_enemy_play_cookies, simplify clear_cookies, comment touch-ups)
+- MMM/tests.py (1 rebased test)
+- done/battle-page-polish/implement-draw-card-animation/description.txt (first paragraph + Includes + subgoal annotation)
+- done/battle-page-polish/implement-draw-card-animation/action-url-board-veil/ (directory deleted)
+- README.md (regenerated via scripts/update_roadmap.py)
+
+Acceptance criteria:
+- [ ] grep -n "_set_bot_action_cookies\|_has_enemy_play_cookies" MMM/ returns nothing; viewBoard's clear_cookies derives only from the explicit argument or turn_phase == "enemy"
+- [ ] A manually staged play cookie naming another participant's card is still never consumed by playcards() (rebased test green)
+- [ ] python3 scripts/update_roadmap.py output README.md contains no "veil" mention in the battle-page-polish section and no action-url-board-veil entry; done/enemy-turn-indicators/enemy-action-cookies is untouched
+- [ ] python3 manage.py test green (23 tests)
+
+Dependencies:
+- run-bots-in-enemy-phase (the helpers only become dead once boardAction stops calling them; landing this earlier would break the suite).
+- Lands naturally after remove-board-veil as well, since it deletes that subgoal's done entry - keeping code removal and history cleanup in one final change.

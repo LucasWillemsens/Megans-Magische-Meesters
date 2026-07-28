@@ -20,6 +20,7 @@ from .models import (
 )
 
 BASE_URL = "http://127.0.0.1:8000/"
+TURN_PHASE_COOKIE = "turn_phase"
 
 def index(request):
     context = {
@@ -83,14 +84,6 @@ def viewGame(request, game_id):
 def viewGameAsPlayer(request, game_id, player_id):
     game = Game.objects.get(pk=game_id)
     current_battler = Player.objects.get(pk=player_id)
-
-    
-    # response = HttpResponse("Cookie set")
-    # request.set_cookie('cookie_name', 'cookie_value', max_age=3600)
-
-        #     // read cookie
-        # window.location.href = `${shortPath}`;
-
     request.session['player_id'] = player_id
     request.session.get('player_id')
 
@@ -167,31 +160,61 @@ def confirmChallenge(request, game_id, player_id):
     return redirect(f"/game/{game_id}/board/{player_id}/")
 
 
-def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False):
+def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False, turn_phase=None, action_plays=None):
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
     gameCards = GameCard.objects.filter(game_id=game_id)
 
     if not gameCards.exists():
         return redirect(f"/game/{game_id}/{player_id}/")
+        
+    action_render = turn_phase is not None
+    phase_from_cookie = turn_phase is None
+    if phase_from_cookie:
+        turn_phase = request.COOKIES.get(TURN_PHASE_COOKIE, "")
+
+    if phase_from_cookie and turn_phase == "enemy":
+        try:
+            bot_actions = _run_bot_turn(game, player_id)
+        except Exception as exc:
+            bot_actions = []
+            error_message = str(exc)
+        game.roundNumber = max(game.roundNumber, 1) + 1
+        game.save(update_fields=["roundNumber"])
+        plays_by_card = {}
+        for bot_action in bot_actions:
+            play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
+            play["laneValue"] = bot_action["laneValue"]
+            play["flipFaceUp"] = bot_action["flipFaceUp"]
+        action_plays = (action_plays or []) + list(plays_by_card.values())
 
     finished, _, _ = _game_result(game)
-    if finished:
-        return redirect(f"/game/{game_id}/result/{player_id}/")
+
+    if not clear_cookies:
+        clear_cookies = turn_phase == "enemy"
+
+    sequence_render = action_render or clear_cookies or turn_phase == "enemy"
+    if finished and not sequence_render:
+        response = redirect(f"/game/{game_id}/result/{player_id}/")
+        if TURN_PHASE_COOKIE in request.COOKIES:
+            response.delete_cookie(
+                TURN_PHASE_COOKIE, path=f"/game/{game.id}/board/{player_id}/"
+            )
+        return response
 
     own_board = contextBoard(gameCards, current_participant.id)
-    # _board_state(game.id, current_participant.id)
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
         enemy_board = contextBoard(gameCards, enemy_participant.id)
-        #  _board_state(game.id, enemy_participant.id)
-        
+
         enemy_boards.append(
             {
                 "participant": enemy_participant,
                 "laneRows": enemy_board["laneRows"],
                 "deckCount": enemy_board["deckCount"],
                 "handCount": enemy_board["handCount"],
+                "deckStack": enemy_board["deckStack"],
+                "handCards": enemy_board["handCards"],
             }
         )
 
@@ -211,8 +234,26 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "playedCardsAmount": current_participant.playedCardsAmount,
         "flippedCardsAmount": current_participant.flippedCardsAmount,
         "enemyBoards": enemy_boards,
+        "turnPhase": turn_phase,
+        "nextUrl": (
+            f"/game/{game_id}/result/{player_id}/"
+            if finished and turn_phase != "playerMoves"
+            else f"/game/{game_id}/board/{player_id}/"
+        ),
+        "actionPlays": action_plays or [],
     }
-    return _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
+    response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
+
+    if phase_from_cookie:
+        cookie_path = f"/game/{game.id}/board/{player_id}/"
+        if turn_phase == "enemy":
+            if finished:
+                response.delete_cookie(TURN_PHASE_COOKIE, path=cookie_path)
+            else:
+                response.set_cookie(TURN_PHASE_COOKIE, "player", path=cookie_path)
+        elif turn_phase == "player":
+            response.delete_cookie(TURN_PHASE_COOKIE, path=cookie_path)
+    return response
 
 # todo refactor to modular
 def boardAction(request, game_id, player_id):
@@ -225,38 +266,63 @@ def boardAction(request, game_id, player_id):
 
     action = request.POST.get("action", "")
     error_message = ""
+    action_plays = []
     try:
         playcards(game, request.COOKIES, current_participant)
         if action == "draw":
-            if current_participant.drawCard() is not None:
+            next_deck_card = current_participant.getNextDeckCard()
+            source_lane = next_deck_card.state.lane if next_deck_card else None
+            source_ordinal = next_deck_card.state.laneOrdinal if next_deck_card else None
+            drawn_card = current_participant.drawCard()
+            if drawn_card is not None:
+                action_plays.append({
+                    "cardId": str(drawn_card.id),
+                    "participantId": current_participant.id,
+                    "laneValue": 0,
+                    "sourceLane": source_lane,
+                    "sourceOrdinal": source_ordinal,
+                    "flipFaceUp": False,
+                })
                 if current_participant.getNextDeckCard() is None:
                     specialActions(current_participant)
                     current_participant.shuffleBoard()
-                pass
             else:
                 error_message = f"No cards left in {current_participant}'s deck."
         elif action == "end_turn":
             current_participant.resetTurn()
-            _run_bot_turn(game, player_id)
-            game.roundNumber = max(game.roundNumber, 1) + 1
-            game.save(update_fields=["roundNumber"])
         else:
             error_message = "Unknown action."
     except Exception as exc:
         error_message = str(exc)
 
-    # finished, _, _ = _game_result(game)
-    # if finished:
-    #     return redirect(f"/game/{game_id}/result/{player_id}/")
-    request.session['plays'] = [] #clear plays after action is done
-    return viewBoard(request, game_id, player_id, error_message=error_message, clear_cookies=True)
+    request.session['plays'] = []
+    end_turn_done = action == "end_turn" and not error_message
+    response = viewBoard(
+        request,
+        game_id,
+        player_id,
+        error_message=error_message,
+        clear_cookies=True,
+        turn_phase="playerMoves" if end_turn_done else "",
+        action_plays=action_plays,
+    )
+    if end_turn_done:
+        response.set_cookie(
+            TURN_PHASE_COOKIE, "enemy", path=f"/game/{game.id}/board/{player_id}/"
+        )
+    return response
 
 def playcards(game, plays, participant):
     for play in plays:
         if play =="csrftoken" or play == "sessionid":
             continue
+        try:
+            card_id = int(play)
+        except (TypeError, ValueError):
+            continue
+        if not GameCard.objects.filter(pk=card_id, game_id=game.id, user_id=participant.id).exists():
+            continue
         payload = _parse_play_cookie_value(plays[play])
-        card_id = int(play)
         participant.playCard(
             card_id,
             int(payload["laneValue"]),
@@ -286,7 +352,6 @@ def specialActions(participant):
 def intSpecial(participant,count):
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
     handCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0)
-            # .all()
     #TODO implement selection of card to play, random for now
     random.shuffle(handCards)
     for i in range(min(count,len(handCards))):
@@ -297,7 +362,7 @@ def spdSpecial(participant,speed, power, opponentId = None):
     #TODO implement pursuit of slower fleeing opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     if opponentPower < power:
@@ -310,17 +375,17 @@ def spdSpecial(participant,speed, power, opponentId = None):
             return f"{participant.id} fled from {opponent.id}"
         else:
             print(f"{participant.player.name} fails to flee from {opponent.player.name}")
-            #maybe have the slower participants lose these participant and oppopent?
+            #todo maybe have the slower participants lose these participant and oppopent?
     return ""
 
 def visSpecial(participant,visciouisness, opponentId = None):
     #attack opponent
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
-    #we need a res card that we can trust in order to follow through with the attack
+    #attacking player needs a res card to trust in order to follow through with the attack
     newTrustedResCard = None
     newTrustedResCards = getTrustableCards(participant,[4])
     if len(newTrustedResCards) > 0:  
@@ -357,8 +422,6 @@ def resSpecial(participant,count):
         newCard = newCards[i]
         newCard.state.trust()
         newCard.state.save()
-    # participant.playedCardsAmount = -count
-    # participant.save(update_fields=["playedCardsAmount"])
 
 def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
@@ -397,28 +460,36 @@ def resetGames(request):
 
 def _render(request, template_name, context, clear_cookies=False):
     template = loader.get_template(template_name)
-    # print(f"Clearing cookies: {context.get('player_id', '?')} at {requestPath}") 
     
     if clear_cookies:
-        # when clearing cookies, all playable cookies for current game will be transferred to animations
         context = _addLoadingAnimations(context, request)
     response = HttpResponse(template.render(context, request))
-    requestPath = request.path[0: request.path.rfind("action")]
+    if "action" in request.path:
+        requestPath = request.path[0: request.path.rfind("action")]
+    else:
+        requestPath = request.path
 
     if clear_cookies:
         for cookie in request.COOKIES:
-            if cookie != "sessionid" and cookie != "csrftoken":
-                response.delete_cookie(cookie, path=requestPath)
+            if cookie in ("sessionid", "csrftoken", TURN_PHASE_COOKIE):
+                continue
+            response.delete_cookie(cookie, path=requestPath)
     return response
 
 def _addLoadingAnimations(context, request):
-    plays = []
+    plays = list(context.get("actionPlays", []))
+    game = context.get("game")
     for cookie in request.COOKIES:
         if cookie != "sessionid" and cookie != "csrftoken":
+            if not request.COOKIES[cookie]:
+                continue
+            if not cookie.isdigit():
+                continue
             payload = _parse_play_cookie_value(request.COOKIES[cookie])
             plays.append(
                 {
                     "cardId": cookie,
+                    "participantId": _get_play_cookie_participant_id(game, cookie),
                     "laneValue": payload["laneValue"],
                     "sourceLane": payload["sourceLane"],
                     "sourceOrdinal": payload["sourceOrdinal"],
@@ -427,9 +498,30 @@ def _addLoadingAnimations(context, request):
             )
     context["plays"] = plays
     print(f"Updating loading animations for plays: {plays} at {request.path}")
-    context["handCards"] = _update_drawn_hand_cards(context["handCards"], plays)
+    context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
+    for enemy_board in context.get("enemyBoards", []):
+        enemy_plays = [
+            play
+            for play in plays
+            if play["participantId"] == enemy_board["participant"].id
+        ]
+        if enemy_plays:
+            enemy_board["laneRows"] = _update_played_cards(enemy_board["laneRows"], enemy_plays)
+            enemy_board["handCards"] = _update_moved_hand_cards(
+                enemy_board["handCards"], enemy_plays
+            )
     return context
+
+
+def _get_play_cookie_participant_id(game, card_id):
+    if game is None:
+        return None
+    try:
+        game_card = GameCard.objects.only("user_id").get(game_id=game.id, pk=int(card_id))
+    except (GameCard.DoesNotExist, ValueError):
+        return None
+    return game_card.user_id
 
 
 def _parse_play_cookie_value(cookie_value):
@@ -455,13 +547,16 @@ def _parse_play_cookie_value(cookie_value):
         "flipFaceUp": flipFaceUp,
     }
 
-def _update_drawn_hand_cards(hand_cards, plays):
+def _update_moved_hand_cards(hand_cards, plays):
     for play in plays:
         card_id = int(play["cardId"])
-        for hand_card in hand_cards:
-            if hand_card.id == card_id:
-                # updated_card = hand_card
-                hand_card.cssClass = "loading"
+        for card in hand_cards:
+            if card.id == card_id:
+                if play["sourceLane"] is not None:
+                    card.state.lane = play["sourceLane"]
+                if play["sourceOrdinal"] is not None:
+                    card.state.laneOrdinal = play["sourceOrdinal"]
+                card.cssClass = "loading"
     return hand_cards
 
 
@@ -471,16 +566,16 @@ def _update_played_cards(lane_rows, plays):
         for row in lane_rows:
             for card in row["cards"]:
                 if card.id == card_id:
-                    card.state.lane = play["sourceLane"]
-                    card.state.ordinal = play["sourceOrdinal"]
+                    if play["sourceLane"] is not None:
+                        card.state.lane = play["sourceLane"]
+                    if play["sourceOrdinal"] is not None:
+                        card.state.laneOrdinal = play["sourceOrdinal"]
                     card.cssClass = "loading"
-                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.ordinal}) -> {row['name']} .")
+                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.laneOrdinal}) -> {row['name']} .")
     return lane_rows
 
 def _game_result(game, force_end=False):
     participants = list(game.history.participants.all())
-    # for participant in participants:
-        # print(f" {participant.player.name} {participant.defeated and 'was defeated' or participant.fled and 'has fled' or 'is in the game'}")
     if not participants:
         return False,False, None
 
@@ -504,7 +599,9 @@ def _ensure_game_initialized(game):
 
 
 def _run_bot_turn(game, human_player_id):
+    #todo add potential action for bot to flip over faceDown cards in lane
     bot_participants = game.history.participants.exclude(player_id=human_player_id).filter(computerControlled=True)
+    bot_actions = []
     for bot_participant in bot_participants:
         hand_card = (
             GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
@@ -512,7 +609,19 @@ def _run_bot_turn(game, human_player_id):
             .first()
         )
         if hand_card is None:
+            next_deck_card = bot_participant.getNextDeckCard()
             if bot_participant.drawCard() is not None:
+                bot_actions.append(
+                    {
+                        "participantId": bot_participant.id,
+                        "playerId": bot_participant.player_id,
+                        "cardId": next_deck_card.id,
+                        "laneValue": 0,
+                        "sourceLane": next_deck_card.state.lane,
+                        "sourceOrdinal": next_deck_card.state.laneOrdinal,
+                        "flipFaceUp": False,
+                    }
+                )
                 if bot_participant.getNextDeckCard() is None:
                     specialActions(bot_participant)
                     bot_participant.shuffleBoard()
@@ -523,8 +632,24 @@ def _run_bot_turn(game, human_player_id):
                 .first()
             )
         if hand_card is not None:
-            bot_participant.playCard(hand_card.id, flipFaceUp=True)
+            source_lane = hand_card.state.lane
+            source_ordinal = hand_card.state.laneOrdinal
+            played_card = bot_participant.playCard(hand_card.id, flipFaceUp=True)
+            # played card moved hand -> lane (and possibly flipped)
+            bot_actions.append(
+                {
+                    "participantId": bot_participant.id,
+                    "playerId": bot_participant.player_id,
+                    "cardId": played_card.id,
+                    "laneValue": played_card.state.lane,
+                    "sourceLane": source_lane,
+                    "sourceOrdinal": source_ordinal,
+                    "flipFaceUp": not played_card.state.faceDown,
+                }
+            )
         bot_participant.resetTurn()
+    return bot_actions
+
 
 def newBoard():
     board = {

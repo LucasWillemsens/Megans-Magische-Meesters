@@ -1,0 +1,50 @@
+Defer the enemy turn calculation: boardAction(end_turn) stops running _run_bot_turn(), setting bot action cookies and incrementing roundNumber; instead viewBoard() runs the bots inside the board GET that carries the "enemy" phase cookie - before finished and the boards are computed - and marks the recorded bot actions loading through the existing server-side actionPlays path.
+
+Implementation:
+1. MMM/views.py boardAction() - shrink the end_turn branch (views.py:361-365) to just current_participant.resetTurn(). Delete:
+   - bot_actions = _run_bot_turn(game, player_id) and the roundNumber increment/save (views.py:363-365),
+   - the bot_actions = [] initialization (views.py:330),
+   - the _set_bot_action_cookies(response, game, bot_actions, player_id) call (views.py:388) - the helper definition itself is removed in remove-bot-cookie-transport; leaving it defined but uncalled until then keeps this subgoal's diff focused.
+   Everything else in boardAction stays: playcards(), the draw branch with its action_plays recording, the end_turn_done turn_phase="playerMoves" render, and the TURN_PHASE_COOKIE="enemy" handoff (views.py:389-394).
+2. MMM/views.py viewBoard() - reorder the top of the view so the bots run inside the enemy-phase render. New order:
+   a. fetch game/current_participant/gameCards + the empty-game redirect (unchanged, views.py:183-188);
+   b. resolve action_render / phase_from_cookie / turn_phase from the cookie (move views.py:206-209 above the finished computation);
+   c. NEW - run the bots:
+        if phase_from_cookie and turn_phase == "enemy":
+            try:
+                bot_actions = _run_bot_turn(game, player_id)
+            except Exception as exc:
+                bot_actions = []
+                error_message = str(exc)
+            game.roundNumber = max(game.roundNumber, 1) + 1
+            game.save(update_fields=["roundNumber"])
+            action_plays = (action_plays or []) + bot_actions
+      The try/except is required: today a bot failure surfaces through boardAction's try/except as an error render, but a plain board GET must never 500 - degrade to an error message on the board and let the phase handoff continue (the enemy phase renders even without bot actions, as today).
+      Gating on phase_from_cookie documents the invariant that no caller ever passes turn_phase="enemy" explicitly (boardAction passes "" or "playerMoves"), so the bots run exactly when the browser arrives at the board URL carrying the single-use enemy signal - i.e. only after it has left the action URL.
+   d. compute finished, _, _ = _game_result(game) AFTER the bot run (move views.py:194 down; bot specialActions can defeat/flee participants - views.py:446-497 - so the finished flag and nextUrl must see the post-bot state). Update the stale "computed early" comment (views.py:190-193).
+   e. clear_cookies / sequence_render / finished-redirect (views.py:211-233) unchanged in this subgoal - _has_enemy_play_cookies() simply finds no bot cookies anymore and returns False; turn_phase == "enemy" still forces clear_cookies=True, which is what makes _render run _addLoadingAnimations.
+   f. contextBoard() calls (views.py:235-254) unchanged - they now naturally see the post-bot board state because the bot run happened above.
+   g. context unchanged: "actionPlays": action_plays or [] (views.py:294) now carries the bot actions on the enemy-phase render, and _addLoadingAnimations (views.py:574-617) already seeds its plays list from it and marks enemy lane cards AND enemy hand cards loading per enemy board via participantId - the exact path the cookie plays used. _run_bot_turn's returned dicts already carry participantId/cardId/laneValue/sourceLane/sourceOrdinal/flipFaceUp, so no changes are needed in _addLoadingAnimations, _update_played_cards or _update_moved_hand_cards.
+   h. the phase handoff (views.py:298-317) unchanged: "enemy" hands off "player", or deletes the cookie when finished.
+3. roundNumber placement decision (one line): the increment moves from the end_turn POST to the enemy-phase GET right after _run_bot_turn(), because the round is only complete once every participant (bots included) has acted - and the single-use phase cookie makes the increment happen exactly once. roundNumber is display-only (viewBoard.jinja2:24, viewGame.jinja2:56-58), so nothing else is affected. Note the playerMoves render now still shows the just-finished round's number and the new round number first appears on the enemy-phase render.
+4. MMM/tests.py - rewrite the bot-cookie flow tests to the cookie-free flow (all four are required to keep the suite green after steps 1-2):
+   - test_end_turn_advances_round_and_bot_plays (tests.py:112-134) -> the POST must NOT mutate bot state: assert bot lane-card count, bot hand/deck counts and game.roundNumber (still 1) are unchanged across the end_turn POST, and the response sets no digit-named cookies; then GET the board and assert the bots acted exactly once (bot lane cards appeared, roundNumber == 2) and a further GET changes nothing more.
+   - test_board_reload_renders_and_clears_enemy_animations (tests.py:158-196) -> rewrite as e.g. test_enemy_phase_get_runs_bots_and_marks_moves_loading: POST end_turn, then the board GET renders data-phase="enemy", contains 'cardContainer loading', and the loading tag carries data-source-lane="-" with data-source-ordinal="0" (the bot drew from the deck); drop the bot-cookie capture/clearing assertions (no bot cookies exist anymore); keep the lands-clean-afterwards assertion (fresh SimpleCookie -> no loading).
+   - test_end_turn_sets_bot_action_cookies_for_viewing_board (tests.py:136-156) -> invert into e.g. test_end_turn_sets_no_bot_action_cookies: the end_turn response sets TURN_PHASE_COOKIE="enemy" but zero digit-named cookies.
+   - test_game_ending_end_turn_renders_player_moves_instead_of_redirecting (tests.py:538-560): assertions stay (200, data-phase="playerMoves", data-next-url=board URL, cookie "enemy"); update the stale comments that claim bot action cookies are set on the POST response.
+   - Verify untouched-but-related tests stay green: test_finished_game_enemy_phase_targets_result_and_ends_phase_chain (tests.py:562-591; the enemy GET now also runs the bot turn - the human is already defeated, so the assertions are unaffected), test_end_turn_turn_phase_sequence_across_reloads (tests.py:300-339; identical phase chain), test_enemy_phase_renders_even_without_bot_actions (tests.py:341-369; now exercises _run_bot_turn finding nothing to do inside the GET).
+
+Files to create/modify:
+- MMM/views.py (boardAction end_turn branch + bot-cookie call removal; viewBoard ordering: phase resolution, bot run, roundNumber, finished computation, comments)
+- MMM/tests.py (3 rewritten tests, comment touch-ups on 1, the rest verified green)
+
+Acceptance criteria:
+- [ ] POST action=end_turn mutates no bot state and sets no digit-named cookie: bot lane/hand/deck counts and game.roundNumber are identical before/after the POST (rewritten test)
+- [ ] The next board GET (carrying turn_phase="enemy") runs the bots exactly once: bot moves render loading with data-source-lane="-" / data-source-ordinal="0" inside the owning enemy board, game.roundNumber increments by exactly 1, and subsequent GETs (phase "player", then clean) never re-run the bots (rewritten tests)
+- [ ] Enemy actions are marked loading through the server-side actionPlays mechanism (no cookies involved), via the same _addLoadingAnimations/_update_* path the cookie plays used
+- [ ] Game-over chain unchanged: a game-ending end_turn still renders playerMoves with nextUrl=board, the enemy-phase GET renders nextUrl=/result/ and deletes the phase cookie, and the following plain GET redirects to /result/ (existing deferred-result tests green)
+- [ ] A bot failure inside the enemy-phase GET degrades to an error message on the board render, never a 500
+- [ ] python3 manage.py test green (23 tests)
+
+Dependencies:
+- none (independent of remove-board-veil; the two touch disjoint code except shared comment regions in viewBoard/loadingAnimations.js). remove-bot-cookie-transport depends on THIS subgoal: the helpers only become dead once boardAction stops calling them.

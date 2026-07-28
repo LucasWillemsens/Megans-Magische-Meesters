@@ -1,0 +1,38 @@
+Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
+
+Implementation:
+1. MMM/views.py viewBoard(): replace the unconditional finished-redirect (views.py:190-192) with sequence-aware logic. Keep computing finished, _, _ = _game_result(game) early, then:
+   - action_render = turn_phase is not None (see action-url-board-veil: boardAction always passes an explicit turn_phase).
+   - Resolve the phase and clear_cookies exactly as today (views.py:198-209): cookie phase when action_render is False; clear_cookies stays True for enemy play cookies or phase "enemy".
+   - sequence_render = action_render or clear_cookies or turn_phase == "enemy" - i.e. this render still has animations or phases to play out.
+   - Only when finished AND NOT sequence_render: redirect to /game/<id>/result/<pid>/ as today (a plain board visit on a finished game skips straight to results). If the request carried TURN_PHASE_COOKIE, delete it on that redirect response (path f"/game/{game.id}/board/{player_id}/") so a stale phase signal never lingers on a finished game.
+2. Hand the JS its navigation target via context "nextUrl" (path-only, NO BASE_URL prefix, so it compares cleanly against window.location.pathname):
+   - f"/game/{game_id}/board/{player_id}/" normally;
+   - f"/game/{game_id}/result/{player_id}/" when finished AND turn_phase != "playerMoves".
+   Rationale: after a game-ending end_turn, the bot action cookies are already set on the playerMoves response (views.py:313) and MUST still render: playerMoves -> reload to board -> enemy phase (the bot's game-ending moves animate there; markers render for every opponent even with zero bot actions) -> navigate to result. So the playerMoves render always targets the board URL; only the enemy phase render - or a non-end_turn action render, e.g. a draw that triggers specialActions() and defeats someone (views.py:279-286, 391-422) - targets the result URL when finished.
+3. Terminate the phase chain on game end: in the phase_from_cookie handoff (views.py:257-262), when turn_phase == "enemy" and finished, DELETE TURN_PHASE_COOKIE instead of setting "player" - the chain ends at the result page and a finished game never shows the "Your turn" marker. The delete-then-set poisoning rule from the TURN_PHASE_COOKIE comment (views.py:24-34) is respected: the cookie is never set and deleted on the same response. boardAction() keeps setting "enemy" after a successful end_turn (views.py:317-319) even when finished, because the enemy phase is where the final bot moves play.
+4. Template: in MMM/jinja2/MMM/battle/viewBoard.jinja2 render an always-present signal element SEPARATE from #turnPhase (tests assert clean boards contain no data-phase=):
+       <div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
+5. JS in var/www/static/loadingAnimations.js:
+   - const nextUrl = document.getElementById('boardNext')?.dataset.nextUrl ?? '';
+   - reloadToBoard() (lines 68-77): navigate to nextUrl when set, else fall back to the current strip-'action' behaviour (keeps any page without the signal working).
+   - Zero-element else branch (lines 174-176), building on action-url-board-veil's liftVeil(): compute boardPath = pathname with 'action' stripped (same logic as reloadToBoard); if nextUrl && nextUrl !== boardPath, schedule navigation to nextUrl after a short beat (~delay/2, veil stays up) so a game-ending action with nothing left to animate still reaches the result page; otherwise liftVeil() and stay (error renders keep their message, clean board renders do nothing - no reload loops, since a clean board's nextUrl equals its own path).
+6. Out of scope: special-move animations themselves (roadmap/battle-page-polish/special-draw-sequence, lane-highlight-on-special). This task only guarantees the flow REACHES the specials' board effects: specialActions()/visSpecial()/spdSpecial() may set defeated/fled mid-sequence and shuffleBoard() may move cards (views.py:343-444, models.py:363-386); those state changes simply render on the veiled action/enemy renders and are reflected when the result page loads.
+
+Files to create/modify:
+- MMM/views.py (viewBoard finished logic, nextUrl context, phase-cookie termination on game end)
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (#boardNext signal div)
+- var/www/static/loadingAnimations.js (nextUrl navigation in reloadToBoard + zero-element branch)
+- MMM/tests.py (new tests, see below)
+
+Acceptance criteria:
+- [ ] A POST that ends the game (e.g. force human_participant.defeated = True and save, then POST end_turn) returns 200 with data-phase="playerMoves", not a 302 to /result/
+- [ ] The following board GET renders data-phase="enemy" and data-next-url="/game/<id>/result/<pid>/", and DELETES the turn_phase cookie (empty value, max-age 0) instead of handing off "player"
+- [ ] A game-ending draw POST renders 200 with data-next-url pointing at /result/
+- [ ] A plain board GET on a finished game with no animation cookies still 302s to /result/, and GET /result/ on an unfinished game still 302s back to the board (viewResult guard, views.py:446-451, unchanged)
+- [ ] test_end_turn_turn_phase_sequence_across_reloads and test_enemy_phase_renders_even_without_bot_actions stay green: unfinished games keep the exact playerMoves -> enemy -> player chain, and clean board renders contain no data-phase=
+- [ ] python3 manage.py test green (14 existing tests + the new ones)
+
+Dependencies:
+- action-url-board-veil (the zero-element else branch is shared: lifting the veil vs navigating to nextUrl is one decision, and the veil covers the extra game-over renders this task introduces)
+- player-draw-play-recording + deck-origin-flight-animation (soft: without them a game-ending draw navigates to results without animating the final draw)

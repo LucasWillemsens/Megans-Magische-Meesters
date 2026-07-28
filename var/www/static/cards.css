@@ -105,8 +105,6 @@
     line-height: 1;
     text-align: left;
 }
-.playingCards .card .rank {
-}
 .playingCards .card .suit {
     line-height: .7;
 }
@@ -454,8 +452,7 @@
 }
 
 
-/* hand (in your hand or on table or as a deck)
-********************************************************************/
+/*in play */
 
 .playingCards ul.table,
 .playingCards ul.hand,
@@ -472,8 +469,7 @@
 .playingCards ul.table li,
 .playingCards ul.hand li,
 .playingCards ul.deck li {
-    /* margin: 0;
-    padding: 0; */
+    padding: 0;
     list-style-type: none;
     float: left;
 }
@@ -662,7 +658,6 @@ div.playerScreen{
         height: 10%;
         margin: 0;
         z-index: 1;
-        /* text-decoration: underline; */
         opacity: 0.15;
         color: #114503;
         transform: translateX(-25px) translatey(-83px) rotate(-17deg);
@@ -690,22 +685,18 @@ div.playerScreen{
         }
         ul.lanes li.lane.Intelligence {
             background-color: 
-            /* rgb(217, 158, 196); */
             rgb(213 193 235);
         }
         ul.lanes li.lane.Speed {
             background-color: 
-            /* rgb(199, 193, 142); */
             rgb(252 247 207);
         }
         ul.lanes li.lane.Visciousness {
             background-color: 
-            /* rgb(203, 125, 125); */
             rgb(215 155 155);
         }
         ul.lanes li.lane.Resolve {
             background-color: 
-            /* rgb(162, 202, 162); */
             rgb(178 193 180);
         }
 
@@ -772,6 +763,37 @@ div.playerScreen{
     flex-direction: column;
     flex-wrap: nowrap;
 }
+.playerScreen .enemyDeckHand {
+    z-index: 1;
+    position: relative;
+    display: flex;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    min-height: 9em;
+}
+.playerScreen .enemyDeckHand > .deck {
+    max-width: 20%;
+    max-height: 100%;
+}
+.playerScreen .enemyDeckHand > .hand {
+    width: 60%;
+    margin: 0 20%;
+}
+
+.playerScreen .enemyDeckHand,
+.playerScreen .enemyDeckHand * {
+    pointer-events: none;
+    cursor: default;
+}
+
+.playerScreen.enemyTurnFocus > .deckHand {
+    opacity: 0.3;
+    filter: grayscale(0.9);
+    pointer-events: none;
+    transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
+}
 
 button.end-turn{
     cursor: pointer;
@@ -805,14 +827,12 @@ button.draw{
 }
 
 
-/* the stars of the show */
 .fit-picture{
     object-fit: cover;
     vertical-align: middle;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     background: #ddd;
 }
-/* the stars of the show */
 .playerInfo .fit-picture{
     margin: 0 1rem;
     width: 4rem;
@@ -835,13 +855,11 @@ button.draw{
     gap: 1rem;
     padding: 0;
     margin: 0;
-    /* margin-bottom: 2rem; */
     height: fit-content;
     width:100%;
 }
     .cards h2{
         margin:0;
-        /* margin-bottom: 2rem; */
     }
     .cards p{
         margin: 0;
@@ -857,13 +875,11 @@ button.draw{
     gap: 1rem;
     padding: 0;
     margin: 0;
-    /* margin-bottom: 2rem; */
     height: fit-content;
     width:100%;
 }
     .decks h2{
         margin:0;
-        /* margin-bottom: 2rem; */
     }
     .decks p{
         margin: 0;
@@ -887,22 +903,6 @@ button.draw{
         justify-content: space-between;
         width: 5rem;
     }
-    /* card batlle shuffle wip */
-/* .cardOptions .smallCard {
-    display: flex;
-    flex-direction: column-reverse;
-    height: 9rem;
-    align-items: center;
-    align-content: center;
-    justify-content: space-between;
-    width: 5rem;
-    margin-right: -300px !important;
-    margin-bottom: -132px;
-    border-style: double;
-    border-width: thick;
-    padding-top: 0.5rem;
-    background: aqua;
-} */
 
         .cardOptions .smallCard label{
             display: flex;
@@ -1231,6 +1231,10 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
     transform: translate(var(--move-x, 0px), var(--move-y, 0px)) !important;
 }
 
-.animating{
-    transition: all 0.25s ease-in-out;
+.duplicate.flipFaceUp.to-original {
+    transform: rotateY(90deg) !important;
+}
+
+.playerScreen .cardContainer.loading:not(.duplicate) {
+    visibility: hidden;
 }

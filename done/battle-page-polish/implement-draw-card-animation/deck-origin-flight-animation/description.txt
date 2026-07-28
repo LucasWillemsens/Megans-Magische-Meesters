@@ -1,0 +1,36 @@
+Teach duplicateCard() the player's deck source so a drawn card's clone starts at the top of the deck stack and flies into its hand slot, showing the card back during the flight - mirroring the enemy draw animation that already works.
+
+Implementation:
+1. var/www/static/loadingAnimations.js, duplicateCard(): the player (non-enemyBoard) branch (currently lines 244-261) switches on lanes 0-4 only, so a negative source lane falls through, laneElement stays null and the card appears with no animation. Add a player deck case before the switch:
+       } else {
+           if (lane < 0) {
+               // player draw: fly from the top of the own deck stack
+               laneElement = document.querySelector('.playerScreen .deckHand .deck');
+           } else switch (lane) {
+               ... existing cases 0-4 unchanged ...
+           }
+       }
+2. Top-of-deck origin (no ordinal math change needed): with sourceOrdinal 0 the existing Math.min(ordinal - 1, laneElement.children.length) yields -1, so the clone is appendChild()ed as the LAST li of ul.deck. That IS the visual top of the stack: .playingCards ul.deck li:nth-child(n) offsets later children further up/right (var/www/static/cards.css:601-632), and the draw button lives on the template's loop.last li (MMM/jinja2/MMM/battle/viewBoard.jinja2:248-253). Add a comment recording "appended == top of the deck stack". The existing --move-x/--move-y computation (loadingAnimations.js:292-294) then measures the delta from the deck top to the hand slot, and .duplicate.to-original (cards.css:1271-1273) flies the clone there over --move-duration. (Enemy draws already work exactly this way via the enemyBoard lane < 0 branch, loadingAnimations.js:237-238.)
+3. Back-side flight for player draws: the clone is copied from the face-up hand card, but a card drawn from the deck should travel face-down. In the same lane < 0 player branch, restyle the clone the way the flipFaceUp branch does (loadingAnimations.js:285-291) but WITHOUT the flipFaceUp class (this is a flight, not an edge-on flip in place):
+       duplicate.classList.add('faceDown');
+       const innerCard = duplicate.querySelector('.card');
+       if (innerCard) {
+           innerCard.classList.add('back');
+           innerCard.replaceChildren();
+       }
+   When the flight ends, the existing revealElement() swap (loadingAnimations.js:39-48) removes the clone and reveals the face-up original in the hand.
+4. Enemy draws: verify unchanged behaviour (enemyBoard lane < 0 branch + _update_moved_hand_cards source data). Covered server-side by test_board_reload_renders_and_clears_enemy_animations and test_enemy_hand_cards_can_be_marked_loading.
+
+Files to create/modify:
+- var/www/static/loadingAnimations.js (duplicateCard player deck case + back-side clone for player draws)
+
+Acceptance criteria:
+- [ ] After a draw POST, the drawn player card's clone starts at the top of .playerScreen .deckHand .deck (appended as last li, highest nth-child offset) and translates via --move-x/--move-y into the card's own hand slot
+- [ ] The flying clone shows the card back (.card.back, no art/info), never the face-up card, for player draws; enemy draw clones are inherently .card.back already
+- [ ] The original hand card stays hidden (.playerScreen .cardContainer.loading:not(.duplicate), cards.css:1289-1291) until the clone lands; the revealElement() swap then removes the clone and unhides the original, and a card without a source is never left invisible (loadingAnimations.js:59-61)
+- [ ] Enemy draw animation (deck -> enemy hand) still plays on the enemy-phase board render
+- [ ] python3 manage.py test stays green (JS-only change; the enemy draw assertions in test_board_reload_renders_and_clears_enemy_animations keep passing)
+- [ ] Manual check: player draw and enemy draw animations read as mirror images (top of deck -> hand)
+
+Dependencies:
+- player-draw-play-recording (the drawn player card only gets the negative data-source-lane / data-source-ordinal="0" this animation keys on from that task)

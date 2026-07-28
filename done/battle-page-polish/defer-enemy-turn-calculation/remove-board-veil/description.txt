@@ -1,0 +1,30 @@
+Remove the board veil end to end: the "obfuscateBoard" context flag, the #boardVeil template block, the .boardVeil CSS rules, the liftVeil()/veil wiring in loadingAnimations.js, and the two veil tests - while leaving action_render, sequence_render and nextUrl (the deferred-result machinery) fully intact.
+
+Implementation:
+1. MMM/views.py viewBoard(): delete the "obfuscateBoard": action_render context entry and its comment (views.py:287-290). Trim the action_render comment block (views.py:196-205) so it no longer claims action renders obfuscate the board behind a veil - but KEEP the action_render variable itself: it still feeds sequence_render (views.py:225), which the deferred-result flow depends on. Nothing else in viewBoard changes in this subgoal.
+2. MMM/jinja2/MMM/battle/viewBoard.jinja2: delete the veil block (lines 15-19: the {# ... #} comment and {% if obfuscateBoard %}<div id="boardVeil" class="boardVeil" aria-hidden="true"></div>{% endif %}). Leave #turnPhase (lines 4-9) and #boardNext (line 14) untouched.
+3. var/www/static/cards.css: delete the .boardVeil and .boardVeil.lifted rules including their explanatory comment (~lines 1264-1283).
+4. var/www/static/loadingAnimations.js Animate():
+   - Delete the veil lookup and its comment (lines 20-23: const veil = document.getElementById('boardVeil')).
+   - Delete the liftVeil() helper including its comment (lines 97-110).
+   - Delete the liftVeil() call and its "defensive" comment in the phase === 'player' branch (lines 124-127).
+   - Delete the liftVeil() call in the zero-element else branch (line 232) - the branch otherwise keeps its exact behavior: stay on screen, no reload, so error messages remain readable.
+   - Delete the "the veil stays up: ..." comments in the playerMoves branch (lines 141-142), the enemy branch (lines 181-182) and the default elements branch (lines 214-215), and the "with the veil still up ..." phrasing in the zero-element nextUrl else-if branch (lines 217-221).
+   - Every branch keeps its current navigation behavior: reload branches still reload via nextUrl || boardPath(), the nextUrl else-if still navigates after a beat, the final else still stays. Only the veil handling disappears.
+5. MMM/tests.py: delete test_action_posts_render_board_veil (lines 248-268) and test_plain_board_get_renders_no_board_veil (lines 270-278), and add one regression guard, e.g. test_action_posts_render_no_board_veil: POST action=draw and POST action=end_turn both assertNotContains "boardVeil" (guards against reintroduction; a plain board GET is implicitly covered by the existing clean-board assertions).
+
+Files to create/modify:
+- MMM/views.py (remove obfuscateBoard context entry, trim action_render comment)
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (remove veil block)
+- var/www/static/cards.css (remove .boardVeil/.boardVeil.lifted rules)
+- var/www/static/loadingAnimations.js (remove veil lookup, liftVeil(), its two calls, and the veil comments)
+- MMM/tests.py (-2 veil tests, +1 no-veil regression test)
+
+Acceptance criteria:
+- [ ] grep -ri "boardVeil\|obfuscateBoard\|liftVeil" MMM/ var/www/static/ returns nothing
+- [ ] POST action=draw and POST action=end_turn render no #boardVeil (new regression test)
+- [ ] Deferred-result behavior unchanged: a game-ending draw still renders 200 with data-next-url pointing at /result/, the game-ending end_turn chain still ends on /result/, and a plain board GET on a finished game still redirects (the existing deferred-result tests stay green untouched)
+- [ ] python3 manage.py test green (23 tests: 24 baseline - 2 veil tests + 1 regression test)
+
+Dependencies:
+- none (independent of run-bots-in-enemy-phase; land it first because it is small and purely subtractive). The done/ bookkeeping for the veil (removing the action-url-board-veil done entry) is deliberately NOT part of this leaf - it lands with remove-bot-cookie-transport so history and code change in one commit.

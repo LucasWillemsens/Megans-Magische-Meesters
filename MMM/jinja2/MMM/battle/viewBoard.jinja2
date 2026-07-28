@@ -1,6 +1,10 @@
 {% extends 'base.jinja2' %}
 
 {% block content %}
+{% if turnPhase %}
+<div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
+{% endif %}
+<div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
 <div class="playerScreen playingCards fourColours rotateHand">
     <div class="players">
         <div class="title">
@@ -23,20 +27,45 @@
         {% for enemy in enemyBoards %}
         <li class="enemyBoard">
             <h2>{{ enemy.participant.player.name }} </h2>
-            {# gameBoard #}
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
+            <div class="enemyDeckHand">
+                <ul class="deck enemyDeck">
+                    {% if enemy.deckStack %}
+                        {% for card in enemy.deckStack %}
+                    <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
+                        data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        <div class="card back smallCard"></div>
+                    </li>
+                        {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back emptyDeck">Empty</div>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="hand enemyHand">
+                    {% for card in enemy.handCards %}
+                    <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                        data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        <div class="card back smallCard"></div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
             <ul class="lanes">
                 {% for lane in enemy.laneRows %}
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer {{ card.cssClass }} faceDown">
+                            <li class="cardContainer {{ card.cssClass }} faceDown" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card back smallCard">
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer {{ card.cssClass }}">
+                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
@@ -76,12 +105,9 @@
                                     {% endif %}
                             
                                     <div class="smallCardInfo">
-                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                             <p>
                                                 {{ card.card.title }}
                                             </p>
-                                            {#
-                                        </a> #}
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
@@ -107,7 +133,6 @@
     <ul class="basic-mat table">
         <li class="playerBoard ">
             <h2> {{ player.name }} </h2>
-            {# gameBoard #}
             <ul class="lanes">
                 {% for lane in ownLaneRows %}
                 <li class="lane {{lane.name}}">
@@ -127,12 +152,9 @@
                                     {% endif %}
                             
                                     <div class="smallCardInfo">
-                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                             <p>
                                                 {{ card.card.title }}
                                             </p>
-                                            {#
-                                        </a> #}
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
@@ -150,12 +172,9 @@
                                     {% endif %}
                             
                                     <div class="smallCardInfo">
-                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                             <p>
                                                 {{ card.card.title }}
                                             </p>
-                                            {#
-                                        </a> #}
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
@@ -179,12 +198,9 @@
                                     {% endif %}
                             
                                     <div class="smallCardInfo">
-                                        {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                             <p>
                                                 {{ card.card.title }}
                                             </p>
-                                            {#
-                                        </a> #}
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                         </p>
@@ -241,8 +257,6 @@
                     <input type="hidden" name="card_id" value="{{ card.id }}">
                     <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
                     <button type="submit" class="{{ card.cssClass }}" title="Play to {{ card.card.cardType }}">
-                        {# <span class="rank">{{ card.card.cardType }}</span>
-                        <span class="suit">{{ card.card.title }}</span> #}
                         {% if card.card.artSource == "" %}
                         <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                         {% else %}
@@ -250,12 +264,9 @@
                         {% endif %}
                     
                         <div class="smallCardInfo">
-                            {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                 <p>
                                     {{ card.card.title }}
                                 </p>
-                                {#
-                            </a> #}
                             <p class="cardType">
                                 {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                             </p>
@@ -282,7 +293,7 @@
         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
             {{ csrf_input }}
             <input type="hidden" name="action" value="end_turn">
-            <button type="submit" class="end-turn" title="End turn" autofocus>
+            <button type="submit" class="end-turn" title="End turn" {% if turnPhase != "enemy" %}autofocus{% endif %}>
                 <span class="suit">End turn</span>
             </button>
         </form>

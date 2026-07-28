@@ -31,20 +31,35 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
 - [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
-- [ ] Create a smooth draw-card animation that visually communicates when a card is drawn from the deck into play.
 - [ ] Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
 - [ ] Highlight the affected lanes when special moves execute so players can instantly see the result of the action.
 - [ ] Animate special draw sequences, detect the last drawn card, play special move animations in order, and show a shuffle-back effect.
 - [ ] Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why.
 - [ ] Add an undo button and a fallback board reload path that recovers the player state if the game is driven by cookie data.
 
+#### Defer Enemy Turn Calculation
+
+Remove the action-URL board veil again and defer the enemy turn calculation: 'end turn' renders only the player's own moves, and the bot moves are computed in the board GET that renders the enemy phase (after the browser has left the action URL), passed straight into that render via the server-side actionPlays mechanism instead of bot action cookies.
+
+- [x] Remove the board veil end to end: the "obfuscateBoard" context flag, the #boardVeil template block, the .boardVeil CSS rules, the liftVeil()/veil wiring in loadingAnimations.js, and the two veil tests - while leaving action_render, sequence_render and nextUrl (the deferred-result machinery) fully intact.
+- [x] Remove the now-dead bot action cookie transport (_set_bot_action_cookies, _has_enemy_play_cookies), rebase the remaining bot-cookie test onto a manually staged foreign cookie, and do the done/ bookkeeping so the generated README stops claiming the board veil exists.
+- [x] Defer the enemy turn calculation: boardAction(end_turn) stops running _run_bot_turn(), setting bot action cookies and incrementing roundNumber; instead viewBoard() runs the bots inside the board GET that carries the "enemy" phase cookie - before finished and the boards are computed - and marks the recorded bot actions loading through the existing server-side actionPlays path.
+
 #### Enemy Turn Indicators
 
 There should not be an action log. Enemy turns should work in the same way as if a player had executed them. When the player presses 'end turn' cookies should be created for the enemy actions. Animations should be set up based on the cookies and the player should get a timeframe to view the enemy actions before being redirected to the board url, just like when player draws a card.
 
-- [ ] Animate the recorded enemy actions on the board, the same way player actions animate.
-- [ ] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
-- [ ] Give the player a clear timeframe to watch the enemy actions before the board reloads.
+- [x] Animate the recorded enemy actions on the board, the same way player actions animate.
+- [x] Record each bot action as an animation cookie when the player presses 'end turn', in the same format as player play cookies.
+- [x] Give the player a clear timeframe to watch the enemy actions before the board reloads.
+
+#### Implement Draw Card Animation
+
+Animate drawn cards flying from the top of the deck into the player's and enemy's hand, and stop short-circuiting to the result page when the game ends so the turn sequence plays out first. (The action-URL board veil this goal originally added was later reverted and removed - see defer-enemy-turn-calculation.)
+
+- [x] Teach duplicateCard() the player's deck source so a drawn card's clone starts at the top of the deck stack and flies into its hand slot, showing the card back during the flight - mirroring the enemy draw animation that already works.
+- [x] Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
+- [x] Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
 
 
 ### Pre-battle and deck flow
