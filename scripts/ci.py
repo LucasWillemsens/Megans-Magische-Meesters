@@ -30,6 +30,13 @@ UPDATE_SCRIPT = REPO_ROOT / "scripts" / "update_roadmap.py"
 DJANGO_DIRS = [REPO_ROOT / "MMM", REPO_ROOT / "mysite"]
 STATIC_DIR = REPO_ROOT / "var" / "www" / "static"
 
+# Minimum matcher score to auto-add a roadmap item to done/. Set at the HIGH
+# confidence boundary: observed false positives (filename-stem and partial
+# keyword matches) topped out at 0.333. Matches in the LOW_MATCH_FLOOR..
+# MATCH_THRESHOLD band are only reported, and can be force-added with --match.
+MATCH_THRESHOLD = 0.4
+LOW_MATCH_FLOOR = 0.15
+
 
 def run(cmd, check=True, cwd=None):
     """Run a shell command and return (returncode, stdout, stderr)."""
@@ -582,9 +589,10 @@ def main():
             and m["roadmap_path"].split("/")[0] not in done_set
         ]
 
-        # Filter to meaningful matches (score >= 0.15)
-        significant_matches = [m for m in new_matches if m["score"] >= 0.15]
-        low_matches = [m for m in new_matches if m["score"] < 0.15]
+        significant_matches = [m for m in new_matches if m["score"] >= MATCH_THRESHOLD]
+        low_matches = [
+            m for m in new_matches if LOW_MATCH_FLOOR <= m["score"] < MATCH_THRESHOLD
+        ]
 
         if significant_matches:
             print(f"\n  Matched {len(significant_matches)} roadmap items to code changes:\n")
