@@ -7,6 +7,7 @@ from django.urls import reverse
 from . import views
 from .models import (
     BattleHistory,
+    BattleParticipant,
     Card,
     CardOwnerHistory,
     Deck,
@@ -61,6 +62,61 @@ class BattleFlowTests(TestCase):
             startingCard_id=self.bot_cards[0].id,
             deck_id=self.bot_deck.id,
         )
+
+    def test_turn_allowances_match_fresh_board(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        allowances = self.human_participant.getTurnAllowances()
+        self.assertEqual(allowances["draws_left"], 2)
+        self.assertEqual(allowances["flips_left"], 1)
+        self.assertEqual(allowances["plays_left"], 3)
+        self.assertEqual(allowances["int_count"], 1)
+        self.assertEqual(allowances["spd_count"], 0)
+        self.assertEqual(allowances["tactics"], 1)
+        self.assertEqual(allowances["drawn"], 0)
+        self.assertEqual(allowances["played"], 0)
+        self.assertEqual(allowances["flipped"], 0)
+        for key in ("draw", "play", "flip"):
+            self.assertIn(key, allowances["blocked_titles"])
+
+    def test_draw_parity(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        draws_left = self.human_participant.getTurnAllowances()["draws_left"]
+        self.assertEqual(draws_left, 2)
+
+        for i in range(draws_left):
+            response = self.client.post(draw_url, {"action": "draw"})
+            self.assertNotContains(response, "Action error")
+
+        # At this point drawnCardsAmount == 2, draws_left should be 0
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.getTurnAllowances()["draws_left"], 0)
+
+        # The (draws_left+1)th POST must fail with the enforcement error
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertContains(response, "Action error")
+        self.assertContains(response, "cannot draw more cards")
+
+    def test_board_renders_turn_limits_data(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        self.assertIn('id="turnLimits"', content)
+        self.assertIn('data-draws-left="2"', content)
+        self.assertIn('data-plays-left="3"', content)
+        self.assertIn('data-flips-left="1"', content)
+        self.assertIn("0d", content)
+        self.assertIn("0p", content)
+        self.assertIn("0f", content)
 
     def test_confirm_is_idempotent(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])

@@ -5,6 +5,20 @@
 <div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
 {% endif %}
 <div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
+<div id="turnLimits" hidden
+  data-draws-left="{{ turnAllowances.draws_left }}"
+  data-plays-left="{{ turnAllowances.plays_left }}"
+  data-flips-left="{{ turnAllowances.flips_left }}"
+  data-int-count="{{ turnAllowances.int_count }}"
+  data-spd-count="{{ turnAllowances.spd_count }}"
+  data-tactics="{{ turnAllowances.tactics }}"
+  data-drawn="{{ turnAllowances.drawn }}"
+  data-played="{{ turnAllowances.played }}"
+  data-flipped="{{ turnAllowances.flipped }}"
+  data-draw-blocked-title="{{ turnAllowances.blocked_titles.draw }}"
+  data-play-blocked-title="{{ turnAllowances.blocked_titles.play }}"
+  data-flip-blocked-title="{{ turnAllowances.blocked_titles.flip }}">
+</div>
 <div class="playerScreen playingCards fourColours rotateHand">
     <div class="players">
         <div class="title">
