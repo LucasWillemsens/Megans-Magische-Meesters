@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 """CI script that automates the devops workflow:
-  1. Check git status and current changes
-  2. Analyze recent source code changes against roadmap descriptions
-  3. Update done/ directory for newly completed items
-  4. Run tests
-  5. Run update readme script
-  6. Commit, push to feature branch, and open a PR
+  1. Pull latest changes from origin
+  2. Check git status and current changes
+  3. Analyze recent source code changes against roadmap descriptions
+  4. Update done/ directory for newly completed items
+  5. Run tests
+  6. Run update readme script
+  7. Commit, push to a unique goal-named feature branch, and open a PR
 
 Usage:
     python scripts/ci.py
@@ -19,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -50,10 +52,49 @@ def run(cmd, check=True, cwd=None):
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def pull_latest(dry_run=False):
+    """Fetch origin and fast-forward the current branch when the tree is clean.
+
+    The script usually runs with uncommitted implementation changes, where a
+    pull would fail; in that case we still fetch so the new feature branch can
+    be based on the fresh origin/main (see commit_and_push).
+    """
+    print("=" * 60)
+    print("STEP 1: Pull Latest Changes")
+    print("=" * 60)
+
+    if dry_run:
+        print("  (dry-run: would run 'git fetch origin' and fast-forward pull)")
+        return
+
+    rc, _, err = run("git fetch origin", check=False)
+    if rc != 0:
+        print(f"  WARN: git fetch failed ({err}); continuing with local state.")
+        return
+    print("  Fetched origin.")
+
+    rc, branch, _ = run("git branch --show-current")
+    if not branch:
+        print("  Detached HEAD; skipping pull.")
+        return
+
+    rc, dirty, _ = run("git status --porcelain", check=False)
+    if dirty:
+        print(f"  Uncommitted changes present; skipping pull on '{branch}'.")
+        print("  (The feature branch will be based on the fetched origin/main.)")
+        return
+
+    rc, out, err = run(f"git pull --ff-only origin {branch}", check=False)
+    if rc != 0:
+        print(f"  WARN: could not fast-forward '{branch}': {err}")
+    else:
+        print(f"  {out or 'Already up to date.'}")
+
+
 def git_status():
     """Run git status and return structured info."""
     print("=" * 60)
-    print("STEP 1: Git Status")
+    print("STEP 2: Git Status")
     print("=" * 60)
 
     rc, branch, _ = run("git branch --show-current")
@@ -228,16 +269,11 @@ def match_changed_code_to_descriptions(diff_text, changed_files, roadmap_descs):
             if len(part) >= 3:
                 code_identifiers.add(part.lower())
 
-    # Skip analysis if only non-Django files changed (e.g. only scripts/ci.py)
-    django_extensions = {".py", ".jinja2", ".js", ".css"}
-    django_file_prefixes = ["MMM/", "mysite/", "var/www/static/"]
-    has_django_changes = any(
-        any(f.startswith(p) for p in django_file_prefixes)
-        or Path(f).suffix in django_extensions
-        for f in changed_files
-        if f != "scripts/ci.py"
-    )
-    if not has_django_changes and not added_text.strip():
+    # Skip analysis if no Django app/static files changed (e.g. only
+    # scripts/ci.py or other tooling changed) — matching against tooling
+    # diffs produces false-positive roadmap matches.
+    django_file_prefixes = ("MMM/", "mysite/", "var/www/static/")
+    if not any(f.startswith(django_file_prefixes) for f in changed_files):
         return [], set()
 
     # Filter out very generic identifiers
@@ -326,7 +362,7 @@ def analyze_and_update_done(matched_items, done_descs, dry_run=False):
     Ensures folder structure exists before writing.
     """
     print("\n" + "=" * 60)
-    print("STEP 3: Updating Done Directory")
+    print("STEP 4: Updating Done Directory")
     print("=" * 60)
 
     if not matched_items:
@@ -387,7 +423,7 @@ def analyze_and_update_done(matched_items, done_descs, dry_run=False):
 def run_tests():
     """Run Django tests."""
     print("\n" + "=" * 60)
-    print("STEP 4: Running Tests")
+    print("STEP 5: Running Tests")
     print("=" * 60)
 
     rc, out, err = run(f'"{sys.executable}" manage.py test', check=False)
@@ -407,7 +443,7 @@ def run_tests():
 def run_update_readme():
     """Run the update_roadmap.py script to refresh the README."""
     print("\n" + "=" * 60)
-    print("STEP 5: Updating README Roadmap")
+    print("STEP 6: Updating README Roadmap")
     print("=" * 60)
 
     rc, out, err = run(f'"{sys.executable}" {UPDATE_SCRIPT}', check=False)
@@ -423,10 +459,41 @@ def run_update_readme():
     return True
 
 
-def commit_and_push(branch, dry_run=False):
+def derive_goal_branch(matches, fallback="roadmap-sync"):
+    """Build a branch name from the top matched roadmap goal.
+
+    Format: ci/<goal-slug>-<timestamp>. The timestamp keeps re-runs of the
+    same goal from colliding with earlier branches/PRs.
+    Returns (branch_name, goal_slug).
+    """
+    goal = fallback
+    if matches:
+        top = matches[0]["roadmap_path"].replace("/description.txt", "")
+        parts = [p for p in top.split("/") if p]
+        if parts:
+            goal = parts[-1]
+    slug = re.sub(r"[^a-z0-9]+", "-", goal.lower()).strip("-")[:48] or fallback
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"ci/{slug}-{stamp}", slug
+
+
+def ensure_unique_branch(branch):
+    """Append a counter if the branch already exists locally or on origin."""
+    candidate = branch
+    n = 2
+    while True:
+        _, local, _ = run(f"git branch --list {candidate}", check=False)
+        _, remote, _ = run(f"git ls-remote --heads origin {candidate}", check=False)
+        if not local and not remote:
+            return candidate
+        candidate = f"{branch}-{n}"
+        n += 1
+
+
+def commit_and_push(branch, goal, dry_run=False):
     """Commit all changes, push to feature branch, and open a PR."""
     print("\n" + "=" * 60)
-    print("STEP 6: Commit, Push, and Open PR")
+    print("STEP 7: Commit, Push, and Open PR")
     print("=" * 60)
 
     rc, status_out, _ = run("git status --short")
@@ -438,9 +505,16 @@ def commit_and_push(branch, dry_run=False):
 
     rc, current_branch, _ = run("git branch --show-current")
     if current_branch != branch:
-        print(f"\n  Creating and switching to branch: {branch}")
+        # Base the new branch on the fetched origin/main when possible so the
+        # PR includes the latest changes; fall back to the current HEAD.
+        start_point = "origin/main" if current_branch == "main" else ""
+        label = f" (from {start_point})" if start_point else ""
+        print(f"\n  Creating and switching to branch: {branch}{label}")
         if not dry_run:
-            run(f"git checkout -b {branch}", check=True)
+            rc, _, err = run(f"git checkout -b {branch} {start_point}".strip(), check=False)
+            if rc != 0:
+                print(f"  WARN: checkout{label} failed ({err}); branching from current HEAD.")
+                run(f"git checkout -b {branch}", check=True)
 
     print("  Staging all changes...")
     if not dry_run:
@@ -466,7 +540,7 @@ def commit_and_push(branch, dry_run=False):
             f"{commit_msg}"
         )
         rc, pr_out, pr_err = run(
-            f'gh pr create --title "ci: roadmap sync" --body "{pr_body}" --base main --assignee LucasWillemsens',
+            f'gh pr create --title "ci: {goal}" --body "{pr_body}" --base main --assignee LucasWillemsens',
             check=False,
         )
         if rc != 0:
@@ -489,8 +563,9 @@ def main():
     parser = argparse.ArgumentParser(description="CI script for MMM project")
     parser.add_argument(
         "--branch",
-        default="ci/roadmap-sync",
-        help="Feature branch name (default: ci/roadmap-sync)",
+        default=None,
+        help="Feature branch name (default: auto-derived from the top matched "
+        "roadmap goal, e.g. ci/enemy-action-cookies-20260101-120000)",
     )
     parser.add_argument(
         "--dry-run",
@@ -513,12 +588,15 @@ def main():
     print("Megans Magische Meesters - CI Pipeline")
     print("=" * 60)
 
-    # Step 1: Git status
+    # Step 1: Pull latest changes from origin
+    pull_latest(dry_run=args.dry_run)
+
+    # Step 2: Git status
     current_branch = git_status()
 
-    # Step 2: Get changed files and diff
+    # Step 3: Get changed files and diff
     print("\n" + "=" * 60)
-    print("STEP 2: Source Code Change Analysis")
+    print("STEP 3: Source Code Change Analysis")
     print("=" * 60)
 
     changed_files = get_changed_django_files()
@@ -624,10 +702,21 @@ def main():
         new_matches = []
         print("\n  No changes detected to analyze.")
 
-    # Step 3: Update done directory
+    # Resolve the feature branch: explicit --branch wins, otherwise derive a
+    # unique name from the top matched roadmap goal.
+    if args.branch:
+        branch = args.branch
+        goal = args.branch
+        print(f"\n  Branch: {branch} (from --branch)")
+    else:
+        branch, goal = derive_goal_branch(new_matches)
+        branch = ensure_unique_branch(branch)
+        print(f"\n  Branch: {branch} (auto-derived from goal '{goal}')")
+
+    # Step 4: Update done directory
     analyze_and_update_done(new_matches, done_descs, dry_run=args.dry_run)
 
-    # Step 4: Run tests
+    # Step 5: Run tests
     tests_passed = run_tests()
 
     if not tests_passed:
@@ -636,11 +725,11 @@ def main():
         print("=" * 60)
         sys.exit(1)
 
-    # Step 5: Update README roadmap
+    # Step 6: Update README roadmap
     run_update_readme()
 
-    # Step 6: Commit and push
-    commit_and_push(args.branch, dry_run=args.dry_run)
+    # Step 7: Commit and push
+    commit_and_push(branch, goal, dry_run=args.dry_run)
 
     print("\n" + "=" * 60)
     print("CI PIPELINE COMPLETE")

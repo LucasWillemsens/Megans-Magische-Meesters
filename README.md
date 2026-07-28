@@ -24,19 +24,16 @@ Current state captured: a working human-vs-bot match loop (create challenge → 
 
 ### Prototype target
 
-Define the prototype target for the project: a reliable 1v1 demo with clear visuals, a readable match flow, and a polished battle experience.
+Define the prototype target for the project: a reliable 1v1 demo with clear visuals, a readable match flow, and a polished battle experience. Deployment requirements
 
 ### Top priority: Battle page polish
 
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
-- [ ] Mirror the enemy side of the battle mat with a flipped background image so the board reads as one continuous play surface.
 - [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
-- [ ] Render multiple cards in a lane with a consistent stacked visual style that matches how hologram cards are shown.
-- [ ] Highlight the affected lanes when special moves execute so players can instantly see the result of the action.
-- [ ] Animate special draw sequences, detect the last drawn card, play special move animations in order, and show a shuffle-back effect.
-- [ ] Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why.
-- [ ] Add an undo button and a fallback board reload path that recovers the player state if the game is driven by cookie data.
+- [ ] Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
+- [ ] Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.
+- [ ] Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cads in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing)
 
 #### Defer Enemy Turn Calculation
 
@@ -98,11 +95,11 @@ Move completed games and challenges into a dedicated history page for better pos
 
 ### Tests and reliability
 
-Add tests and reliability work to make the prototype stable before sharing.
+Add tests and reliability work to make the prototype stable before sharing. Create more cards for testing and automate complete end-to-end tests using a real front-end in addition to unit testing.
+Also add an efficient way to create cards in general and allow use efficient client computed assets. These can be especially usefull for testing or as a fallback when asset loading fails.
 
 - [ ] Add tests for active game discovery so live sessions are shown accurately in the UI.
 - [ ] Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.
-- [ ] Evaluate moving lane-stat calculation out of per-action checks into a single end-of-turn computation to reduce repeated queries and centralise stat logic.
 - [ ] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
 - [ ] Build and verify the full match loop so a game can be played from start to finish without breaking.
 - [ ] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.
