@@ -5,6 +5,9 @@
 <div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
 {% endif %}
 <div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
+{% if timelineSteps %}
+<script id="timelineSteps" type="application/json">{{ timelineSteps | tojson | safe }}</script>
+{% endif %}
 <div id="turnLimits" hidden
   data-draws-left="{{ turnAllowances.draws_left }}"
   data-plays-left="{{ turnAllowances.plays_left }}"
@@ -153,9 +156,11 @@
                     <ul class="hologramRow"></ul>
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
+                            {% set card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
                             {% if card.state.faceDown %}
                             <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" data-source-lane="{{ card.state.lane }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}>
+                                data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}
+                                style="--card-rotation: {{ card_rotation }}deg;">
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
                                 <div class="card back smallCard">
                                     {% if card.card.artSource == "" %}
@@ -178,7 +183,8 @@
                             </li>
                             {% else %}
                             <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}">
+                                data-source-ordinal="{{ card.state.laneOrdinal }}"
+                                style="--card-rotation: {{ card_rotation }}deg;">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
@@ -202,7 +208,9 @@
                     <p> {{ lane.value }} | {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="cardContainer {{ card.cssClass }}">
+                            {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
+                            <li class="cardContainer {{ card.cssClass }}"
+                                style="--card-rotation: {{ trusted_card_rotation }}deg;">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
@@ -317,5 +325,6 @@
 <a href="{{ returnURL }}">back</a>
 <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>
+<script type="module" src="{{ static('laneStacking.js')}}"></script>
 <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
 {% endblock %}

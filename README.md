@@ -31,8 +31,6 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
 - [~] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped. _(Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.)_
-- [ ] Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
-- [ ] Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.
 
 #### Defer Enemy Turn Calculation
 
@@ -58,6 +56,26 @@ Animate drawn cards flying from the top of the deck into the player's and enemy'
 - [x] Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
 - [x] Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
 
+#### Lane Card Stacking
+
+Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
+
+- [~] Change `.cardRow` from flexbox layout to absolute-positioned overlapping cards with ordinal-based z-index and small random rotation angles. _(Change `.cardRow` from flexbox layout to absolute-positioned overlapping cards with ordinal-based z-index and small random rotation angles.)_
+- [~] Apply the same stacking layout, multi-row overflow, and hover behavior from the previous subgoals to the `.hologramRow` elements. Currently holograms in the hologram row use `display: flex; flex-wrap: nowrap;` (from `cardDragDrop.css`), which lays them side-by-side without overlap. They should match the lane card stacking style: absolute positioning, ordinal-based z-index, small random rotation, overflow to multiple rows, and hover-to-front. _(Apply the same stacking layout, multi-row overflow, and hover behavior from the previous subgoals to the `.hologramRow` elements. Currently holograms in the hologram row use `display: flex; flex-wrap: nowrap;` (from `cardDragDrop.css`), which lays them side-by-side without overlap. They should match the lane card stacking style: absolute positioning, ordinal-based z-index, small random rotation, overflow to multiple rows, and hover-to-front.)_
+- [~] When a lane card is hovered, bring it fully into view before any card that overlaps it — matching the behavior of hand cards. Cards with lower ordinal (behind the hovered card) stay hidden underneath; cards above (higher ordinal) are pushed aside or visually appear behind the hovered card. _(When a lane card is hovered, bring it fully into view before any card that overlaps it — matching the behavior of hand cards. Cards with lower ordinal (behind the hovered card) stay hidden underneath; cards above (higher ordinal) are pushed aside or visually appear behind the hovered card.)_
+- [~] Add JavaScript logic that measures available lane width on page load and window resize, calculates how many overlapping cards fit per row, and splits excess cards into additional `.cardRow` elements below the first row. _(Add JavaScript logic that measures available lane width on page load and window resize, calculates how many overlapping cards fit per row, and splits excess cards into additional `.cardRow` elements below the first row.)_
+
+#### Special Draw Sequence
+
+Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next player's / enemy turn.
+
+- [~] Transport the server-built timeline to the client and implement a step-by-step sequencer in JavaScript that plays each timeline step sequentially, waiting for animations to finish before advancing to the next step. _(Transport the server-built timeline to the client and implement a step-by-step sequencer in JavaScript that plays each timeline step sequentially, waiting for animations to finish before advancing to the next step.)_
+- [~] Integrate bot specials into the same timeline pipeline so enemy special sequences animate identically to player special sequences. The enemy-phase GET in viewBoard() calls _run_bot_turn(), which must now produce timeline steps for bot specials just like boardAction does for player specials. _(Integrate bot specials into the same timeline pipeline so enemy special sequences animate identically to player special sequences. The enemy-phase GET in viewBoard() calls _run_bot_turn(), which must now produce timeline steps for bot specials just like boardAction does for player specials.)_
+- [~] Implement per-special vignette animations: banner display with the existing sentence-style messages from views.py print statements, lane highlighting for the winning stat, and card-specific visual effects (flight, flip, trust glow, attack flash). Each special kind (int, spd, vis, res) gets its own look and feel while sharing the common sequencer infrastructure. _(Implement per-special vignette animations: banner display with the existing sentence-style messages from views.py print statements, lane highlighting for the winning stat, and card-specific visual effects (flight, flip, trust glow, attack flash). Each special kind (int, spd, vis, res) gets its own look and feel while sharing the common sequencer infrastructure.)_
+- [~] Create a server-side timeline data structure that records what happens during special execution as a flat, ordered list of steps. Modify specialActions(), intSpecial(), spdSpecial(), visSpecial(), resSpecial(), and shuffleBoard() to produce timeline steps instead of (or in addition to) their current side-effect execution. Flatten the spdSpecial recursion so opponent specials produce steps in the same timeline. _(Create a server-side timeline data structure that records what happens during special execution as a flat, ordered list of steps. Modify specialActions(), intSpecial(), spdSpecial(), visSpecial(), resSpecial(), and shuffleBoard() to produce timeline steps instead of (or in addition to) their current side-effect execution. Flatten the spdSpecial recursion so opponent specials produce steps in the same timeline.)_
+- [~] Animate the shuffle-back effect that sweeps all untrusted face-up board cards and hand cards back into the deck after a special sequence completes. Show a deck-shuffle wiggle after all cards return. The wave must compress as the card count grows so a huge shuffle never drags. _(Animate the shuffle-back effect that sweeps all untrusted face-up board cards and hand cards back into the deck after a special sequence completes. Show a deck-shuffle wiggle after all cards return. The wave must compress as the card count grows so a huge shuffle never drags.)_
+- [~] Write unit tests for the timeline construction pipeline. Verify that a last-card draw produces the expected ordered step list for each special type, that spdSpecial recursion flattens correctly, that shuffle-back steps contain the right cards, and that the timeline integrates with the existing actionPlays/loading pipeline without breaking existing tests. _(Write unit tests for the timeline construction pipeline. Verify that a last-card draw produces the expected ordered step list for each special type, that spdSpecial recursion flattens correctly, that shuffle-back steps contain the right cards, and that the timeline integrates with the existing actionPlays/loading pipeline without breaking existing tests.)_
+
 #### Turn Affordances
 
 Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cards in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing).
@@ -73,31 +91,31 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 
 - [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
 - [ ] Support canceling a pending challenge cleanly in the UI.
-- [ ] Allow the player to set a custom deck order before battle begins.
-- [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
+- [~] Allow the player to set a custom deck order before battle begins. _(Allow the player to set a custom deck order before battle begins.)_
+- [~] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments. _(Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.)_
 
 #### Deck page
 
 Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
 
-- [ ] Show card artwork previews on the deck page to make each deck easier to scan and personalize.
+- [~] Show card artwork previews on the deck page to make each deck easier to scan and personalize. _(Show card artwork previews on the deck page to make each deck easier to scan and personalize.)_
 - [ ] Support creating new decks from the deck page to let players experiment with multiple strategies.
-- [ ] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.
-- [ ] Allow deck name and description editing so players can label their decks clearly.
+- [~] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient. _(Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.)_
+- [~] Allow deck name and description editing so players can label their decks clearly. _(Allow deck name and description editing so players can label their decks clearly.)_
 
 #### Game page metadata
 
 Improve game page metadata so each match feels like a distinct playable entry.
 
-- [ ] Ensure bot rematches shuffle the board and use a fresh deck automatically.
+- [~] Ensure bot rematches shuffle the board and use a fresh deck automatically. _(Ensure bot rematches shuffle the board and use a fresh deck automatically.)_
 - [~] Add artwork, name, and description support to the game page to make matches easier to identify. _(Artwork (Game.artSource with fallback image) and an auto-generated name ("<challenger> vs <opponent>" title) are shown on the game page; a game description field is still missing.)_
-- [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
+- [~] Make the "Play again" action create a new challenge instead of reusing the old one. _(Make the "Play again" action create a new challenge instead of reusing the old one.)_
 
 #### History Page
 
 Move completed games and challenges into a dedicated history page for better post-game navigation.
 
-- [ ] Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.
+- [~] Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round. _(Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.)_
 
 
 ### Tests and reliability
@@ -107,9 +125,9 @@ Also add an efficient way to create cards in general and allow use efficient cli
 
 - [ ] Add tests for active game discovery so live sessions are shown accurately in the UI.
 - [ ] Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.
-- [ ] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
+- [~] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows. _(Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.)_
 - [ ] Build and verify the full match loop so a game can be played from start to finish without breaking.
-- [ ] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.
+- [~] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair. _(Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.)_
 
 ### Multiplayer and account model
 
@@ -117,7 +135,7 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 
 - [ ] Prevent cookies from consuming state incorrectly when the opponent is not active.
 - [ ] Consider encrypting frontend account keys before sending them to the server to protect account operations.
-- [ ] Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.
+- [~] Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects. _(Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.)_
 - [ ] Implement login through secure account links or email key tokens for account-based play.
 - [ ] Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.
 - [ ] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.
@@ -133,7 +151,7 @@ Develop customization systems that grow the game beyond simple battles, includin
 - [ ] Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.
 - [ ] Explore card-soul and trial mechanics as a future expansion path for manifesting cards and symbols.
 - [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
-- [ ] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.
+- [~] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned. _(Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.)_
 
 #### Sound design
 
@@ -148,12 +166,12 @@ Add sound design to support the game's atmosphere, feedback, and rhythm.
 
 Capture later action items that improve match polish and post-game flow after the core prototype is stable.
 
-- [ ] Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.
+- [~] Improve click and drag interactions across hand, lanes, and board for more natural gameplay control. _(Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.)_
 - [ ] Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.
 - [ ] Implement pursuit and flee rules for chase sequences in multiplayer battles and split-out outcomes.
 - [ ] Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.
 - [~] Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions. _(Play-to-lane movement animations via .duplicate card clones and the post-action board reload are done; refresh, sync and lane-flip visuals remain.)_
-- [ ] Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots and meaningful for players.
+- [~] Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots and meaningful for players. _(Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots and meaningful for players.)_
 
 ### Refactor: parallel project
 

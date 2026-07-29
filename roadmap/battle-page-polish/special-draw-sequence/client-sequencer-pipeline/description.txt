@@ -1,0 +1,167 @@
+Transport the server-built timeline to the client and implement a step-by-step sequencer in JavaScript that plays each timeline step sequentially, waiting for animations to finish before advancing to the next step.
+
+## Implementation
+
+### 1. Template: render timeline steps as hidden JSON data
+
+In `MMM/jinja2/MMM/battle/viewBoard.jinja2`, add a hidden data block when timeline steps are present, near the existing `#turnPhase` and `#boardNext` elements:
+
+```jinja2
+{% if timelineSteps %}
+<script id="timelineSteps" type="application/json">{{ timelineSteps | tojson | safe }}</script>
+{% endif %}
+```
+
+Django's Jinja2 `|tojson` filter serializes the step list to JSON. The `|safe` prevents auto-escaping.
+
+Alternative: use a `<div id="timelineSteps" data-steps="{{ ... }}" hidden>` pattern if script tags cause issues. Prefer the JSON script tag.
+
+### 2. Server: pass timelineSteps in viewBoard context
+
+In `MMM/views.py`, in `viewBoard()` (around lines 221-245), add `timelineSteps` to the context when available:
+
+```python
+# boardAction sets this on the context when building a timeline
+context["timelineSteps"] = action_extra.get("timelineSteps", [])
+```
+
+And in `boardAction()` (lines 287-289), attach the timeline to the response:
+
+```python
+# After building the timeline in boardAction:
+response_extra = {"timelineSteps": timeline}
+# Pass through the existing viewBoard / _render pipeline
+```
+
+The timeline must survive the `_addLoadingAnimations` pipeline unchanged (it is read-only data, not card state).
+
+### 3. JS: read timeline data in loadingAnimations.js
+
+In `loadingAnimations.js`, add a new method `AnimateTimeline()` that fires when timeline steps are present instead of the existing batch animation logic. The `init()` / `Animate()` method should detect the `#timelineSteps` element:
+
+```javascript
+Animate(classSelector = 'loading', delay = 1200) {
+    const timelineElement = document.getElementById('timelineSteps');
+    if (timelineElement) {
+        const timeline = JSON.parse(timelineElement.textContent);
+        this.playTimeline(timeline, delay);
+        return;
+    }
+    // ... existing animation logic for non-timeline phases
+}
+```
+
+### 4. JS: playTimeline() sequencer
+
+```javascript
+playTimeline(timeline, delay) {
+    const totalTimeline = delay * 5;           // fixed total budget
+    const stepBudget = totalTimeline / Math.max(timeline.length, 1);
+    let cursor = 0;                            // cumulative time
+
+    timeline.forEach((step, index) => {
+        const stepDuration = this.computeStepDuration(step, stepBudget, timeline.length);
+        setTimeout(() => {
+            this.playStep(step, stepDuration);
+        }, cursor);
+        cursor += stepDuration;
+    });
+
+    // After all steps complete, reload to nextUrl
+    setTimeout(() => {
+        const nextUrl = document.getElementById('boardNext')?.dataset.nextUrl ?? '';
+        window.location.href = nextUrl || window.location.pathname.replace('/action/', '/');
+    }, cursor + 200);
+}
+```
+
+### 5. JS: step type handlers
+
+Each step kind gets its own play function:
+
+**special-trigger:**
+- Create a banner div with the step's `banner` text (reuse the existing `turnMarker()` function or create `bannerMarker()`)
+- The banner appears centered, holds, then fades
+- Highlight the lane indicated by `step.lane` (add CSS class `.lane-highlight` to the appropriate `.lane` element)
+- If the step targets the enemy board (`participantId` differs from player), highlight the enemy's lane
+- After stepDuration, remove highlight
+
+**card-effect:**
+- For each `affectedCard` in the step, animate the card using the existing `duplicateCard()` infrastructure
+- Cards within the step move as a staggered wave (each card offset by a small delay, total within step budget)
+- Card effects depend on flags:
+  - `flipFaceUp`: card flips during flight (add `.flipFaceUp` to duplicate)
+  - `trust`: card gains a glow/trust lock after landing (add CSS class `.trust-glow`)
+- Use the existing `data-source-lane` / `data-source-ordinal` attributes on the card elements to fly from source to destination
+
+**participant-effect:**
+- Board dim effect: add `.board-dimmed` class to the affected participant's board area
+- Banner shows the defeat/flee message
+- If self-defeated (drain), dim the player's own board
+
+**shuffle-back:**
+- All `affectedCards` wave back to the deck:
+  - For each card, create a duplicate flying from its current position to the deck stack
+  - The deck stack is `.playerScreen .deckHand .deck` or the enemy equivalent
+  - Cards fly in a staggered wave, compress timing as count grows
+- After all cards arrive, add a deck shuffle wiggle animation (`.deck-shuffle` CSS class, removed after animation)
+- The shuffle-back step is the last step before the phase chain continues
+
+### 6. JS: helper functions
+
+```javascript
+// Show a banner with the given text
+showBanner(text, duration) — reuse/extend turnMarker()
+
+// Highlight a lane
+highlightLane(participantId, laneNumber, duration)
+  - Find the board for participantId (own or enemy)
+  - Add .lane-highlight to the specific lane
+  - Remove after duration
+
+// Dim a board
+dimBoard(participantId) — add .board-dimmed class
+
+// Deck wiggle animation
+wiggleDeck(participantId) — add .deck-shuffle class, remove after animation
+```
+
+### 7. Integration with existing phase system
+
+When a timeline is present, the existing phase-based animation logic (playerMoves/enemy/player branches) must be bypassed:
+- The draw card animation still plays through the existing system (loading class + duplicateCard)
+- After the draw animation completes, the timeline plays
+- After the timeline completes, the JS reloads to nextUrl (same as today's phase chain)
+- The `sequence_starting` flag on the draw action_play tells the JS that a timeline follows
+
+To detect this in JS without a new attribute: when `#timelineSteps` exists AND the current phase is `playerMoves` (or `enemy` for bot timeline), the JS knows to first play the draw animation, then play the timeline. Implementation options:
+- Option A: The timeline element's presence alone signals the sequencer mode. Existing Animate() runs first for the draw loading cards, then a second pass reads the timeline and plays it. The draw animation's reload-to-board is suppressed when timeline is present.
+- Option B: Embed the timeline start as part of the loading animation flow. The last draw card gets a special `.sequence-starting` class, and the sequencer kicks in after that card's animation finishes.
+
+Recommendation: Option A. The draw card flies (existing animateElement), then when all loading cards resolve AND `#timelineSteps` exists, start the sequencer.
+
+## Files to create/modify
+
+- **MMM/views.py** — Add timelineSteps to viewBoard context; pass from boardAction response
+- **MMM/jinja2/MMM/battle/viewBoard.jinja2** — Add `<script id="timelineSteps">` block when timelineSteps present
+- **var/www/static/loadingAnimations.js** — Add timeline detection, playTimeline(), step handlers, banner/lane-highlight helpers
+- **var/www/static/cards.css** — CSS for `.lane-highlight`, `.board-dimmed`, `.deck-shuffle`, `.trust-glow`, banner styles
+
+## Acceptance criteria
+
+- [ ] Timeline steps render as a JSON script tag in the HTML when present
+- [ ] loadingAnimations.js detects timeline data and enters sequencer mode
+- [ ] Steps play sequentially: step N+1 animation starts only after step N completes
+- [ ] `special-trigger` shows a banner and highlights the correct lane
+- [ ] `card-effect` animates card flight/flip/trust using existing duplicateCard engine
+- [ ] `participant-effect` dims the appropriate board and shows a defeat/flee banner
+- [ ] `shuffle-back` waves cards back to the deck with staggered timing, then wiggles the deck
+- [ ] After timeline completes, browser navigates to nextUrl (board or result)
+- [ ] Fixed total pacing: whole sequence fits within a total budget, per-card stagger compresses
+- [ ] Enemy-phase timeline plays identically through the same code path
+
+## Dependencies
+
+- server-timeline-model (timeline data structure produced by server)
+- done/battle-page-polish/implement-draw-card-animation/deck-origin-flight-animation (duplicateCard infrastructure)
+- done/battle-page-polish/implement-draw-card-animation/deferred-result-redirect (nextUrl navigation after sequence)

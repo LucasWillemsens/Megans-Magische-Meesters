@@ -160,7 +160,7 @@ def confirmChallenge(request, game_id, player_id):
     return redirect(f"/game/{game_id}/board/{player_id}/")
 
 
-def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False, turn_phase=None, action_plays=None):
+def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False, turn_phase=None, action_plays=None, timeline_steps=None):
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
     gameCards = GameCard.objects.filter(game_id=game_id)
@@ -175,9 +175,16 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
 
     if phase_from_cookie and turn_phase == "enemy":
         try:
-            bot_actions = _run_bot_turn(game, player_id)
+            bot_result = _run_bot_turn(game, player_id)
+            if isinstance(bot_result, tuple):
+                bot_actions, bot_timelines = bot_result
+            else:
+                # Backward compatibility for old return format
+                bot_actions = bot_result
+                bot_timelines = []
         except Exception as exc:
             bot_actions = []
+            bot_timelines = []
             error_message = str(exc)
         game.roundNumber = max(game.roundNumber, 1) + 1
         game.save(update_fields=["roundNumber"])
@@ -187,6 +194,9 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             play["laneValue"] = bot_action["laneValue"]
             play["flipFaceUp"] = bot_action["flipFaceUp"]
         action_plays = (action_plays or []) + list(plays_by_card.values())
+        # Merge bot timelines
+        if bot_timelines:
+            timeline_steps = (timeline_steps or []) + bot_timelines
 
     finished, _, _ = _game_result(game)
 
@@ -242,6 +252,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             else f"/game/{game_id}/board/{player_id}/"
         ),
         "actionPlays": action_plays or [],
+        "timelineSteps": timeline_steps or [],
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
 
@@ -268,6 +279,7 @@ def boardAction(request, game_id, player_id):
     action = request.POST.get("action", "")
     error_message = ""
     action_plays = []
+    timeline_steps = []
     try:
         playcards(game, request.COOKIES, current_participant)
         if action == "draw":
@@ -285,8 +297,12 @@ def boardAction(request, game_id, player_id):
                     "flipFaceUp": False,
                 })
                 if current_participant.getNextDeckCard() is None:
-                    specialActions(current_participant)
+                    timeline = []
+                    specialActions(current_participant, timeline)
+                    from MMM.special_timeline import build_shuffle_step
+                    timeline.extend(build_shuffle_step(current_participant))
                     current_participant.shuffleBoard()
+                    timeline_steps = timeline
             else:
                 error_message = f"No cards left in {current_participant}'s deck."
         elif action == "end_turn":
@@ -306,6 +322,7 @@ def boardAction(request, game_id, player_id):
         clear_cookies=True,
         turn_phase="playerMoves" if end_turn_done else "",
         action_plays=action_plays,
+        timeline_steps=timeline_steps,
     )
     if end_turn_done:
         response.set_cookie(
@@ -332,93 +349,118 @@ def playcards(game, plays, participant):
             sourceOrdinal=payload["sourceOrdinal"],
         )
 
-def specialActions(participant):
+def specialActions(participant, timeline=None):
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
     response = ""
     if intCount >= spdCount and intCount >= visCount and intCount >= resCount:
-        intSpecial(participant, intCount)
+        intSpecial(participant, intCount, timeline)
 
+    # Re-read stats after intSpecial may have changed them
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
 
     if spdCount >= intCount and spdCount >= visCount and spdCount >= resCount:
-        response = spdSpecial(participant, spdCount, power)
+        response = spdSpecial(participant, spdCount, power, timeline=timeline)
 
     if response == "" and visCount >= intCount and visCount >= spdCount and visCount >= resCount:
-        response = visSpecial(participant, visCount)
+        response = visSpecial(participant, visCount, timeline=timeline)
     
     if response == "" and resCount >= intCount and resCount >= spdCount and resCount >= visCount:
-        resSpecial(participant, resCount)
+        resSpecial(participant, resCount, timeline)
 
-def intSpecial(participant,count):
+def intSpecial(participant, count, timeline=None):
+    from MMM.special_timeline import build_int_timeline
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
-    handCards = GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0)
+    handCards = list(GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0))
     random.shuffle(handCards)
-    for i in range(min(count,len(handCards))):
-        newCard = handCards[i]
-        participant.playCard(newCard.id,flipFaceUp=True, specialClause=True)
+    chosen_ids = [card.id for card in handCards[:min(count, len(handCards))]]
+    for card in handCards[:min(count, len(handCards))]:
+        participant.playCard(card.id, flipFaceUp=True, specialClause=True)
+    # Record timeline steps after execution
+    if timeline is not None:
+        build_int_timeline(participant, count, timeline)
 
-def spdSpecial(participant,speed, power, opponentId = None):
+def spdSpecial(participant, speed, power, opponentId=None, timeline=None):
+    from MMM.special_timeline import build_spd_timeline
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId)
+    if opponent is None:
+        return ""
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
     if opponentPower < power:
         print(f"{participant.player.name} rushes down {opponent.player.name}")
-        specialActions(opponent)
+        if timeline is not None:
+            # Record the rush trigger, then flatten opponent's specials into same timeline
+            build_spd_timeline(participant, speed, power, opponent, timeline)
+        else:
+            # Legacy path — no timeline
+            specialActions(opponent)
+        # Still call opponent specials for game logic
+        specialActions(opponent, timeline)
     else:
         if opponentSpd < speed:
             print(f"{participant.player.name} flees from {opponent.player.name} and steals a card")
             participant.flee()
+            if timeline is not None:
+                build_spd_timeline(participant, speed, power, opponent, timeline)
             return f"{participant.id} fled from {opponent.id}"
         else:
             print(f"{participant.player.name} fails to flee from {opponent.player.name}")
-            #todo maybe have the slower participants lose these participant and oppopent?
+            if timeline is not None:
+                build_spd_timeline(participant, speed, power, opponent, timeline)
     return ""
 
-def visSpecial(participant,visciouisness, opponentId = None):
-    #attack opponent
+def visSpecial(participant, viciousness, opponentId=None, timeline=None):
+    from MMM.special_timeline import build_vis_timeline
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponentId is not None:
-        opponent = participant.getGame().history.participants.get(id=opponentId) #todo overwrite with chosen opponent
+        opponent = participant.getGame().history.participants.get(id=opponentId)
+    if opponent is None:
+        return ""
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
     
-    #attacking player needs a res card to trust in order to follow through with the attack
+    # attacking player needs a res card to trust in order to follow through with the attack
     newTrustedResCard = None
-    newTrustedResCards = getTrustableCards(participant,[4])
+    newTrustedResCards = getTrustableCards(participant, [4])
     if len(newTrustedResCards) > 0:  
         newTrustedResCard = newTrustedResCards[0]
     if newTrustedResCard is None:
         response = f"{participant.player.name} drains the last of their resolve and is defeated"
         print(response)
-        #lose
         participant.defeated = True
         participant.save()
+        if timeline is not None:
+            build_vis_timeline(participant, viciousness, opponent, timeline)
         return response
-    elif opponentRes < visciouisness:
-        response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({visciouisness} > {opponentRes})"
+    elif opponentRes < viciousness:
+        response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({viciousness} > {opponentRes})"
         print(response)
-        #win
         opponent.defeated = True
         opponent.save()
     else:
-        response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({visciouisness} <= {opponentRes})"
+        response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({viciousness} <= {opponentRes})"
         print(response)
         response = ""
     newTrustedResCard.state.trust()
     newTrustedResCard.state.save()
+    if timeline is not None:
+        build_vis_timeline(participant, viciousness, opponent, timeline)
     return response
 
-def resSpecial(participant,count):
+def resSpecial(participant, count, timeline=None):
+    from MMM.special_timeline import build_res_timeline
     print(f"{participant.player.name} holds and trusts up to {count} cards")
     newCards = getTrustableCards(participant)
-    if newCards == None or len(newCards) < 1:
+    if newCards is None or len(newCards) < 1:
         return
     random.shuffle(newCards)
-    for i in range(min(count,len(newCards))):
+    for i in range(min(count, len(newCards))):
         newCard = newCards[i]
         newCard.state.trust()
         newCard.state.save()
+    if timeline is not None:
+        build_res_timeline(participant, count, timeline)
 
 def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
@@ -599,6 +641,7 @@ def _run_bot_turn(game, human_player_id):
     #todo add potential action for bot to flip over faceDown cards in lane
     bot_participants = game.history.participants.exclude(player_id=human_player_id).filter(computerControlled=True)
     bot_actions = []
+    bot_timelines = []
     for bot_participant in bot_participants:
         hand_card = (
             GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
@@ -620,8 +663,13 @@ def _run_bot_turn(game, human_player_id):
                     }
                 )
                 if bot_participant.getNextDeckCard() is None:
-                    specialActions(bot_participant)
+                    timeline = []
+                    specialActions(bot_participant, timeline)
+                    from MMM.special_timeline import build_shuffle_step
+                    timeline.extend(build_shuffle_step(bot_participant))
                     bot_participant.shuffleBoard()
+                    if timeline:
+                        bot_timelines.extend(timeline)
             # Re-check for hand cards after drawing
             hand_card = (
                 GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
@@ -645,7 +693,7 @@ def _run_bot_turn(game, human_player_id):
                 }
             )
         bot_participant.resetTurn()
-    return bot_actions
+    return bot_actions, bot_timelines
 
 
 def newBoard():

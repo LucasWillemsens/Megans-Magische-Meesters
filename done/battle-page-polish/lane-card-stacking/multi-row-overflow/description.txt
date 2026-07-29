@@ -1,0 +1,71 @@
+Add JavaScript logic that measures available lane width on page load and window resize, calculates how many overlapping cards fit per row, and splits excess cards into additional `.cardRow` elements below the first row.
+
+Currently all cards for a lane render inside a single `<ul class="cardRow">`. When the number of cards exceeds what fits in the viewport width, they should overflow to a new row below. The number of cards per row depends only on the viewport and card readability — cards must always be readable and otherwise move to another row.
+
+## Implementation
+
+### 1. New JS module or class: LaneCardStacking
+
+Create a new JS module (e.g., `laneStacking.js`) or add to an existing utility file.
+
+Location: `var/www/static/laneStacking.js`
+
+The class should:
+
+- On `DOMContentLoaded` (and `window.resize` with debounce), iterate over all `.lane` elements on the player board
+- For each lane:
+  1. Get the lane's available content width (`.cardRow` parent width minus padding)
+  2. Measure a single `.cardContainer`'s rendered width (including border, margin effects from the absolute positioning)
+  3. Calculate the effective overlap offset from the CSS (read `left` from nth-child rules or compute from the actual positions)
+  4. Compute `cardsPerRow = floor(laneWidth / overlapOffset)` where overlapOffset is the horizontal distance between successive card left edges
+  5. If the total card count > cardsPerRow, create additional `.cardRow` elements below the existing one and distribute cards across rows
+
+### 2. Multi-row DOM manipulation
+
+For each lane, when cards overflow:
+
+- Keep the first `cardsPerRow` cards in the original `.cardRow`
+- For remaining cards, create new `<ul class="cardRow">` siblings after the first
+- Move excess `.cardContainer` elements into the new rows
+- Adjust `left` offsets for cards in subsequent rows (they restart from `left: 0` again)
+- Add a vertical gap between rows (e.g., `margin-top` on additional `.cardRow` elements or a gap via container)
+
+### 3. Resize handling
+
+- On `window.resize`, debounce (300ms) and re-run the overflow calculation
+- If a lane was previously split into multiple rows and now fits in fewer (or more) rows, rebalance the cards
+- Preserve the rotation values set by the layout subgoal
+
+### 4. CSS adjustments for multi-row
+
+- Add a CSS class `.cardRow + .cardRow` or `.cardRow.multi-row` with `margin-top: 0.5rem` to separate stacked rows
+- Ensure the overflow row uses the same absolute positioning nth-child rules
+- The lane's overall height should expand to accommodate multiple rows
+
+### 5. Integration with existing code
+
+- Load the new JS file in `viewBoard.jinja2` (add a `<script>` tag)
+- The stacking system should not interfere with `cardDragDrop.js` or `loadingAnimations.js`
+- Ensure `duplicateCard()` in `loadingAnimations.js` still finds the correct `.cardRow` for ordinal positioning (it uses `querySelector('.lane.Intelligence .cardRow')` — if there are multiple cardRows, it should target the first one initially, or find the correct row by calculating which row the ordinal falls in)
+
+## Files to create/modify
+
+- `var/www/static/laneStacking.js` — New file: LaneCardStacking class with overflow splitting logic
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — Add `<script type="module" src="{{ static('laneStacking.js') }}">` after cardDragDrop.js
+- `var/www/static/cards.css` — Add `.cardRow + .cardRow` margin/gap rules for multi-row layout
+- `var/www/static/loadingAnimations.js` — Update `duplicateCard()` to handle multiple `.cardRow` elements per lane (find correct row by ordinal calculation)
+
+## Acceptance criteria
+
+- [ ] When a lane has too many cards to fit the viewport, excess cards wrap to a new row below
+- [ ] Cards per row is calculated based only on viewport width and card overlap offset (not hardcoded)
+- [ ] Resizing the window rebalances rows (debounced)
+- [ ] Multiple rows have a visual gap separating them
+- [ ] Card rotation and overlap from subgoal 1 are preserved across rows
+- [ ] Drag-and-drop and flip actions still work correctly after rebalancing
+- [ ] `duplicateCard()` in loadingAnimations.js correctly places animation clones when multiple rows exist
+- [ ] No visual glitches during the splitting transition (use `requestAnimationFrame` if needed)
+
+## Dependencies
+
+- `card-stacking-layout` (must be completed first — provides the absolute positioning and nth-child rules)

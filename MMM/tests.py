@@ -982,3 +982,341 @@ class BattleFlowTests(TestCase):
             )
 
 
+class SpecialTimelineTests(TestCase):
+    """Unit tests for the special draw sequence timeline construction."""
+
+    def setUp(self):
+        self.human = Player.objects.create(name="Human")
+        self.bot = Player.objects.create(name="Bot")
+
+        human_owner = CardOwnerHistory.objects.create(cardOwner=self.human)
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=self.bot)
+
+        # Create enough cards for testing (need more than default deck for shuffle tests)
+        self.human_cards = [
+            Card.objects.create(title=f"H-{i}", artSource="", cardType=i % 4)
+            for i in range(12)
+        ]
+        for card in self.human_cards:
+            card.ownerHistory.add(human_owner)
+
+        self.bot_cards = [
+            Card.objects.create(title=f"B-{i}", artSource="", cardType=i % 4)
+            for i in range(12)
+        ]
+        for card in self.bot_cards:
+            card.ownerHistory.add(bot_owner)
+
+        self.human_deck = Deck.create(
+            self.human.id, deckTitle="HD", newDescription="", newDeckCards=self.human_cards,
+        )
+        self.bot_deck = Deck.create(
+            self.bot.id, deckTitle="BD", newDescription="", newDeckCards=self.bot_cards,
+        )
+
+        history = BattleHistory.objects.create(challenger=self.human)
+        self.game = Game.objects.create(title="Test", history=history, roundNumber=0)
+        self.human_participant = history.addHumanChallenger(
+            challengerPlayer_id=self.human.id,
+            startingCard_id=self.human_cards[0].id,
+            deck_id=self.human_deck.id,
+        )
+        self.bot_participant = history.addRobotChallenger(
+            challengerPlayer_id=self.bot.id,
+            startingCard_id=self.bot_cards[0].id,
+            deck_id=self.bot_deck.id,
+        )
+
+        # Confirm the challenge to initialize game state (creates GameCards)
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+    def _reset_all_cards_to_deck(self, participant=None):
+        """Move all of a participant's cards back to the deck."""
+        if participant is None:
+            participant = self.human_participant
+        for gc in GameCard.objects.filter(game_id=self.game.id, user_id=participant.id):
+            gc.state.reset()
+            gc.state.save()
+
+    def test_build_shuffle_step_excludes_trusted_and_facedown(self):
+        """Verify shuffle-back step only includes untrusted face-up + hand cards."""
+        from MMM.special_timeline import build_shuffle_step
+
+        self._reset_all_cards_to_deck()
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.human_participant.id)
+        cards = list(gc)
+
+        # Need at least 4 cards; starting card is in a lane, others are in deck
+        self.assertGreaterEqual(len(cards), 4)
+
+        # Cards start in deck. Draw them to hand first, then play to lanes.
+        cards[0].state.draw()
+        cards[0].state.updateOrdinal(1)
+        cards[0].state.save()
+
+        cards[1].state.draw()
+        cards[1].state.updateOrdinal(2)
+        cards[1].state.save()
+
+        cards[2].state.draw()
+        cards[2].state.updateOrdinal(3)
+        cards[2].state.save()
+
+        cards[3].state.draw()
+        cards[3].state.updateOrdinal(4)
+        cards[3].state.save()
+
+        # Now play cards from hand to lanes
+        # Card 0 stays in hand (already drawn above)
+
+        # Card 1: face-up untrusted in lane 1
+        cards[1].state.play(1)
+        cards[1].state.reveal()
+        cards[1].state.updateOrdinal(1)
+        cards[1].state.save()
+
+        # Card 2: face-up trusted in lane 2
+        cards[2].state.play(2)
+        cards[2].state.reveal()
+        cards[2].state.trust()
+        cards[2].state.updateOrdinal(1)
+        cards[2].state.save()
+
+        # Card 3: face-down untrusted in lane 3
+        cards[3].state.play(3)
+        cards[3].state.updateOrdinal(1)
+        cards[3].state.save()  # faceDown=True by default
+
+        steps = build_shuffle_step(self.human_participant)
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        self.assertEqual(step["kind"], "shuffle-back")
+
+        affected_ids = [c["cardId"] for c in step["affectedCards"]]
+        # Card 0 (hand) should be included
+        self.assertIn(cards[0].id, affected_ids)
+        # Card 1 (face-up untrusted) should be included
+        self.assertIn(cards[1].id, affected_ids)
+        # Card 2 (trusted) should NOT be included
+        self.assertNotIn(cards[2].id, affected_ids)
+        # Card 3 (face-down) should NOT be included
+        self.assertNotIn(cards[3].id, affected_ids)
+
+    def test_build_int_timeline_structure(self):
+        """Verify intSpecial produces correct timeline steps."""
+        from MMM.special_timeline import build_int_timeline
+
+        self._reset_all_cards_to_deck()
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.human_participant.id)
+        cards = list(gc)
+
+        # Draw some cards to hand
+        cards[1].state.draw()
+        cards[1].state.updateOrdinal(1)
+        cards[1].state.save()
+        cards[2].state.draw()
+        cards[2].state.updateOrdinal(2)
+        cards[2].state.save()
+
+        timeline = []
+        build_int_timeline(self.human_participant, 3, timeline)
+
+        self.assertGreaterEqual(len(timeline), 2)
+        # Step 0 should be special-trigger
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("enacts master plan", timeline[0]["banner"])
+        self.assertEqual(timeline[0]["lane"], 1)  # Intelligence lane
+
+        # Should have card-effect steps
+        card_effect_steps = [s for s in timeline if s["kind"] == "card-effect"]
+        self.assertGreaterEqual(len(card_effect_steps), 1)
+
+        # Verify each step has correct participantId
+        for step in timeline:
+            self.assertEqual(step["participantId"], self.human_participant.id)
+
+    def test_build_res_timeline_structure(self):
+        """Verify resSpecial produces correct timeline steps."""
+        from MMM.special_timeline import build_res_timeline
+
+        self._reset_all_cards_to_deck()
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.human_participant.id)
+        cards = list(gc)
+
+        # Draw cards to hand first, then play to Resolve lane
+        cards[1].state.draw()
+        cards[1].state.updateOrdinal(1)
+        cards[1].state.save()
+        cards[2].state.draw()
+        cards[2].state.updateOrdinal(2)
+        cards[2].state.save()
+
+        cards[1].state.play(4)
+        cards[1].state.reveal()
+        cards[1].state.updateOrdinal(1)
+        cards[1].state.save()
+        cards[2].state.play(4)
+        cards[2].state.reveal()
+        cards[2].state.updateOrdinal(2)
+        cards[2].state.save()
+
+        timeline = []
+        build_res_timeline(self.human_participant, 2, timeline)
+
+        self.assertGreaterEqual(len(timeline), 2)
+        # Step 0: special-trigger
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("holds and trusts", timeline[0]["banner"])
+        self.assertEqual(timeline[0]["lane"], 4)  # Resolve lane
+
+        # Step 1+: card-effect with trust flag
+        card_effect_steps = [s for s in timeline if s["kind"] == "card-effect"]
+        self.assertGreaterEqual(len(card_effect_steps), 1)
+        for step in card_effect_steps:
+            for c in step["affectedCards"]:
+                self.assertTrue(c["trust"])
+
+    def test_build_spd_timeline_rush_down(self):
+        """Verify spdSpecial rush-down produces trigger step."""
+        from MMM.special_timeline import build_spd_timeline
+
+        opponent = self.bot_participant
+        timeline = []
+        result = build_spd_timeline(
+            self.human_participant, 5, 10, opponent, timeline
+        )
+
+        # Rush down: result is empty
+        self.assertEqual(result, "")
+        self.assertGreaterEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("rushes down", timeline[0]["banner"])
+        self.assertEqual(timeline[0]["lane"], 2)  # Speed lane
+
+    def test_build_spd_timeline_flee(self):
+        """Verify spdSpecial flee produces trigger + participant-effect."""
+        from MMM.special_timeline import build_spd_timeline, PARTICIPANT_EFFECT
+
+        # Opponent has higher power but lower speed — we need to structure
+        # stats so that power < opponentPower but speed > opponentSpd
+        # Give opponent many cards to make opponentPower high
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.bot_participant.id)
+        for g in gc:
+            g.state.reset()
+            g.state.draw()
+            g.state.save()
+        for g in gc:
+            g.state.play(1)
+            g.state.reveal()
+            g.state.save()
+
+        opponent = self.bot_participant
+        timeline = []
+        result = build_spd_timeline(
+            self.human_participant, 10, 0, opponent, timeline
+        )
+
+        # Flee: result contains "fled"
+        self.assertIn("fled", result)
+        self.assertGreaterEqual(len(timeline), 2)
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("flees", timeline[0]["banner"])
+        # Should have a participant-effect step
+        participant_effects = [s for s in timeline if s["kind"] == PARTICIPANT_EFFECT]
+        self.assertGreaterEqual(len(participant_effects), 1)
+
+    def test_build_spd_timeline_fail_flee(self):
+        """Verify spdSpecial fail produces only trigger step."""
+        from MMM.special_timeline import build_spd_timeline, PARTICIPANT_EFFECT
+
+        # Give opponent many cards so opponentPower is high and opponentSpd is high
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.bot_participant.id)
+        for g in gc:
+            g.state.reset()
+            g.state.draw()
+            g.state.save()
+        for idx, g in enumerate(gc):
+            lane = (idx % 4) + 1
+            g.state.play(lane)
+            g.state.reveal()
+            g.state.save()
+
+        opponent = self.bot_participant
+        timeline = []
+        result = build_spd_timeline(
+            self.human_participant, 0, 0, opponent, timeline
+        )
+
+        # Fail flee: result is empty string
+        self.assertEqual(result, "")
+        self.assertGreaterEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("fails to flee", timeline[0]["banner"])
+        # No participant-effect
+        participant_effects = [s for s in timeline if s["kind"] == PARTICIPANT_EFFECT]
+        self.assertEqual(len(participant_effects), 0)
+
+    def test_build_vis_timeline_no_resolve_card(self):
+        """Verify visSpecial drain produces trigger + self-defeat."""
+        from MMM.special_timeline import build_vis_timeline, PARTICIPANT_EFFECT
+
+        self._reset_all_cards_to_deck()
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.human_participant.id)
+        cards = list(gc)
+        # Move cards to lanes but ensure none are in lane 4 (Resolve) face-up
+        for g in cards:
+            if g.state.lane == 4 and not g.state.faceDown:
+                g.state.trust()
+                g.state.save()
+
+        opponent = self.bot_participant
+        timeline = []
+        result = build_vis_timeline(self.human_participant, 5, opponent, timeline)
+
+        # Drain
+        self.assertIn("drains", result)
+        self.assertGreaterEqual(len(timeline), 2)
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertEqual(timeline[0]["lane"], 3)  # Viciousness
+
+        participant_effects = [s for s in timeline if s["kind"] == PARTICIPANT_EFFECT]
+        self.assertGreaterEqual(len(participant_effects), 1)
+
+    def test_normal_draw_produces_no_timeline(self):
+        """Verify drawing a card normally (deck not emptied) produces no timeline."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        # Normal draw should not have timeline script tag
+        self.assertNotContains(response, 'id="timelineSteps"')
+
+    def test_timeline_steps_are_json_serializable(self):
+        """Verify timeline steps are plain dicts (JSON-serializable)."""
+        import json
+        from MMM.special_timeline import (
+            build_trigger_step, build_card_effect_step,
+            build_participant_effect_step, build_shuffle_step,
+        )
+
+        step = build_trigger_step(self.human_participant, "test banner", 1)
+        json_str = json.dumps(step)
+        self.assertIn("test banner", json_str)
+
+        affected = [{"cardId": 1, "sourceLane": 0, "sourceOrdinal": 1, "destinationLane": 1, "destinationOrdinal": 1, "flipFaceUp": True, "trust": False}]
+        step2 = build_card_effect_step(self.human_participant, affected)
+        json_str2 = json.dumps(step2)
+        self.assertIn("card-effect", json_str2)
+
+        step3 = build_participant_effect_step(self.human_participant, "defeated", defeated_id=1)
+        json_str3 = json.dumps(step3)
+        self.assertIn("defeated", json_str3)
+
+        step4 = build_shuffle_step(self.human_participant)
+        json_str4 = json.dumps(step4)
+        self.assertIn("shuffle-back", json_str4)
+
+

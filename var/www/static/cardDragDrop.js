@@ -192,6 +192,8 @@ class CardDragDropSystem {
             hologram.appendChild(copycard);
             hologram.querySelector('.cardContainer.faceDown').addEventListener('click', (e) => this.onFaceDownCardClick(e, laneValue), {once : true});
             hologram.classList.add('hologram');
+            // Small random rotation for stacking look
+            hologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
             holoRow.appendChild(hologram);
 
             const sourceLane = this.draggedCard.dataset.sourceLane ?? '0';
@@ -343,6 +345,8 @@ class CardDragDropSystem {
 
             flipHologram.classList.add('hologram');
             flipHologram.appendChild(holoClone);
+            // Small random rotation for stacking look
+            flipHologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
             holoRow.appendChild(flipHologram);
 
             // One-shot click-to-flip on the hologram (same pattern as play hologram)

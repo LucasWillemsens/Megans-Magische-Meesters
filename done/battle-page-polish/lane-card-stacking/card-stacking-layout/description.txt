@@ -1,0 +1,84 @@
+Change `.cardRow` from flexbox layout to absolute-positioned overlapping cards with ordinal-based z-index and small random rotation angles.
+
+The existing `.cardRow` uses `display: flex; flex-wrap: nowrap; gap: 0.25rem;` which puts cards side-by-side without overlap. This subgoal reworks it so cards stack partly on top of each other: each card overlaps the previous card by a fixed offset, higher-ordinal cards sit above lower-ordinal cards, and each card gets a subtle random rotation for a natural "fanned" look.
+
+## Implementation
+
+### 1. CSS changes (cards.css)
+
+Replace the current `.cardRow` and `.cardRow .card` rules with a relative-positioned container and absolutely-positioned children:
+
+- `.playingCards ul.cardRow`:
+  - Change from `display: flex` to `position: relative` with a fixed height accommodating one row of overlapping cards
+  - `min-height: 7.5rem` (keep current value)
+  - Remove `gap`, `justify-content`, and `flex-direction` properties
+  - Add `overflow: visible` (cards may extend beyond bounds)
+
+- `.playingCards ul.cardRow li.cardContainer`:
+  - Override the generic `li.cardContainer` positioning — set `position: absolute; top: auto; right: auto;`
+  - Position from bottom of the row: `bottom: 0;`
+  - Use `--card-stack-left` custom property for horizontal offset (set inline or via nth-child)
+
+- Nth-child positioning rules (similar to hand card pattern):
+  ```
+  .playingCards ul.cardRow li.cardContainer:nth-child(1) { left: 0; z-index: 1; }
+  .playingCards ul.cardRow li.cardContainer:nth-child(2) { left: 3.2em; z-index: 2; }
+  .playingCards ul.cardRow li.cardContainer:nth-child(3) { left: 4.6em; z-index: 3; }
+  .playingCards ul.cardRow li.cardContainer:nth-child(4) { left: 6.0em; z-index: 4; }
+  ...up to a reasonable max (e.g., 15)
+  ```
+  The exact offset value (e.g., 1.4em increment) should be tuned so cards overlap by roughly 40-50% of their width, keeping the rank/suit/art visible.
+
+- Random rotation via CSS custom property set inline (or via a data attribute):
+  - Add `transform: rotate(var(--card-rotation, 0deg));` to each `.cardContainer` in `.cardRow`
+  - The `--card-rotation` is set as an inline style by the template or JS with a small random value in range [-4deg, 4deg]
+
+- Z-index: use ordinal-based rule or set inline via template. Lower ordinal = lower z-index (behind), higher ordinal = higher z-index (in front).
+
+- Remove the old `.playingCards ul.cardRow .card { margin: 0; }` default and adjust border/box-shadow styling for overlapping cards.
+
+### 2. Template changes (viewBoard.jinja2)
+
+- Add inline `style` attribute to each `.cardContainer` in the lane's `.cardRow`:
+  - `left: {{ loop.index0 * overlap_offset }}em` — calculated overlap offset
+  - `z-index: {{ card.state.laneOrdinal or loop.index }}` — ordinal-based stacking
+  - `--card-rotation: {{ random_rotation }}deg` — small random rotation (can use a simple deterministic hash or JS later)
+
+  Since Jinja2 doesn't have a random function, use a deterministic approach:
+  - Compute rotation from card.id or state.laneOrdinal: e.g., `((card.id * 7 + 13) % 9) - 4` to get a value in [-4, 4]
+  - OR use a simple formula: `((loop.index0 * 11) % 7) - 3`
+  - Store the rotation in the template context or compute it via a template filter
+
+- Alternative approach: set a `data-card-index` attribute and let JS compute the rotation on page load. Cleaner separation.
+
+- Remove the inline `.cardRow` flex styling gap from the template (if any).
+
+### 3. Optional: Card metadata for overlap offset
+
+- Consider adding `data-lane-card-count` to the lane element so JS can calculate optimal overlap offsets later in subgoal 2.
+
+### 4. Ensure trusted cards row also gets the stacking treatment
+
+- The second `.cardRow` (for `trustedCards`) uses the same HTML structure — apply the same CSS rules (or extend the selector).
+
+## Files to create/modify
+
+- `var/www/static/cards.css` — Rewrite `.playingCards ul.cardRow` rules for absolute positioning, add nth-child left/z-index rules, add rotation transform
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — Add inline styles for left offset, z-index, and rotation on each `.cardContainer` in cardRow loops
+- `var/www/static/cardDragDrop.css` — No changes needed for this subgoal (hologram handled separately)
+- `MMM/views.py` — Possibly add rotation calculation in `contextBoard()` or pass via template context (if computed server-side)
+
+## Acceptance criteria
+
+- [ ] Lane cards overlap horizontally with later cards (higher ordinal) on top of earlier cards (lower ordinal)
+- [ ] Each lane card has a small random rotation in the range [-4deg, 4deg]
+- [ ] Overlap offset is consistent and keeps card rank/suit art readable
+- [ ] Cards that share the same row are positioned from bottom of the row
+- [ ] Trusted cards `.cardRow` uses the same stacking layout
+- [ ] No regressions in hand card layout or deck layout
+- [ ] No regressions in drag-and-drop or card flipping
+- [ ] The layout degrades gracefully (cards still visible without JS if rotation is server-side)
+
+## Dependencies
+
+- None (foundational subgoal — must be completed before multi-row-overflow and hover)
