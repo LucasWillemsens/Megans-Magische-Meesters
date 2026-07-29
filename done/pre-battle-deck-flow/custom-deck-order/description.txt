@@ -1,1 +1,0 @@
-Allow the player to set a custom deck order before battle begins.

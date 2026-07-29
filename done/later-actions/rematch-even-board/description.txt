@@ -1,1 +1,0 @@
-Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.
