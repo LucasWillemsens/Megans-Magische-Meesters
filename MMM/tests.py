@@ -1319,4 +1319,59 @@ class SpecialTimelineTests(TestCase):
         json_str4 = json.dumps(step4)
         self.assertIn("shuffle-back", json_str4)
 
+    def test_int_special_via_views_produces_card_effects(self):
+        """Verify intSpecial (from views.py) produces card-effect steps after playCard.
+
+        This tests the real flow: draw last card -> specialActions -> intSpecial,
+        which calls playCard BEFORE building the timeline. The timeline should
+        still include card-effect steps for the played cards.
+        """
+        from MMM.views import intSpecial
+        from MMM.special_timeline import SPECIAL_TRIGGER, CARD_EFFECT
+
+        self._reset_all_cards_to_deck()
+        gc = GameCard.objects.filter(game_id=self.game.id, user_id=self.human_participant.id)
+        cards = list(gc)
+
+        # Draw some cards to hand (simulate having a hand)
+        cards[1].state.draw()
+        cards[1].state.updateOrdinal(1)
+        cards[1].state.save()
+        cards[2].state.draw()
+        cards[2].state.updateOrdinal(2)
+        cards[2].state.save()
+
+        # Verify cards are in hand before intSpecial
+        hand_before = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        )
+        self.assertGreaterEqual(len(hand_before), 2)
+
+        # Call intSpecial with a timeline (this calls playCard then build_int_timeline)
+        timeline = []
+        try:
+            intSpecial(self.human_participant, 3, timeline)
+        except Exception as e:
+            self.fail(f"intSpecial raised exception: {e}")
+
+        self.assertGreaterEqual(len(timeline), 1)
+
+        # Should have at least a trigger step
+        self.assertEqual(timeline[0]["kind"], SPECIAL_TRIGGER)
+
+        # Check that cards were actually played (no longer in hand)
+        hand_after = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        )
+        # Cards should have been moved out of hand
+        self.assertEqual(len(hand_after), 0)
+
+        # Check for card-effect steps — this is the critical assertion
+        card_effect_steps = [s for s in timeline if s["kind"] == CARD_EFFECT]
+        self.assertGreaterEqual(
+            len(card_effect_steps), 1,
+            "intSpecial should produce card-effect steps even after playCard moves cards. "
+            "Bug: build_int_timeline looks for cards in hand after playCard already moved them."
+        )
+
 

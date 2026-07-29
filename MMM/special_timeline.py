@@ -103,13 +103,23 @@ def build_shuffle_step(participant, order=0):
     }]
 
 
-def build_int_timeline(participant, count, timeline):
-    """Append intSpecial steps to the timeline."""
-    hand_cards = list(GameCard.objects.filter(
-        game_id=participant.getGame().id,
-        user_id=participant.id,
-        state__lane=0,
-    ))
+def build_int_timeline(participant, count, timeline, card_ids=None):
+    """Append intSpecial steps to the timeline.
+
+    Args:
+        card_ids: Optional list of GameCard PKs that were played by intSpecial.
+                  If provided, the function re-queries with fresh state (after
+                  playCard has updated the DB). If None, queries for cards
+                  currently in hand (for backward compatibility / testing).
+    """
+    if card_ids:
+        hand_cards = list(GameCard.objects.filter(pk__in=card_ids).select_related("state", "card"))
+    else:
+        hand_cards = list(GameCard.objects.filter(
+            game_id=participant.getGame().id,
+            user_id=participant.id,
+            state__lane=0,
+        ))
     import random
     random.shuffle(hand_cards)
     chosen = hand_cards[:min(count, len(hand_cards))]
@@ -122,16 +132,13 @@ def build_int_timeline(participant, count, timeline):
     if chosen:
         affected = []
         for card in chosen:
-            # After playCard, the card will be at some lane.
-            # We record its destination based on the specialClause play.
-            # But actually, intSpecial calls playCard with random lane.
-            # We only know the lane after execution. Since the function
-            # executes the plays, we build the step from the card state after.
+            # Source is always hand (lane 0) for int special
+            # Destination is the lane the card was played to (after playCard)
             affected.append({
                 "cardId": card.id,
-                "sourceLane": card.state.lane,        # 0 (hand) before playCard
+                "sourceLane": 0,
                 "sourceOrdinal": card.state.laneOrdinal,
-                "destinationLane": card.state.lane,    # will be set after playCard
+                "destinationLane": card.state.lane,
                 "destinationOrdinal": card.state.laneOrdinal,
                 "flipFaceUp": True,
                 "trust": False,
@@ -222,10 +229,20 @@ def build_vis_timeline(participant, viciousness, opponent, timeline):
         return ""
 
 
-def build_res_timeline(participant, count, timeline):
-    """Append resSpecial steps to the timeline."""
-    from MMM.views import getTrustableCards
-    newCards = getTrustableCards(participant)
+def build_res_timeline(participant, count, timeline, card_ids=None):
+    """Append resSpecial steps to the timeline.
+
+    Args:
+        card_ids: Optional list of GameCard PKs that were trusted by resSpecial.
+                  If provided, re-queries with fresh state (after trust() updated
+                  the DB). If None, queries for currently trustable cards (backward
+                  compatibility).
+    """
+    if card_ids:
+        newCards = list(GameCard.objects.filter(pk__in=card_ids).select_related("state"))
+    else:
+        from MMM.views import getTrustableCards
+        newCards = getTrustableCards(participant)
     if not newCards:
         return
     import random

@@ -312,7 +312,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         if flipFaceUp and not specialClause:
                                              #spd + 1 minus cards played with spd
             if (self.flippedCardsAmount >= spdCount+1+min(0, -self.playedCardsAmount+intCount+1-self.drawnCardsAmount)): raise Exception("cannot flip more cards over this turn")
-        elif self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
+        elif not specialClause and self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
             raise Exception(f"{self.player.name} cannot play more cards this turn")
 
         if gameCard.state.lane == 0:

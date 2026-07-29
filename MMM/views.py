@@ -372,12 +372,15 @@ def intSpecial(participant, count, timeline=None):
     print(f"{participant.player.name} enacts master plan (max {count} cards)")
     handCards = list(GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0))
     random.shuffle(handCards)
-    chosen_ids = [card.id for card in handCards[:min(count, len(handCards))]]
-    for card in handCards[:min(count, len(handCards))]:
+    chosen = handCards[:min(count, len(handCards))]
+    chosen_ids = [card.id for card in chosen]
+    for card in chosen:
         participant.playCard(card.id, flipFaceUp=True, specialClause=True)
-    # Record timeline steps after execution
+    # Record timeline steps after execution.
+    # Pass chosen_ids so build_int_timeline can re-query with fresh state
+    # after playCard moved the cards out of hand.
     if timeline is not None:
-        build_int_timeline(participant, count, timeline)
+        build_int_timeline(participant, count, timeline, card_ids=chosen_ids)
 
 def spdSpecial(participant, speed, power, opponentId=None, timeline=None):
     from MMM.special_timeline import build_spd_timeline
@@ -455,12 +458,16 @@ def resSpecial(participant, count, timeline=None):
     if newCards is None or len(newCards) < 1:
         return
     random.shuffle(newCards)
-    for i in range(min(count, len(newCards))):
-        newCard = newCards[i]
+    chosen = newCards[:min(count, len(newCards))]
+    chosen_ids = [card.id for card in chosen]
+    for newCard in chosen:
         newCard.state.trust()
         newCard.state.save()
+    # Record timeline steps after execution.
+    # Pass chosen_ids so build_res_timeline can re-query with fresh state
+    # after trust() changed the card states.
     if timeline is not None:
-        build_res_timeline(participant, count, timeline)
+        build_res_timeline(participant, count, timeline, card_ids=chosen_ids)
 
 def getTrustableCards(participant,laneNumbers = [1,2,3,4]):
     trustableCards = []
