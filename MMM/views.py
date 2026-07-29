@@ -303,6 +303,7 @@ def boardAction(request, game_id, player_id):
                     from MMM.special_timeline import build_shuffle_step
                     timeline.extend(build_shuffle_step(current_participant))
                     current_participant.shuffleBoard()
+                    current_participant.resetTurn()
                     timeline_steps = timeline
             else:
                 error_message = f"No cards left in {current_participant}'s deck."
@@ -314,7 +315,7 @@ def boardAction(request, game_id, player_id):
         error_message = str(exc)
 
     request.session['plays'] = []
-    end_turn_done = action == "end_turn" and not error_message
+    end_turn_done = (action == "end_turn" and not error_message) or (action == "draw" and bool(timeline_steps))
     # Set playerMoves phase when specials trigger on draw, so the JS
     # plays the timeline animation (otherwise the empty phase skips it).
     needs_timeline_play = bool(timeline_steps)
