@@ -42,7 +42,7 @@
     {% if enemyBoards %}
     <ul class="enemyBoards basic-mat table">
         {% for enemy in enemyBoards %}
-        <li class="enemyBoard">
+        <li class="enemyBoard" data-participant-id="{{ enemy.participant.id }}">
             <h2>{{ enemy.participant.player.name }} </h2>
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
             <div class="enemyDeckHand">
@@ -148,7 +148,7 @@
     {% endif %}
 
     <ul class="basic-mat table">
-        <li class="playerBoard ">
+        <li class="playerBoard " data-participant-id="{{ current_participant.id }}">
             <h2> {{ player.name }} </h2>
             <ul class="lanes">
                 {% for lane in ownLaneRows %}

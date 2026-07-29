@@ -961,7 +961,7 @@ class BattleFlowTests(TestCase):
         # before the first cardRow of its lane.  Check the raw ordering
         # of hologramRow relative to cardRow within the ownLaneRows loop.
         player_board = re.search(
-            r'<li class="playerBoard\s*">.*?</li>\s*</ul>\s*<div class="deckHand">',
+            r'<li class="playerBoard\s*"[^>]*>.*?</li>\s*</ul>\s*<div class="deckHand">',
             content, re.DOTALL
         )
         self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")

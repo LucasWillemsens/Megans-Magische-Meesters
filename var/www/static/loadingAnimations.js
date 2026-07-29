@@ -393,10 +393,33 @@ class loadingAnimationsSystem {
         }, duration + 50);
     }
 
+    /**
+     * Find the board element (player or enemy) for a given participantId.
+     * Returns the .playerBoard or .enemyBoard element, or null.
+     */
+    _boardForParticipant(participantId) {
+        // Try player board first
+        const playerBoard = document.querySelector('.playerBoard');
+        if (playerBoard && playerBoard.dataset.participantId == participantId) {
+            return playerBoard;
+        }
+        // Search enemy boards
+        const boards = document.querySelectorAll('.enemyBoard');
+        for (const board of boards) {
+            if (board.dataset.participantId == participantId) {
+                return board;
+            }
+        }
+        return null;
+    }
+
     _wiggleDeck(participantId) {
-        const isPlayer = /* participantId matches current player — heuristic: use first screen */
-            document.querySelector('.playerScreen .deckHand .deck') !== null;
-        const deck = document.querySelector('.playerScreen .deckHand .deck');
+        const board = this._boardForParticipant(participantId);
+        if (!board) return;
+        const isPlayer = board.classList.contains('playerBoard');
+        const deck = isPlayer
+            ? document.querySelector('.playerScreen .deckHand .deck')
+            : board.querySelector('.enemyDeckHand .deck');
         if (!deck) return;
         deck.classList.add('deck-shuffle');
         setTimeout(() => {
@@ -409,25 +432,11 @@ class loadingAnimationsSystem {
         const name = laneNames[laneNumber];
         if (!name) return;
 
-        // Determine which board to target
-        // If participantId is the current player's, target player board
-        // Otherwise target enemy board
-        const playerScreen = document.querySelector('.playerScreen');
-        const playerName = playerScreen?.querySelector('h2')?.textContent || '';
-        const isOwn = true; // Simplified: highlight player board by default
+        // Find the board for this participant
+        const board = this._boardForParticipant(participantId);
+        if (!board) return;
 
-        let lane;
-        if (isOwn) {
-            lane = document.querySelector(`.playerBoard .lane.${name}`);
-        } else {
-            // Find the enemy board with matching participant
-            const boards = document.querySelectorAll('.enemyBoard');
-            for (const board of boards) {
-                lane = board.querySelector(`.lane.${name}`);
-                if (lane) break;
-            }
-        }
-
+        const lane = board.querySelector(`.lane.${name}`);
         if (!lane) return;
         lane.classList.add('lane-highlight');
 
@@ -442,13 +451,11 @@ class loadingAnimationsSystem {
     }
 
     _dimBoard(participantId) {
-        // Dim the player's own board (simplified: the participant is defeated)
-        const playerBoard = document.querySelector('.playerBoard');
-        if (playerBoard) {
-            playerBoard.classList.add('board-dimmed');
+        // Dim the board of the given participant
+        const board = this._boardForParticipant(participantId);
+        if (board) {
+            board.classList.add('board-dimmed');
         }
-        // Also dim enemy boards
-        document.querySelectorAll('.enemyBoard').forEach(b => b.classList.add('board-dimmed'));
     }
 }
 

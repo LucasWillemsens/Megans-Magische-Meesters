@@ -231,6 +231,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     context = {
         "player_id": player_id,
         "player": current_participant.player,
+        "current_participant": current_participant,
         "game": game,
         "assestsDir": "MMM/",
         "returnURL": BASE_URL,
@@ -314,13 +315,16 @@ def boardAction(request, game_id, player_id):
 
     request.session['plays'] = []
     end_turn_done = action == "end_turn" and not error_message
+    # Set playerMoves phase when specials trigger on draw, so the JS
+    # plays the timeline animation (otherwise the empty phase skips it).
+    needs_timeline_play = bool(timeline_steps)
     response = viewBoard(
         request,
         game_id,
         player_id,
         error_message=error_message,
         clear_cookies=True,
-        turn_phase="playerMoves" if end_turn_done else "",
+        turn_phase="playerMoves" if (end_turn_done or needs_timeline_play) else "",
         action_plays=action_plays,
         timeline_steps=timeline_steps,
     )
