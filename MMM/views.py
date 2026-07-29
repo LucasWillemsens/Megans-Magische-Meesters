@@ -233,6 +233,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "drawnCardsAmount": current_participant.drawnCardsAmount,
         "playedCardsAmount": current_participant.playedCardsAmount,
         "flippedCardsAmount": current_participant.flippedCardsAmount,
+        "turnAllowances": current_participant.getTurnAllowances(),
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
         "nextUrl": (

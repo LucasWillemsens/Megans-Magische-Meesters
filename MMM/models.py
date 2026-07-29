@@ -344,6 +344,29 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         # print(f"lane counts for {self.player.name} - int: {intCount}, spd: {spdCount}, vis: {visCount}, res: {resCount} - tactics: {tactics}, power: {power}, influence: {influence}")
         return intCount, spdCount, visCount, resCount, tactics, power, influence
     
+    # Keep in sync with drawCard()/playCard() enforcement.
+    def getTurnAllowances(self):
+        intCount, spdCount, visCount, resCount, tactics, power, influence = self.getStats()
+        draws_left = max(0, intCount + 1 + min(0, spdCount + 1 - self.flippedCardsAmount - self.playedCardsAmount) - self.drawnCardsAmount)
+        flips_left = max(0, spdCount + 1 + min(0, intCount + 1 - self.drawnCardsAmount - self.playedCardsAmount) - self.flippedCardsAmount)
+        plays_left = max(0, 2 + tactics - self.drawnCardsAmount - self.flippedCardsAmount - self.playedCardsAmount)
+        return {
+            "draws_left": draws_left,
+            "flips_left": flips_left,
+            "plays_left": plays_left,
+            "int_count": intCount,
+            "spd_count": spdCount,
+            "tactics": tactics,
+            "drawn": self.drawnCardsAmount,
+            "played": self.playedCardsAmount,
+            "flipped": self.flippedCardsAmount,
+            "blocked_titles": {
+                "draw": "Draw limit reached (Intelligence + 1 per turn)",
+                "play": "Play limit reached (2 + tactics − cards already played)",
+                "flip": "Flip limit reached (Speed + 1 per turn)",
+            },
+        }
+
     def flee(self): 
         #pursuing participants also count as fled
         #the slowest possible pursuer who acted last must choose first

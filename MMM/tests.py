@@ -1,3 +1,4 @@
+import json
 import re
 from http.cookies import SimpleCookie
 
@@ -7,6 +8,7 @@ from django.urls import reverse
 from . import views
 from .models import (
     BattleHistory,
+    BattleParticipant,
     Card,
     CardOwnerHistory,
     Deck,
@@ -61,6 +63,61 @@ class BattleFlowTests(TestCase):
             startingCard_id=self.bot_cards[0].id,
             deck_id=self.bot_deck.id,
         )
+
+    def test_turn_allowances_match_fresh_board(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        allowances = self.human_participant.getTurnAllowances()
+        self.assertEqual(allowances["draws_left"], 2)
+        self.assertEqual(allowances["flips_left"], 1)
+        self.assertEqual(allowances["plays_left"], 3)
+        self.assertEqual(allowances["int_count"], 1)
+        self.assertEqual(allowances["spd_count"], 0)
+        self.assertEqual(allowances["tactics"], 1)
+        self.assertEqual(allowances["drawn"], 0)
+        self.assertEqual(allowances["played"], 0)
+        self.assertEqual(allowances["flipped"], 0)
+        for key in ("draw", "play", "flip"):
+            self.assertIn(key, allowances["blocked_titles"])
+
+    def test_draw_parity(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        draws_left = self.human_participant.getTurnAllowances()["draws_left"]
+        self.assertEqual(draws_left, 2)
+
+        for i in range(draws_left):
+            response = self.client.post(draw_url, {"action": "draw"})
+            self.assertNotContains(response, "Action error")
+
+        # At this point drawnCardsAmount == 2, draws_left should be 0
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.getTurnAllowances()["draws_left"], 0)
+
+        # The (draws_left+1)th POST must fail with the enforcement error
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertContains(response, "Action error")
+        self.assertContains(response, "cannot draw more cards")
+
+    def test_board_renders_turn_limits_data(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        self.assertIn('id="turnLimits"', content)
+        self.assertIn('data-draws-left="2"', content)
+        self.assertIn('data-plays-left="3"', content)
+        self.assertIn('data-flips-left="1"', content)
+        self.assertIn("0d", content)
+        self.assertIn("0p", content)
+        self.assertIn("0f", content)
 
     def test_confirm_is_idempotent(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -640,3 +697,288 @@ class BattleFlowTests(TestCase):
         # page yet and bounces back to the board
         response = self.client.get(result_url)
         self.assertRedirects(response, board_url)
+
+    # ------------------------------------------------------------------
+    # Blocked-board-visuals tests
+    # ------------------------------------------------------------------
+
+    def _create_all_resolve_game(self):
+        """Create a game where the human has 4 all-Resolve cards (intCount=0, spdCount=0, tactics=0)."""
+        player = Player.objects.create(name="ResolvePlayer")
+        owner = CardOwnerHistory.objects.create(cardOwner=player)
+        cards = [self._create_owned_card(owner, f"Resolve-{i}", 3) for i in range(4)]
+        deck = Deck.create(
+            player.id, deckTitle="All Resolve", newDescription="all resolve", newDeckCards=cards
+        )
+        bot = Player.objects.create(name="ResolveBot")
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=bot)
+        bot_cards = [self._create_owned_card(bot_owner, f"Bot-{i}", i % 4) for i in range(4)]
+        bot_deck = Deck.create(
+            bot.id, deckTitle="Bot deck", newDescription="test", newDeckCards=bot_cards
+        )
+        history = BattleHistory.objects.create(challenger=player)
+        game = Game.objects.create(title="ResolveGame", history=history, roundNumber=0)
+        participant = history.addHumanChallenger(
+            challengerPlayer_id=player.id, startingCard_id=cards[0].id, deck_id=deck.id,
+        )
+        history.addRobotChallenger(
+            challengerPlayer_id=bot.id, startingCard_id=bot_cards[0].id, deck_id=bot_deck.id,
+        )
+        return game, player, participant
+
+    def test_fresh_board_no_blocked(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # No element has "blocked" as a CSS class on a fresh board
+        for pattern in ('class="deck blocked"', 'class="card back draw blocked"'):
+            self.assertNotIn(pattern, content)
+        self.assertNotRegex(content, r'class="[^"]*blocked[^"]*"')
+
+        # The draw button renders with its standard class
+        self.assertContains(response, 'class="card back draw"')
+
+    def test_hand_cards_draggable_when_not_blocked(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # Hand card has draggable="true" when plays_left > 0
+        self.assertIn('draggable="true"', content)
+        # No blocked class on the hand card container
+        self.assertNotIn('blocked"', content)
+
+    def test_all_resolve_draw_exhaustion(self):
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Exhaust the single draw (intCount=0 → draws_left=1)
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        self.assertContains(response, 'class="deck blocked"')
+        self.assertContains(response, "disabled")
+        self.assertContains(response, "Draw limit reached")
+
+    def test_mid_turn_play_flip_exhaustion(self):
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+        end_turn_url = reverse("MMM:boardAction", args=[game.id, player.id])
+        board_url = reverse("MMM:viewBoard", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Round 1: draw, end_turn, enemy GET, board GET (to clear phase)
+        self.client.post(draw_url, {"action": "draw"})
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        self.client.get(board_url)
+        self.client.get(board_url)
+
+        # Round 2: draw 1 card into hand
+        self.client.post(draw_url, {"action": "draw"})
+
+        # Find a card in hand (there are 2 — one from each round)
+        hand_card = GameCard.objects.filter(
+            game_id=game.id, user_id=participant.id, state__lane=0
+        ).first()
+
+        # Stage a play cookie that plays the card face-down (no flip) to consume
+        # both a play and leave the card face-down in the lane
+        self.client.cookies[str(hand_card.id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        # POST draw: cookie consumption exhausts plays+flips, then draw fails
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # Hand cards are blocked with draggable="false" and play tooltip
+        self.assertIn('draggable="false"', content)
+        self.assertIn("Play limit reached", content)
+
+        # Face-down lane cards are blocked with flip tooltip
+        self.assertIn("faceDown", content)
+        self.assertIn("Flip limit reached", content)
+
+    def test_turn_counters_hidden(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        # id="turnCounters" hidden is in the DOM
+        self.assertContains(response, 'id="turnCounters"')
+        self.assertContains(response, "hidden")
+        # Counter text still rendered inside the hidden span
+        self.assertIn("1d", content)
+
+    # ------------------------------------------------------------------
+    # Staged-action-blocking tests
+    # ------------------------------------------------------------------
+
+    def test_staged_play_blocks_remaining_hand(self):
+        """After staging a play via cookie, remaining hand cards get .blocked and draggable="false"."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # Draw 2 cards into hand (intCount=1 → draws_left=2)
+        for _ in range(2):
+            self.client.post(draw_url, {"action": "draw"})
+
+        self.human_participant.refresh_from_db()
+        # plays_left = max(0, 2+tactics-drawn-flipped-played) = max(0, 2+1-2-0-0) = 1
+        self.assertEqual(self.human_participant.getTurnAllowances()["plays_left"], 1)
+
+        hand_cards = list(GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        ))
+        self.assertEqual(len(hand_cards), 2)
+
+        # Stage 1 play via cookie (play to lane 4, face-down, no flip)
+        self.client.cookies[str(hand_cards[0].id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        # POST draw: cookie consumption exhausts the single play slot
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        # Remaining hand card must be blocked (draggable="false" on the hand card,
+        # not the profile image)
+        self.assertIn("Play limit reached", response.content.decode())
+
+    def test_staged_flip_blocks_remaining_lane_cards(self):
+        """After exhausting flips via a play+flip cookie, face-down lane cards show blocked."""
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        draw_url = reverse("MMM:boardAction", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # Draw 1 card into hand
+        self.client.post(draw_url, {"action": "draw"})
+
+        hand_card = GameCard.objects.filter(
+            game_id=game.id, user_id=participant.id, state__lane=0
+        ).first()
+
+        # Play it face-down to lane 4 (flipFaceUp=false).
+        # With int=0, spd=0, after 1 draw + 1 face-down play:
+        # flips_left = max(0, 1+min(0, 1-1-1)-0) = 0
+        self.client.cookies[str(hand_card.id)] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertIn("Flip limit reached", response.content.decode())
+
+    def test_over_playing_shrinks_draw_budget(self):
+        """With low int+spd, staging plays reduces draws_left via the min clause so the deck shows .blocked."""
+        game, player, participant = self._create_all_resolve_game()
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, player.id])
+        board_url = reverse("MMM:viewBoard", args=[game.id, player.id])
+
+        self.client.post(confirm_url)
+
+        # int=0, spd=0 → draws_left = max(0, 1 + min(0, 1-played-flipped) - drawn)
+        # Over-playing: played=2, drawn=0 → min(0, 1-2) = -1 → draws_left = 0
+        participant.playedCardsAmount = 2
+        participant.save()
+
+        allowances = participant.getTurnAllowances()
+        self.assertEqual(allowances["draws_left"], 0)
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'class="deck blocked"')
+
+    # ------------------------------------------------------------------
+    # Hologram row tests
+    # ------------------------------------------------------------------
+
+    def test_player_lanes_have_hologram_row(self):
+        """Player lanes render an empty .hologramRow above the card rows."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # Count hologramRow elements in player lanes (should be 4 — one per lane)
+        self.assertEqual(content.count('class="hologramRow"'), 4)
+
+    def test_enemy_lanes_have_no_hologram_row(self):
+        """Enemy lanes must NOT contain a .hologramRow."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # Enemy board section should not mention hologramRow
+        enemy_section = re.search(
+            r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
+            content, re.DOTALL
+        )
+        if enemy_section:
+            self.assertNotIn('hologramRow', enemy_section.group(1))
+
+    def test_ghost_class_defined_in_stylesheet(self):
+        """The .ghost CSS class must be defined in the card drag-drop stylesheet."""
+        import os
+        css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cardDragDrop.css')
+        with open(css_path) as f:
+            css_content = f.read()
+        self.assertIn('.ghost', css_content)
+        self.assertIn('opacity: 0.4', css_content)
+        self.assertIn('filter: grayscale(0.3)', css_content)
+        self.assertIn('pointer-events: none', css_content)
+
+    def test_hologram_row_precedes_card_row(self):
+        """Each player lane has hologramRow before the first cardRow."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # In the player lanes section, every hologramRow must appear
+        # before the first cardRow of its lane.  Check the raw ordering
+        # of hologramRow relative to cardRow within the ownLaneRows loop.
+        player_board = re.search(
+            r'<li class="playerBoard\s*">.*?</li>\s*</ul>\s*<div class="deckHand">',
+            content, re.DOTALL
+        )
+        self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")
+        pb_html = player_board.group(0)
+
+        # Search for the sequence inside the player board's own lanes:
+        #   lane opening -> hologramRow -> cardRow
+        # for each of the 4 player lanes.
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            pattern = re.escape(f'<li class="lane {lane_name}">')
+            holo_before_card = re.search(
+                pattern + r'\s*<ul class="hologramRow"></ul>\s*<ul class="cardRow"',
+                pb_html
+            )
+            self.assertIsNotNone(
+                holo_before_card,
+                f"Lane {lane_name} missing hologramRow before cardRow"
+            )
+
+

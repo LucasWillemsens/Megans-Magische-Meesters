@@ -36,35 +36,54 @@
 .drop-zone .hologram {
     position: absolute;
 }
-.drop-zone .hologram .faceDown:hover {
-    cursor:pointer;
+
+/* Ghost style for source cards (hand ghost, flipped lane card) */
+li.cardContainer.ghost {
+    opacity: 0.4;
+    filter: grayscale(0.3);
 }
-.drop-zone .hologram:nth-child(1)  { left: 0.5em; }
-.drop-zone .hologram:nth-child(2)  { left: 1em; }
-.drop-zone .hologram:nth-child(3)  { left: 1.5em; }
-.drop-zone .hologram:nth-child(4)  { left: 2em; }
-.drop-zone .hologram:nth-child(5)  { left: 2.5em; }
-.drop-zone .hologram:nth-child(6)  { left: 3em; }
-.drop-zone .hologram:nth-child(7)  { left: 3.5em; }
-.drop-zone .hologram:nth-child(8)  { left: 4em; }
-.drop-zone .hologram:nth-child(9)  { left: 8.8em; }
-.drop-zone .hologram:nth-child(10) { left: 9.9em; }
-.drop-zone .hologram:nth-child(11) { left: 11em; }
-.drop-zone .hologram:nth-child(12) { left: 12.1em; }
-.drop-zone .hologram:nth-child(13) { left: 13.2em; }
-.drop-zone .hologram:nth-child(14) { left: 14.3em; }
-.drop-zone .hologram:nth-child(15) { left: 15.4em; }
-.drop-zone .hologram:nth-child(16) { left: 16.5em; }
-.drop-zone .hologram:nth-child(17) { left: 17.6em; }
-.drop-zone .hologram:nth-child(18) { left: 18.7em; }
-.drop-zone .hologram:nth-child(19) { left: 19.8em; }
-.drop-zone .hologram:nth-child(20) { left: 20.9em; }
-.drop-zone .hologram:nth-child(21) { left: 22em; }
-.drop-zone .hologram:nth-child(22) { left: 23.1em; }
-.drop-zone .hologram:nth-child(23) { left: 24.2em; }
-.drop-zone .hologram:nth-child(24) { left: 25.3em; }
-.drop-zone .hologram:nth-child(25) { left: 26.4em; }
-.drop-zone .hologram:nth-child(26) { left: 27.5em; }
+
+/* Hologram row above lane cards */
+ul.hologramRow {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    padding: 0;
+    margin: 0;
+    min-height: 7.5rem;
+    justify-content: center;
+    position: relative;
+}
+ul.hologramRow .hologram {
+    position: relative;
+}
+ul.hologramRow .hologram .card {
+    opacity: 0.7;
+    filter: grayscale(0.2);
+}
+ul.hologramRow .hologram .cardContainer.faceDown:hover {
+    cursor: pointer;
+}
+
+li.cardContainer.ghost.hover {
+    z-index: 10;
+    opacity: 1;
+}
+ul.hologramRow .hologram:hover {
+    z-index: 10;
+    opacity: 1;
+}
+
+svg.hologram-arrow {
+    pointer-events: none;
+    position: fixed;
+    z-index: 11;
+    overflow: visible;
+}
+
+li.cardContainer.ghost > .card.smallCard {
+    border-color: #999;
+}
 
 .drop-zone::before{
     position: absolute;
@@ -96,6 +115,6 @@ div.drop-zone-active {
     opacity: 0.15;
 }
 
-ul.hand li.cardContainer:hover > .card.smallCard{
+ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }

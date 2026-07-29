@@ -30,10 +30,9 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
-- [ ] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.
-- [ ] Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
-- [ ] Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.
-- [ ] Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cads in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing)
+- [~] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped. _(Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.)_
+- [~] Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style. _(Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.)_
+- [~] Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn. _(Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.)_
 
 #### Defer Enemy Turn Calculation
 
@@ -59,24 +58,32 @@ Animate drawn cards flying from the top of the deck into the player's and enemy'
 - [x] Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
 - [x] Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
 
+#### Turn Affordances
+
+Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cards in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing).
+
+- [~] Grey out the deck, hand cards and face-down lane cards when their action budget is exhausted — with `cursor: not-allowed` on hover and rule-teaching tooltips ("Draw limit reached (Intelligence + 1 per turn)") — tilt blocked hand cards slightly upwards, hide the d/p/f counter text (kept in DOM for tests), and make the server-rendered blocked state non-interactive. _(Grey out the deck, hand cards and face-down lane cards when their action budget is exhausted — with `cursor: not-allowed` on hover and rule-teaching tooltips ("Draw limit reached (Intelligence + 1 per turn)") — tilt blocked hand cards slightly upwards, hide the d/p/f counter text (kept in DOM for tests), and make the server-rendered blocked state non-interactive.)_
+- [~] Keep the affordances truthful while the player stages cookie plays/flips client-side: `cardDragDrop.js` tracks staged plays/flips against the `#turnLimits` budgets (same formulas), blocks the hand/lane cards/deck the moment a budget runs out mid-turn, and refuses new drags/flips once blocked. _(Keep the affordances truthful while the player stages cookie plays/flips client-side: `cardDragDrop.js` tracks staged plays/flips against the `#turnLimits` budgets (same formulas), blocks the hand/lane cards/deck the moment a budget runs out mid-turn, and refuses new drags/flips once blocked.)_
+- [~] Compute remaining draw/play/flip allowances from the existing getStats() turn-limit formulas, expose them to the board template as a hidden #turnLimits data block (the backend→frontend contract for all affordance work), and pin parity with the enforcement checks in drawCard()/playCard(). _(Compute remaining draw/play/flip allowances from the existing getStats() turn-limit formulas, expose them to the board template as a hidden #turnLimits data block (the backend→frontend contract for all affordance work), and pin parity with the enforcement checks in drawCard()/playCard().)_
+
 
 ### Pre-battle and deck flow
 
 Build the pre-battle experience, including deck ordering, challenge management, active games, and deck metadata.
 
-- [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
+- [~] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play. _(Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.)_
 - [ ] Support canceling a pending challenge cleanly in the UI.
-- [ ] Allow the player to set a custom deck order before battle begins.
-- [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
+- [~] Allow the player to set a custom deck order before battle begins. _(Allow the player to set a custom deck order before battle begins.)_
+- [~] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments. _(Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.)_
 
 #### Deck page
 
 Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
 
-- [ ] Show card artwork previews on the deck page to make each deck easier to scan and personalize.
+- [~] Show card artwork previews on the deck page to make each deck easier to scan and personalize. _(Show card artwork previews on the deck page to make each deck easier to scan and personalize.)_
 - [ ] Support creating new decks from the deck page to let players experiment with multiple strategies.
-- [ ] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.
-- [ ] Allow deck name and description editing so players can label their decks clearly.
+- [~] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient. _(Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.)_
+- [~] Allow deck name and description editing so players can label their decks clearly. _(Allow deck name and description editing so players can label their decks clearly.)_
 
 #### Game page metadata
 
@@ -84,13 +91,13 @@ Improve game page metadata so each match feels like a distinct playable entry.
 
 - [ ] Ensure bot rematches shuffle the board and use a fresh deck automatically.
 - [~] Add artwork, name, and description support to the game page to make matches easier to identify. _(Artwork (Game.artSource with fallback image) and an auto-generated name ("<challenger> vs <opponent>" title) are shown on the game page; a game description field is still missing.)_
-- [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
+- [~] Make the "Play again" action create a new challenge instead of reusing the old one. _(Make the "Play again" action create a new challenge instead of reusing the old one.)_
 
 #### History Page
 
 Move completed games and challenges into a dedicated history page for better post-game navigation.
 
-- [ ] Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.
+- [~] Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round. _(Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by round.)_
 
 
 ### Tests and reliability
@@ -98,11 +105,11 @@ Move completed games and challenges into a dedicated history page for better pos
 Add tests and reliability work to make the prototype stable before sharing. Create more cards for testing and automate complete end-to-end tests using a real front-end in addition to unit testing.
 Also add an efficient way to create cards in general and allow use efficient client computed assets. These can be especially usefull for testing or as a fallback when asset loading fails.
 
-- [ ] Add tests for active game discovery so live sessions are shown accurately in the UI.
+- [~] Add tests for active game discovery so live sessions are shown accurately in the UI. _(Add tests for active game discovery so live sessions are shown accurately in the UI.)_
 - [ ] Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.
-- [ ] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
+- [~] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows. _(Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.)_
 - [ ] Build and verify the full match loop so a game can be played from start to finish without breaking.
-- [ ] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.
+- [~] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair. _(Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.)_
 
 ### Multiplayer and account model
 
@@ -113,7 +120,7 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 - [ ] Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.
 - [ ] Implement login through secure account links or email key tokens for account-based play.
 - [ ] Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.
-- [ ] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.
+- [~] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior. _(Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.)_
 
 ### Low priority
 
@@ -121,30 +128,30 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 
 Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
 
-- [ ] Consider AI-assisted image generation and approval workflows for creating unique card upgrades.
-- [ ] Make card links followable via middle-click to support quick navigation and preservation of the current board.
+- [~] Consider AI-assisted image generation and approval workflows for creating unique card upgrades. _(Consider AI-assisted image generation and approval workflows for creating unique card upgrades.)_
+- [~] Make card links followable via middle-click to support quick navigation and preservation of the current board. _(Make card links followable via middle-click to support quick navigation and preservation of the current board.)_
 - [ ] Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.
 - [ ] Explore card-soul and trial mechanics as a future expansion path for manifesting cards and symbols.
-- [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
-- [ ] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.
+- [~] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time. _(Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.)_
+- [~] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned. _(Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.)_
 
 #### Sound design
 
 Add sound design to support the game's atmosphere, feedback, and rhythm.
 
-- [ ] Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.
+- [~] Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay. _(Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.)_
 - [ ] Add supportive interaction sounds such as paper shuffle, writing, clicks, sparkles, and rolls.
-- [ ] Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses.
+- [~] Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses. _(Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses.)_
 
 
 ### Later actions
 
 Capture later action items that improve match polish and post-game flow after the core prototype is stable.
 
-- [ ] Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.
+- [~] Improve click and drag interactions across hand, lanes, and board for more natural gameplay control. _(Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.)_
 - [ ] Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.
 - [ ] Implement pursuit and flee rules for chase sequences in multiplayer battles and split-out outcomes.
-- [ ] Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.
+- [~] Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying. _(Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.)_
 - [~] Add load, refresh, sync, and lane flip animations for smoother state updates and board transitions. _(Play-to-lane movement animations via .duplicate card clones and the post-action board reload are done; refresh, sync and lane-flip visuals remain.)_
 - [ ] Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots and meaningful for players.
 
@@ -153,9 +160,9 @@ Capture later action items that improve match polish and post-game flow after th
 Rebuild the project as a clean parallel codebase with every existing feature present, refactored into readable, testable modules with less code clutter and no duplicate lines.
 
 - [ ] Prove the parallel project has every existing functionality by porting the test suite and completing a feature-parity checklist.
-- [ ] Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.
-- [ ] Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated.
-- [ ] Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions.
+- [~] Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app. _(Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.)_
+- [~] Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated. _(Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated.)_
+- [~] Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions. _(Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions.)_
 
 ### Battle Interaction
 
