@@ -1,0 +1,3 @@
+Allow usage of efficient client computed assets. These can be especially usefull for testing or as a fallback when asset loading fails.
+
+For example: New cards should be able to use the card look of the cards.css default deck of cards. Use this as the first subgoal in completing this goal. The symbols of the regular deck of cards should map thusly: Spades -> Speed. Diamonds -> Visciousness. Hearts -> Resolve. The numbers or faces on a card do not matter for gameplay purposes but should uniquely identify the cards as a replacement of what otherwise be the art and the name. Give a default name to the regular cards like: jack of spades or three of clubs
