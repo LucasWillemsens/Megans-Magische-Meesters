@@ -1,0 +1,11 @@
+Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cards in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing).
+
+One gap vs the goal text: greying out shows *what* is blocked but not *why*. Add a title/tooltip on blocked elements like "Draw limit reached (Intelligence + 1 per turn)" so the affordance also teaches the rule.
+
+## Subgoals
+
+This goal is decomposed into three leaves, implemented in order:
+
+1. **turn-allowance-backend/** — Compute remaining draw/play/flip allowances from the existing getStats() formulas and expose them as a hidden #turnLimits data block (backend→frontend contract).
+2. **blocked-board-visuals/** — Grey out deck/hand/lane cards with CSS, add tooltips, hide counter text, and wire the server-rendered blocked state.
+3. **staged-action-blocking/** — Track staged (cookie) plays/flips in JS to block client-side before the server POST, keeping affordances truthful mid-turn.

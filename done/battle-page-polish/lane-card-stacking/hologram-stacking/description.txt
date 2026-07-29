@@ -1,0 +1,111 @@
+Apply the same stacking layout, multi-row overflow, and hover behavior from the previous subgoals to the `.hologramRow` elements. Currently holograms in the hologram row use `display: flex; flex-wrap: nowrap;` (from `cardDragDrop.css`), which lays them side-by-side without overlap. They should match the lane card stacking style: absolute positioning, ordinal-based z-index, small random rotation, overflow to multiple rows, and hover-to-front.
+
+The hologram row sits above each lane's card rows and contains:
+- Play-from-hand holograms (face-down, created by `onDropZoneDrop`)
+- Flip holograms (face-up, created by `onFaceDownCardClick`)
+
+## Implementation
+
+### 1. CSS changes (cardDragDrop.css)
+
+Replace the current `.hologramRow` and `.hologramRow .hologram` rules:
+
+- `ul.hologramRow`:
+  - Change from `display: flex` to `position: relative`
+  - Remove `gap`, `justify-content`, `flex-wrap`
+  - Keep `min-height: 7.5rem`
+  - Add `overflow: visible`
+
+- `ul.hologramRow .hologram`:
+  - Change from `position: relative` to `position: absolute; bottom: 0;`
+  - Add `left` offset via nth-child rules (mirroring cardRow pattern)
+  - Add z-index based on insertion order
+  - Add small random rotation via `--card-rotation` custom property
+
+Nth-child rules for hologramRow (matching cardRow offset):
+```css
+ul.hologramRow .hologram:nth-child(1) { left: 0; z-index: 1; }
+ul.hologramRow .hologram:nth-child(2) { left: 3.2em; z-index: 2; }
+ul.hologramRow .hologram:nth-child(3) { left: 4.6em; z-index: 3; }
+...same progression as cardRow
+```
+
+Hover behavior for holograms (mirroring hover-behavior):
+```css
+ul.hologramRow .hologram:not(.blocked):hover {
+    z-index: 100;
+    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+    transition: transform 0.15s ease-out;
+}
+```
+
+Remove the old `.drop-zone .hologram` absolute positioning if it conflicts.
+
+### 2. JS changes (cardDragDrop.js)
+
+Update hologram creation in `onDropZoneDrop` and `onFaceDownCardClick`:
+
+- Assign `--card-rotation` to each new hologram element (small random value in [-4deg, 4deg])
+- Set the hologram's `left` inline style or rely on nth-child CSS after insertion
+- Set `z-index` based on the current number of holograms in the row (insertion order)
+
+In `onDropZoneDrop`:
+```javascript
+const holoCount = holoRow.children.length;
+hologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
+// nth-child CSS will handle left positioning
+```
+
+In `onFaceDownCardClick` (for flip holograms):
+```javascript
+const holoCount = holoRow.children.length;
+flipHologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
+```
+
+### 3. Multi-row overflow for holograms
+
+In the `laneStacking.js` (from subgoal 2), extend the overflow logic to also handle `.hologramRow`:
+- Treat `.hologramRow` the same as `.cardRow` for overflow calculation
+- When holograms exceed the lane width, create additional `.hologramRow` elements
+- Use the same `cardsPerRow` calculation based on viewport width
+
+The overflow JS should:
+1. Select both `.cardRow` and `.hologramRow` elements within each lane
+2. Apply the same width-check → split logic
+3. Handle dynamic additions: when a new hologram is added (drag or flip), check if it still fits; if not, rebalance rows
+
+### 4. Template considerations
+
+- The `.hologramRow` is currently an empty `<ul>` in the template — no changes needed there
+- Holograms are created entirely by JS, so all stacking must be applied at creation time
+
+### 5. Edge cases
+
+- If a lane has both card rows and hologram rows, the hologram row is ABOVE the card row — ensure z-index contexts don't interfere
+- When a play is executed (POST), the hologram is removed — ensure the remaining holograms re-flow correctly (nth-child rules re-apply automatically)
+- When a flip is executed, the flip hologram persists until the next board reload — it should remain stacked properly
+
+## Files to create/modify
+
+- `var/www/static/cardDragDrop.css` — Rewrite `.hologramRow` and `.hologram` rules for absolute positioning, nth-child stacking, rotation, and hover
+- `var/www/static/cardDragDrop.js` — Add `--card-rotation` and inline styles to holograms in `onDropZoneDrop` and `onFaceDownCardClick`
+- `var/www/static/laneStacking.js` — Extend overflow logic to handle `.hologramRow` elements
+- `var/www/static/cards.css` — No changes needed (hologram styling is in cardDragDrop.css)
+
+## Acceptance criteria
+
+- [ ] Holograms in the hologram row overlap like lane cards (absolute positioned, nth-child offset)
+- [ ] Each hologram has a small random rotation matching the lane card style
+- [ ] Hovering a hologram lifts it up (translateY + z-index) same as lane cards
+- [ ] When too many holograms exist, they overflow to additional hologram rows
+- [ ] New holograms added via drag-and-drop or flip are positioned correctly in the stacking
+- [ ] When a hologram is removed (play executed), remaining holograms re-flow correctly
+- [ ] No visual overlap between hologram rows and card rows (holograms stay above)
+- [ ] No regressions in the curved arrow behavior between source card and hologram
+- [ ] Hover-arrow connection still works after stacking changes
+
+## Dependencies
+
+- `card-stacking-layout` (foundational CSS positioning pattern)
+- `multi-row-overflow` (overflow splitting JS)
+- `hover-behavior` (hover-to-front CSS)

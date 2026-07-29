@@ -1,0 +1,20 @@
+Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.
+
+The cards should be spread out horizontally with the lowest ordinal cards laying below the cards after it (higher ordinal = higher z-index). Cards sit side-by-side but partly overlapping with a small random rotation angle. When there are too many cards to fit the viewport width, overflow to additional rows below. On hover, the hovered card comes fully into view before any card on top of it — like hand cards behave.
+
+This goal is decomposed into four subgoals, implemented in order:
+
+## Subgoals
+
+1. **card-stacking-layout/** — Convert `.cardRow` from flexbox to absolute-positioned overlapping cards. Each `.cardContainer` gets a `left` offset (nth-child based), `z-index` from ordinal (lower ordinal = lower z-index), and a small random rotation via a CSS custom property. Single-row only at this stage.
+
+2. **multi-row-overflow/** — JS logic that measures available lane width on load/resize, calculates how many cards fit per row, and splits cards into multiple `.cardRow` elements. Cards flow to additional rows below when they don't fit. Uses the same absolute-positioned styling from subgoal 1.
+
+3. **hover-behavior/** — When a lane card is hovered, it comes fully into view (high z-index + translate lift) before any card that overlaps it. Cards below remain hidden behind it. Uses CSS transitions for smooth animation, matching the hand-card hover feel.
+
+4. **hologram-stacking/** — Apply the same stacking layout, multi-row overflow, and hover behavior to the `.hologramRow` elements (both play-from-hand holograms and flip holograms).
+
+## Dependencies
+
+- `turn-affordances` (for `.blocked` class compatibility)
+- `hologram-row` (already done — `.hologramRow` exists in template)

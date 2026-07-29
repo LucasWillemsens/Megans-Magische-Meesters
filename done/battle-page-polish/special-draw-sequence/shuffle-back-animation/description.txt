@@ -1,0 +1,217 @@
+Animate the shuffle-back effect that sweeps all untrusted face-up board cards and hand cards back into the deck after a special sequence completes. Show a deck-shuffle wiggle after all cards return. The wave must compress as the card count grows so a huge shuffle never drags.
+
+## Background
+
+`shuffleBoard()` (MMM/models.py:383-405) returns all untrusted, face-up board cards (state__trusted=False, state__inDeck=False, state__faceDown=False) AND all hand cards (state__lane=0) to the deck. Trusted cards stay in place. Face-down board cards also stay (they are not revealed, so they are not swept).
+
+The animation makes this legible: the player watches their board and hand empty into the deck, then the deck wiggles to signal the shuffle. This is a core game-design pressure point: it pushes players to prioritize Intelligence (which gives more draws to rebuild faster).
+
+## Implementation
+
+### 1. Server: shuffle-back step content
+
+In `MMM/special_timeline.py`, the `build_shuffle_step(participant)` function produces a `shuffle-back` step:
+
+```python
+def build_shuffle_step(participant):
+    board_cards = GameCard.objects.filter(
+        game_id=participant.getGame().id,
+        user_id=participant.id,
+        state__trusted=False,
+        state__inDeck=False,
+        state__faceDown=False,
+    )
+    hand_cards = GameCard.objects.filter(
+        game_id=participant.getGame().id,
+        user_id=participant.id,
+        state__lane=0,
+    )
+    affected = []
+    for card in board_cards:
+        affected.append({
+            "cardId": card.id,
+            "sourceLane": card.state.lane,
+            "sourceOrdinal": card.state.laneOrdinal,
+            "destinationLane": -1,  # -1 means deck
+            "destinationOrdinal": 0,
+            "flipFaceUp": False,
+            "trust": False,
+        })
+    for card in hand_cards:
+        affected.append({
+            "cardId": card.id,
+            "sourceLane": card.state.lane,
+            "sourceOrdinal": card.state.laneOrdinal,
+            "destinationLane": -1,
+            "destinationOrdinal": 0,
+            "flipFaceUp": False,
+            "trust": False,
+        })
+    return [{
+        "order": 0,
+        "kind": "shuffle-back",
+        "banner": "",
+        "participantId": participant.id,
+        "lane": None,
+        "affectedCards": affected,
+        "defeatedParticipantId": None,
+        "fledParticipantId": None,
+    }]
+```
+
+Note: this step is appended AFTER the special effect steps but BEFORE the phase chain continues. It is always the final step in the timeline.
+
+### 2. JS: animate shuffle-back wave
+
+In `loadingAnimations.js`, the `playShuffleBack(step, duration)` handler:
+
+For each `affectedCard`:
+1. Find the card element on the board by `data-card-id` (through querySelector)
+2. Create a duplicate (clone) at the card's current position using `duplicateCard()` — but in reverse: the duplicate flies TO the deck instead of FROM the deck
+3. The deck target is `.playerScreen .deckHand .deck` (or enemy equivalent for bot's shuffle)
+
+Since `duplicateCard()` currently flies FROM a source TO the card's final position, the shuffle-back needs the opposite direction. Solution:
+- Use a new helper `flyCardToDeck(cardElement, deckElement)` that creates a clone at the card's current position and animates it to the deck's position
+- The clone has `.shuffle-card` CSS class, flies to the deck's bounding rect
+- On arrival, the clone is removed and the original element is hidden (it will be gone from the board on next render anyway)
+
+Alternative: reuse `duplicateCard()` by temporarily setting the card's data-source to the deck position and the card's own position as the destination. But this is fragile. Better to write `flyCardToDeck()`.
+
+**Stagger logic:**
+```javascript
+const cards = step.affectedCards;
+const staggerTotal = Math.min(duration * 0.8, duration - 500); // leave 500ms for wiggle
+const perCardStagger = Math.max(50, staggerTotal / Math.max(cards.length, 1));
+const cardDuration = Math.min(800, Math.max(200, staggerTotal / 2));
+
+cards.forEach((card, index) => {
+    setTimeout(() => {
+        const element = document.querySelector(`[data-card-id="${card.cardId}"]`);
+        if (element) {
+            flyCardToDeck(element, card, cardDuration);
+        }
+    }, index * perCardStagger);
+});
+```
+
+**`flyCardToDeck()` helper:**
+```javascript
+function flyCardToDeck(element, cardInfo, duration) {
+    const deck = element.closest('.playerScreen')
+        ? document.querySelector('.playerScreen .deckHand .deck')
+        : element.closest('.enemyBoard').querySelector('.enemyDeckHand .deck');
+    if (!deck) return;
+
+    const duplicate = element.cloneNode(true);
+    duplicate.classList.add('duplicate', 'shuffle-flying');
+    const elRect = element.getBoundingClientRect();
+    const deckRect = deck.getBoundingClientRect();
+
+    // Position clone at card's current location
+    duplicate.style.position = 'fixed';
+    duplicate.style.left = `${elRect.left}px`;
+    duplicate.style.top = `${elRect.top}px`;
+    duplicate.style.width = `${elRect.width}px`;
+    duplicate.style.height = `${elRect.height}px`;
+    duplicate.style.transition = `all ${duration}ms cubic-bezier(.2, .8, .2, 1)`;
+    duplicate.style.pointerEvents = 'none';
+    duplicate.style.zIndex = 1000;
+    document.body.appendChild(duplicate);
+
+    // Hide the original during flight
+    element.style.visibility = 'hidden';
+
+    // Animate to deck position (assumes deck is visible)
+    requestAnimationFrame(() => {
+        duplicate.style.left = `${deckRect.left + deckRect.width / 2 - elRect.width / 2}px`;
+        duplicate.style.top = `${deckRect.top + deckRect.height / 2 - elRect.height / 2}px`;
+        duplicate.style.transform = 'scale(0.3)';
+        duplicate.style.opacity = '0.5';
+    });
+
+    setTimeout(() => {
+        duplicate.remove();
+        element.remove(); // card is gone from board
+    }, duration + 50);
+}
+```
+
+### 3. Deck wiggle animation
+
+After all cards land in the deck, the deck stack wiggles:
+
+```javascript
+function wiggleDeck(participantId) {
+    const deckElement = /* find deck for participant: own or enemy */;
+    if (!deckElement) return;
+    deckElement.classList.add('deck-shuffle');
+    setTimeout(() => {
+        deckElement.classList.remove('deck-shuffle');
+    }, 600);
+}
+```
+
+CSS for `.deck-shuffle`:
+```css
+.deck-shuffle {
+    animation: deckWiggle 0.5s ease-in-out;
+}
+
+@keyframes deckWiggle {
+    0% { transform: translateX(0) rotate(0deg); }
+    25% { transform: translateX(-5px) rotate(-3deg); }
+    50% { transform: translateX(5px) rotate(3deg); }
+    75% { transform: translateX(-3px) rotate(-1deg); }
+    100% { transform: translateX(0) rotate(0deg); }
+}
+```
+
+### 4. Card-style in flight
+
+During shuffle-back flight, cards should show their face (they are face-up leaving the board) and shrink as they approach the deck. The `flyCardToDeck()` function handles this with CSS transforms.
+
+For face-down cards in hand: they show the card back in flight (the hand cards are face-down to the player, so they fly back as card-back).
+
+For face-up board cards: they show their artwork in flight.
+
+The clone should preserve whatever visual state the card currently has (face-down cards remain face-down, playing card back visible; face-up cards show their art).
+
+### 5. Pacing
+
+- Total shuffle-back step duration: depends on card count
+  - 0-3 cards: ~1.5s total
+  - 4-8 cards: ~2.0s total
+  - 9+ cards: ~2.5s total (compress per-card stagger)
+- Deck wiggle: 0.5s after last card lands
+- The parent sequencer allocates the step's time budget
+
+### 6. Edge cases
+
+- **No cards to shuffle**: the `shuffle-back` step still exists but has zero `affectedCards`. The sequencer skips it quickly (100ms no-op). This happens when all cards are trusted or face-down.
+- **Enemy shuffle-back**: same logic, targets the enemy's deck element. The `flyCardToDeck()` helper detects which board the card is on and targets the correct deck.
+- **Both player and enemy shuffle in the same timeline**: separate shuffle-back steps exist per participant (each at the end of their own special chain).
+
+## Files to create/modify
+
+- **MMM/special_timeline.py** (NEW from server-timeline-model) — `build_shuffle_step()` producing the shuffle-back step with affected cards
+- **var/www/static/loadingAnimations.js** — `playShuffleBack()`, `flyCardToDeck()`, `wiggleDeck()` functions
+- **var/www/static/cards.css** — `.shuffle-flying`, `.deck-shuffle`, `@keyframes deckWiggle`, transition styles for flight
+
+## Acceptance criteria
+
+- [ ] `shuffle-back` step lists all untrusted face-up board cards + hand cards as affected cards
+- [ ] Trusted cards and face-down board cards are NOT included (they stay in place)
+- [ ] Each card animates from its current position to the deck stack
+- [ ] Cards fly in a staggered wave; timing compresses as card count grows
+- [ ] Cards show their current face (art or back) during flight
+- [ ] Original card elements are hidden during flight and removed on arrival
+- [ ] Deck wiggles (shuffle animation) after all cards return
+- [ ] Empty shuffle-back (all cards trusted) plays as a brief no-op
+- [ ] Enemy shuffle-back targets the enemy deck
+- [ ] Works within the sequencer's pacing budget
+
+## Dependencies
+
+- server-timeline-model (shuffle-back step content)
+- client-sequencer-pipeline (sequencer calls playShuffleBack)
+- models.shuffleBoard() logic (determines which cards to sweep)

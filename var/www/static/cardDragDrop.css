@@ -43,19 +43,17 @@ li.cardContainer.ghost {
     filter: grayscale(0.3);
 }
 
-/* Hologram row above lane cards */
+/* Hologram row above lane cards — stacked layout matching cardRow */
 ul.hologramRow {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0.25rem;
+    position: relative;
     padding: 0;
     margin: 0;
     min-height: 7.5rem;
-    justify-content: center;
-    position: relative;
+    overflow: visible;
 }
 ul.hologramRow .hologram {
-    position: relative;
+    position: absolute;
+    bottom: 0;
 }
 ul.hologramRow .hologram .card {
     opacity: 0.7;
@@ -65,11 +63,34 @@ ul.hologramRow .hologram .cardContainer.faceDown:hover {
     cursor: pointer;
 }
 
-li.cardContainer.ghost.hover {
-    z-index: 10;
-    opacity: 1;
+/* Overlap offsets and z-index for hologram stacking */
+ul.hologramRow .hologram:nth-child(1) { left: 0; z-index: 1; }
+ul.hologramRow .hologram:nth-child(2) { left: 3.2em; z-index: 2; }
+ul.hologramRow .hologram:nth-child(3) { left: 4.6em; z-index: 3; }
+ul.hologramRow .hologram:nth-child(4) { left: 6.0em; z-index: 4; }
+ul.hologramRow .hologram:nth-child(5) { left: 7.4em; z-index: 5; }
+ul.hologramRow .hologram:nth-child(6) { left: 8.8em; z-index: 6; }
+ul.hologramRow .hologram:nth-child(7) { left: 10.2em; z-index: 7; }
+ul.hologramRow .hologram:nth-child(8) { left: 11.6em; z-index: 8; }
+ul.hologramRow .hologram:nth-child(9) { left: 13.0em; z-index: 9; }
+ul.hologramRow .hologram:nth-child(10) { left: 14.4em; z-index: 10; }
+
+/* Hologram rotation and hover */
+ul.hologramRow .hologram {
+    transform: rotate(var(--card-rotation, 0deg));
 }
 ul.hologramRow .hologram:hover {
+    z-index: 100;
+    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+    opacity: 1;
+    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+}
+ul.hologramRow .hologram:focus-within {
+    z-index: 100;
+    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+}
+
+li.cardContainer.ghost.hover {
     z-index: 10;
     opacity: 1;
 }

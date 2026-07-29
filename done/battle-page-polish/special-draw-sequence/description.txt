@@ -1,0 +1,49 @@
+Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next player's / enemy turn.
+
+## Refined design
+
+Core concept: timeline, not snapshots. The server executes the whole special chain synchronously today and the client only sees before/after. Instead, the server records what happened as a flat, ordered timeline of steps and hands it to the client through the existing actionPlays/loading pipeline. The draw that empties the deck is marked sequence-starting, so the client knows a timeline follows rather than a plain draw. The client plays steps sequentially: step 2 starts only when step 1 has finished.
+
+- **Step model**: each step = {order, kind, affected cards (with source/destination as today), optional lane/banner target, banner text}. Cards within one step move together as a staggered wave; steps play strictly in order. Four kinds: special-trigger (banner + highlight, no card movement), card-effect (cards fly, flip, or gain a trust lock/glow), participant-effect (defeat or flee: that board dims and a banner says what happened), shuffle-back (wave back to the deck).
+- **Per-special vignettes and banners**: reuse the existing sentence-style messages from views.py (currently print statements in intSpecial/resSpecial/visSpecial/spdSpecial) — do not invent short names.
+- **Flattening solves the board jump**: spdSpecial can fire the opponent's specials, but the server records the recursion as one flat ordered timeline. The client never knows about nesting — banner and highlight simply move to the enemy board for the steps that target it, and come back after.
+- **Beat structure (player draw)**: last card flies from deck to hand (existing draw animation) -> short beat so the empty deck registers -> special-trigger banner + highlight -> effect steps in order -> shuffle-back wave -> deck shuffle wiggle -> the existing phase chain continues (redirect / nextUrl, or /result/ when the game ended — deferred-result-redirect already handles that).
+- **Same pipeline for enemy specials**: the enemy-phase render feeds its timeline through the same actionPlays/timelineSteps path, so bot sequences animate identically.
+- **Highlight + banner semantics**: WHY first, WHAT second. On the trigger step the banner names the special and the winning stat, and the revealed cards of that stat glow (they caused it). On effect steps, the lanes where cards land glow.
+- **Pacing**: fixed total budget for the whole sequence; per-card stagger compresses as a step grows so a huge shuffle-back never drags; the banner holds long enough to read.
+- **Timeline construction is pure server-side data and unit-testable**: a last-card draw produces the expected ordered step list.
+
+## Subgoals (implement in this order)
+
+1. **server-timeline-model** — Timeline data structure, recording steps during specialActions/intSpecial/spdSpecial/visSpecial/resSpecial, flattening spdSpecial recursion, shuffleBoard step recording
+2. **client-sequencer-pipeline** — TimelineSteps context variable, template rendering as JSON, sequencer in loadingAnimations.js that plays steps sequentially
+3. **per-special-banners-and-effects** — Banner texts from views.py print statements, lane highlighting per stat, card flight/glow/flip effects per special kind
+4. **shuffle-back-animation** — Wave animation for shuffleBoard (untrusted face-up board cards + hand cards back to deck), deck shuffle wiggle
+5. **enemy-specials-integration** — Bot specials in _run_bot_turn() produce timeline, enemy-phase renders through same pipeline
+6. **testing** — Unit tests for timeline construction per special type, flattening, shuffle-back content, ordering
+
+Files to create/modify:
+- MMM/views.py (specialActions, intSpecial, spdSpecial, visSpecial, resSpecial, shuffleBoard integration, boardAction, _run_bot_turn, viewBoard context, _addLoadingAnimations)
+- var/www/static/loadingAnimations.js (new sequencer, step playback functions, banner display, lane highlighting)
+- var/www/static/cards.css (new CSS for banner, lane highlight, glow, deck wiggle, shuffle-back wave)
+- var/www/static/cardDragDrop.css (shared glow/highlight styles)
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (timelineSteps hidden data block)
+- MMM/tests.py (new test class for timeline construction)
+
+Acceptance criteria:
+- [ ] Last-card draw produces a timeline of steps instead of executing specials invisibly
+- [ ] Timeline steps play sequentially on the client (step N starts only when step N-1 finished)
+- [ ] Each special kind (int, spd, vis, res) shows the correct banner text and card effects
+- [ ] spdSpecial recursion produces a flat timeline (opponent specials animate inline)
+- [ ] Shuffle-back wave animates all untrusted face-up board cards + hand cards back to the deck
+- [ ] Deck shuffles (wiggle animation) after cards return
+- [ ] Lane highlighting shows WHY (winning stat) then WHAT (destination lanes)
+- [ ] Bot specials animate through the same pipeline in the enemy phase
+- [ ] Fixed total pacing budget, per-card stagger compression
+- [ ] Unit tests pass for all timeline construction scenarios
+
+Dependencies:
+- done/battle-page-polish/defer-enemy-turn-calculation (bot actions in enemy-phase GET)
+- done/battle-page-polish/implement-draw-card-animation/deferred-result-redirect (game-ending sequence plays out)
+- done/battle-page-polish/implement-draw-card-animation/deck-origin-flight-animation (draw animation infrastructure)
+- roadmap/battle-page-polish/hologram-row (hologram row for lane highlighting, optional but synergistic)
