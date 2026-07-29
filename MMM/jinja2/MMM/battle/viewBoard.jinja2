@@ -49,14 +49,14 @@
                 <ul class="deck enemyDeck">
                     {% if enemy.deckStack %}
                         {% for card in enemy.deckStack %}
-                    <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
+                    <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
                         data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
                         <div class="card back smallCard"></div>
                     </li>
                         {% endfor %}
                     {% else %}
                     <li>
-                        <div class="card back emptyDeck">Empty</div>
+                        <div class="card back emptyDeck{% if enemy.deckCount > 0 %} loading{% endif %}">{% if enemy.deckCount > 0 %}Shuffling...{% else %}Empty{% endif %}</div>
                     </li>
                     {% endif %}
                 </ul>

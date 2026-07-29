@@ -338,6 +338,14 @@ class loadingAnimationsSystem {
                     // Wiggle the deck after all cards arrive
                     if (completedCount >= cards.length) {
                         this._wiggleDeck(step.participantId);
+                        // Reveal any deck cards that were hidden with the
+                        // "loading" class during the shuffle animation.
+                        cards.forEach(c => {
+                            const el = document.querySelector(
+                                `li.cardContainer[data-card-id="${c.cardId}"]`
+                            );
+                            if (el) el.classList.remove('loading');
+                        });
                     }
                 });
             }, index * perCardStagger);

@@ -684,7 +684,16 @@ def _run_bot_turn(game, human_player_id):
                     from MMM.special_timeline import build_shuffle_step
                     timeline.extend(build_shuffle_step(bot_participant))
                     bot_participant.shuffleBoard()
+                    # Mark shuffled cards as "loading" so they are invisible in the
+                    # deck during the shuffle-back timeline animation. The JS removes
+                    # this class after the animation completes.
                     if timeline:
+                        GameCard.objects.filter(
+                            game_id=game.id,
+                            user_id=bot_participant.id,
+                            state__trusted=False,
+                            state__inDeck=True,
+                        ).exclude(cssClass__icontains="loading").update(cssClass="loading")
                         bot_timelines.extend(timeline)
                 else:
                     bot_actions.append(
