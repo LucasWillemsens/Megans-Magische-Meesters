@@ -173,21 +173,25 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     if phase_from_cookie:
         turn_phase = request.COOKIES.get(TURN_PHASE_COOKIE, "")
 
+    bot_actions = []
+    bot_timelines = []
     if phase_from_cookie and turn_phase == "enemy":
-        try:
-            bot_result = _run_bot_turn(game, player_id)
-            if isinstance(bot_result, tuple):
-                bot_actions, bot_timelines = bot_result
-            else:
-                # Backward compatibility for old return format
-                bot_actions = bot_result
+        finished, _, _ = _game_result(game)
+        if not finished:
+            try:
+                bot_result = _run_bot_turn(game, player_id)
+                if isinstance(bot_result, tuple):
+                    bot_actions, bot_timelines = bot_result
+                else:
+                    # Backward compatibility for old return format
+                    bot_actions = bot_result
+                    bot_timelines = []
+            except Exception as exc:
+                bot_actions = []
                 bot_timelines = []
-        except Exception as exc:
-            bot_actions = []
-            bot_timelines = []
-            error_message = str(exc)
-        game.roundNumber = max(game.roundNumber, 1) + 1
-        game.save(update_fields=["roundNumber"])
+                error_message = str(exc)
+            game.roundNumber = max(game.roundNumber, 1) + 1
+            game.save(update_fields=["roundNumber"])
         plays_by_card = {}
         for bot_action in bot_actions:
             play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
@@ -354,21 +358,44 @@ def playcards(game, plays, participant):
             sourceOrdinal=payload["sourceOrdinal"],
         )
 
+def _game_result(game, force_end=False):
+    participants = list(game.history.participants.all())
+    if not participants:
+        return False,False, None
+
+    active_participants = [p for p in participants if not p.defeated and not p.fled]
+    if len(active_participants) == 1:
+        others = [other for other in participants if other.fled]
+        return True, len(others) < len(participants)-1, active_participants
+    elif len(active_participants) >1: 
+        return force_end, True, active_participants
+    else:
+        return True, True, None
+    return False, False, None
+
+
 def specialActions(participant, timeline=None):
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
     response = ""
+    game = participant.getGame()
     if intCount >= spdCount and intCount >= visCount and intCount >= resCount:
         intSpecial(participant, intCount, timeline)
+        if _game_result(game)[0]:
+            return
 
     # Re-read stats after intSpecial may have changed them
     intCount, spdCount, visCount, resCount, tactics, power, influence = participant.getStats()
 
     if spdCount >= intCount and spdCount >= visCount and spdCount >= resCount:
         response = spdSpecial(participant, spdCount, power, timeline=timeline)
+        if _game_result(game)[0]:
+            return
 
     if response == "" and visCount >= intCount and visCount >= spdCount and visCount >= resCount:
         response = visSpecial(participant, visCount, timeline=timeline)
-    
+        if _game_result(game)[0]:
+            return
+
     if response == "" and resCount >= intCount and resCount >= spdCount and resCount >= visCount:
         resSpecial(participant, resCount, timeline)
 
@@ -624,22 +651,6 @@ def _update_played_cards(lane_rows, plays):
                     card.cssClass = "loading"
                     print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.laneOrdinal}) -> {row['name']} .")
     return lane_rows
-
-def _game_result(game, force_end=False):
-    participants = list(game.history.participants.all())
-    if not participants:
-        return False,False, None
-
-    active_participants = [p for p in participants if not p.defeated and not p.fled]
-    if len(active_participants) == 1:
-        others = [other for other in participants if other.fled]
-        return True, len(others) < len(participants)-1, active_participants
-    elif len(active_participants) >1: 
-        return force_end, True, active_participants
-    else:
-        return True, True, None
-    return False, False, None
-
 
 def _ensure_game_initialized(game):
     for participant in game.history.participants.all():

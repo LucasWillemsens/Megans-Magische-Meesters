@@ -321,7 +321,8 @@ class loadingAnimationsSystem {
     _playShuffleBack(step, duration) {
         const cards = step.affectedCards || [];
         if (cards.length === 0) {
-            // No cards to shuffle — just a brief beat
+            // No cards to shuffle — just a brief deck wiggle
+            this._wiggleDeck(step.participantId);
             return;
         }
 
@@ -332,39 +333,106 @@ class loadingAnimationsSystem {
 
         cards.forEach((card, index) => {
             setTimeout(() => {
-                const element = document.querySelector(`[data-card-id="${card.cardId}"]`);
-                if (element) {
-                    this._flyCardToDeck(element, card, cardDuration, () => {
-                        completedCount++;
-                        // Wiggle the deck after all cards arrive
-                        if (completedCount >= cards.length) {
-                            this._wiggleDeck(step.participantId);
-                        }
-                    });
-                } else {
+                this._flyCardToDeck(card, step.participantId, cardDuration, () => {
                     completedCount++;
-                }
+                    // Wiggle the deck after all cards arrive
+                    if (completedCount >= cards.length) {
+                        this._wiggleDeck(step.participantId);
+                    }
+                });
             }, index * perCardStagger);
         });
     }
 
-    _flyCardToDeck(element, cardInfo, duration, onComplete) {
-        // Determine which deck to target
-        const isPlayer = !element.closest('.enemyBoard');
+    /**
+     * Create a face-down card element for animation purposes.
+     */
+    _makeCardClone() {
+        const li = document.createElement('li');
+        li.className = 'cardContainer faceDown';
+        const div = document.createElement('div');
+        div.className = 'card back smallCard';
+        li.appendChild(div);
+        return li;
+    }
+
+    /**
+     * Insert a temporary card element at the source lane/hand position
+     * (determined by cardInfo.sourceLane / cardInfo.sourceOrdinal) and return it.
+     * The clone is NOT inserted into the DOM; this function only builds it.
+     * Returns {element, sourceRect} where sourceRect is the bounding box of
+     * the source position, or null if the source container can't be found.
+     */
+    _positionCloneAtSource(cardInfo, participantId) {
+        const board = this._boardForParticipant(participantId);
+        if (!board) return null;
+
+        const isPlayer = board.classList.contains('playerBoard');
+        const lane = cardInfo.sourceLane;
+        const ordinal = cardInfo.sourceOrdinal || 0;
+
+        // Find the source container (hand or lane cardRow)
+        let sourceContainer = null;
+        const laneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
+
+        if (lane === 0) {
+            // Hand
+            sourceContainer = isPlayer
+                ? document.querySelector('.playerScreen .deckHand .hand')
+                : board.querySelector('.enemyDeckHand .hand');
+        } else if (lane > 0 && lane <= 4) {
+            // A lane — find the correct cardRow by ordinal
+            const laneEl = board.querySelector(`.lane.${laneNames[lane]}`);
+            if (laneEl) {
+                sourceContainer = findCardRowForOrdinal(laneEl, ordinal, 5);
+            }
+        }
+
+        if (!sourceContainer) return null;
+
+        // Create a card clone and add it at the ordinal position in the container
+        const clone = this._makeCardClone();
+        clone.classList.add('duplicate', 'shuffle-flying');
+        const insertIndex = Math.min(Math.max(0, ordinal - 1), sourceContainer.children.length);
+        const beforeEl = sourceContainer.children[insertIndex] ?? null;
+        if (beforeEl) {
+            sourceContainer.insertBefore(clone, beforeEl);
+        } else {
+            sourceContainer.appendChild(clone);
+        }
+
+        const sourceRect = clone.getBoundingClientRect();
+        return {element: clone, sourceRect};
+    }
+
+    _flyCardToDeck(cardInfo, participantId, duration, onComplete) {
+        const board = this._boardForParticipant(participantId);
+        if (!board) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        const isPlayer = board.classList.contains('playerBoard');
         const deck = isPlayer
             ? document.querySelector('.playerScreen .deckHand .deck')
-            : element.closest('.enemyBoard').querySelector('.enemyDeckHand .deck');
+            : board.querySelector('.enemyDeckHand .deck');
         if (!deck) {
             if (onComplete) onComplete();
             return;
         }
 
-        const duplicate = element.cloneNode(true);
-        duplicate.classList.add('duplicate', 'shuffle-flying');
-        const elRect = element.getBoundingClientRect();
+        // Position a clone at the SOURCE location (lane or hand before shuffleBoard)
+        const placed = this._positionCloneAtSource(cardInfo, participantId);
+        if (!placed) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        const duplicate = placed.element;
+        const elRect = placed.sourceRect;
         const deckRect = deck.getBoundingClientRect();
 
-        // Position clone at card's current location
+        // Immediately re-position as fixed so it doesn't affect layout during flight
         duplicate.style.position = 'fixed';
         duplicate.style.left = `${elRect.left}px`;
         duplicate.style.top = `${elRect.top}px`;
@@ -375,20 +443,16 @@ class loadingAnimationsSystem {
         duplicate.style.zIndex = 1000;
         document.body.appendChild(duplicate);
 
-        // Hide the original during flight
-        element.style.visibility = 'hidden';
-
-        // Animate to deck position
+        // Animate to deck center at normal size, fading out
         requestAnimationFrame(() => {
             duplicate.style.left = `${deckRect.left + deckRect.width / 2 - elRect.width / 2}px`;
             duplicate.style.top = `${deckRect.top + deckRect.height / 2 - elRect.height / 2}px`;
-            duplicate.style.transform = 'scale(0.3)';
-            duplicate.style.opacity = '0.5';
+            duplicate.style.transform = 'scale(0.8)';
+            duplicate.style.opacity = '0.3';
         });
 
         setTimeout(() => {
             duplicate.remove();
-            element.remove(); // Card is gone from board
             if (onComplete) onComplete();
         }, duration + 50);
     }
