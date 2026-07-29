@@ -93,6 +93,36 @@ Your job is to babysit the script, not to trust it. Quickly check:
 - **README regressions** — skim the regenerated roadmap section for empty headings or items listed under the wrong heading.
 - **Branch/PR mistakes** — steer with `--branch <name>` when the default branch is wrong, and preview with `--dry-run` when unsure.
 
+### Fine-tune the CI script after manual fixes
+
+The CI script has a **self-improvement** system that learns from manual corrections. Whenever you have to fix a mistake the CI script generated (especially false-positive `done/` matches), **record the correction so the CI learns from it**:
+
+1. After manually removing a falsely matched `done/` entry, run:
+   ```
+   python3 scripts/ci.py --record-fix <roadmap-path> "<comma-separated keywords that caused the false match>"
+   ```
+   This records which keywords were misleading and updates a persistent blocklist.
+
+2. To see past corrections and what the CI has learned:
+   ```
+   python3 scripts/ci.py --list-fixes
+   ```
+
+3. If you need to reset the learned blocklist (keeping raw fix records):
+   ```
+   python3 scripts/ci.py --reset-blocklist
+   ```
+
+**How the learning works internally:**
+- Recorded false-positive keywords are added to a blocklist in `ci_fixes/false_positive_blocklist.json`.
+- Future CI runs use this blocklist to:
+  - De-boost match scores that rely on blocked keywords.
+  - Completely suppress matches on paths that were previously false positives.
+  - Suppress specific (keyword, path) pairs that have caused false matches.
+- The `MATCH_THRESHOLD` also increases dynamically (by 0.02 per correction, up to +0.10 max), forcing higher confidence for auto-additions.
+
+**Always record a fix after correcting a CI mistake.** This makes the CI smarter over time and reduces the need for repeated manual fixes of the same kind.
+
 After the script pushes, quickly review the pushed changes (`gh pr view`, `git diff`) for anything obviously wrong and report it to the user.
 
 ## Handling unclear goals

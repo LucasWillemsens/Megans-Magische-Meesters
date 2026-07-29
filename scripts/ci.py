@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -38,6 +39,16 @@ STATIC_DIR = REPO_ROOT / "var" / "www" / "static"
 # MATCH_THRESHOLD band are only reported, and can be force-added with --match.
 MATCH_THRESHOLD = 0.4
 LOW_MATCH_FLOOR = 0.15
+
+# ---------------------------------------------------------------------------
+# Self-improvement: path to recorded corrections and learned blocklists
+# ---------------------------------------------------------------------------
+CI_FIXES_DIR = REPO_ROOT / "ci_fixes"
+FALSE_POSITIVE_BLOCKLIST = CI_FIXES_DIR / "false_positive_blocklist.json"
+# Dynamic threshold adjustment: track how many corrections were recorded
+# and tighten the threshold slightly with each correction.
+FIX_PENALTY_PER_CORRECTION = 0.02
+MAX_THRESHOLD_PENALTY = 0.10
 
 
 def run(cmd, check=True, cwd=None):
@@ -155,6 +166,196 @@ def read_changed_files_content(changed_files):
             except Exception:
                 pass
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Self-improvement helpers
+# ---------------------------------------------------------------------------
+
+def load_false_positive_blocklist():
+    """Load the persistent false-positive keyword blocklist.
+
+    Returns a dict with:
+      - 'keywords': set of keyword strings that have caused false matches
+      - 'paths':    set of roadmap path prefixes to suppress
+      - 'pairs':    set of (keyword, path_prefix) tuples for context-sensitive blocks
+    """
+    if FALSE_POSITIVE_BLOCKLIST.exists():
+        try:
+            data = json.loads(FALSE_POSITIVE_BLOCKLIST.read_text())
+            return {
+                "keywords": set(data.get("keywords", [])),
+                "paths": set(data.get("paths", [])),
+                "pairs": set(tuple(p) for p in data.get("pairs", [])),
+            }
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return {"keywords": set(), "paths": set(), "pairs": set()}
+
+
+def save_false_positive_blocklist(blocklist):
+    """Persist the false-positive blocklist to disk."""
+    CI_FIXES_DIR.mkdir(parents=True, exist_ok=True)
+    data = {
+        "keywords": sorted(blocklist["keywords"]),
+        "paths": sorted(blocklist["paths"]),
+        "pairs": sorted(list(blocklist["pairs"])),
+    }
+    FALSE_POSITIVE_BLOCKLIST.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def record_correction(roadmap_path, false_positive_keywords, description_excerpt, notes=""):
+    """Record a manual correction so the CI can learn from it.
+
+    Called by the devops agent (or user) after they manually remove a falsely
+    matched done/ entry. The CI will use this to adjust its matching in future
+    runs.
+    """
+    CI_FIXES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generate a unique filename from the path and timestamp
+    slug = re.sub(r"[^a-z0-9]+", "-", roadmap_path.lower()).strip("-")[:60]
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"{slug}-{stamp}.json"
+    fix_path = CI_FIXES_DIR / filename
+
+    record = {
+        "timestamp": stamp,
+        "roadmap_path": roadmap_path,
+        "false_positive_keywords": sorted(set(false_positive_keywords)),
+        "description_excerpt": description_excerpt,
+        "notes": notes,
+    }
+    fix_path.write_text(json.dumps(record, indent=2) + "\n")
+    print(f"  Recorded correction: {fix_path.relative_to(REPO_ROOT)}")
+
+    # Update the global blocklist with this correction
+    blocklist = load_false_positive_blocklist()
+    for kw in false_positive_keywords:
+        blocklist["keywords"].add(kw.lower())
+    # Add a path-specific block to prevent future matches on this exact path
+    clean_path = roadmap_path.replace("/description.txt", "").strip("/")
+    blocklist["paths"].add(clean_path)
+    # Add keyword+path pairs for context-sensitive blocking
+    for kw in false_positive_keywords:
+        blocklist["pairs"].add((kw.lower(), clean_path))
+    save_false_positive_blocklist(blocklist)
+
+    # Also append to a running log
+    log_path = CI_FIXES_DIR / "corrections_log.jsonl"
+    with open(log_path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+    print(f"  Updated false-positive blocklist ({len(blocklist['keywords'])} keywords, "
+          f"{len(blocklist['paths'])} paths).")
+    return fix_path
+
+
+def list_corrections():
+    """List all recorded corrections from ci_fixes/."""
+    CI_FIXES_DIR.mkdir(parents=True, exist_ok=True)
+    fixes = []
+    for f in sorted(CI_FIXES_DIR.glob("*.json")):
+        if f.name == "false_positive_blocklist.json":
+            continue
+        try:
+            data = json.loads(f.read_text())
+            fixes.append((f, data))
+        except json.JSONDecodeError:
+            continue
+    return fixes
+
+
+def compute_dynamic_threshold():
+    """Compute an adjusted MATCH_THRESHOLD based on past correction count.
+
+    Each recorded false positive slightly raises the bar, forcing the matcher
+    to be more confident before auto-adding a done/ entry.
+    """
+    corrections = list_corrections()
+    num_fixes = len(corrections)
+    penalty = min(num_fixes * FIX_PENALTY_PER_CORRECTION, MAX_THRESHOLD_PENALTY)
+    adjusted = round(MATCH_THRESHOLD + penalty, 3)
+    return adjusted, num_fixes
+
+
+def suppress_false_positive_matches(results):
+    """Apply the learned blocklist to filter out previously-false matches.
+
+    Uses three mechanisms:
+    1. Keyword blocklist — if a matched keyword is known to cause false
+       positives, reduce its contribution weight.
+    2. Path blocklist — never auto-match a roadmap path that was previously
+       falsely added to done/.
+    3. Pair blocklist — if (keyword, path_prefix) matches a known false pair,
+       suppress that specific match.
+    """
+    blocklist = load_false_positive_blocklist()
+    if not any([blocklist["keywords"], blocklist["paths"], blocklist["pairs"]]):
+        return results  # No learned corrections yet
+
+    blocked_kws = blocklist["keywords"]
+    blocked_paths = blocklist["paths"]
+    blocked_pairs = blocklist["pairs"]
+
+    filtered = []
+    suppressed = []
+    for m in results:
+        rel_path = m["roadmap_path"].replace("/description.txt", "").strip("/")
+
+        # 1. Direct path block
+        if rel_path in blocked_paths:
+            suppressed.append((rel_path, "blocked path"))
+            continue
+
+        # 2. Path prefix block (any parent dir that was a false positive)
+        path_prefix_blocked = False
+        for blocked in blocked_paths:
+            if rel_path.startswith(blocked + "/") or rel_path == blocked:
+                suppressed.append((rel_path, f"path prefix '{blocked}'"))
+                path_prefix_blocked = True
+                break
+        if path_prefix_blocked:
+            continue
+
+        # 3. Keyword de-boosting: reduce score for matches that rely on
+        #    blocklisted keywords
+        matched_kws = [kw.lower() for kw in m.get("matched_keywords", [])]
+        blocked_match_kws = [kw for kw in matched_kws if kw in blocked_kws]
+
+        if blocked_match_kws:
+            # Check if any (keyword, path) pair is blocked
+            pair_blocked = any(
+                (kw, rel_path) in blocked_pairs for kw in blocked_match_kws
+            )
+            kw_blocked = any(kw in blocked_kws for kw in blocked_match_kws)
+
+            if pair_blocked:
+                suppressed.append(
+                    (rel_path, f"blocked pair {blocked_match_kws[0]}")
+                )
+                continue
+
+            if kw_blocked:
+                # De-boost: reduce score proportionally to how many matched
+                # keywords are known false positives
+                total_matched = len(matched_kws) if matched_kws else 1
+                penalty_ratio = len(blocked_match_kws) / total_matched
+                m["score"] = round(m["score"] * (1.0 - penalty_ratio * 0.5), 3)
+                m["_adjusted_by_blocklist"] = True
+                m["_suppressed_keywords"] = blocked_match_kws
+
+        filtered.append(m)
+
+    if suppressed:
+        print(f"\n  [self-improvement] Suppressed {len(suppressed)} false-positive "
+              f"match(es) using learned blocklist:")
+        for path, reason in suppressed[:10]:
+            print(f"    - {path} ({reason})")
+        if len(suppressed) > 10:
+            print(f"    ... and {len(suppressed) - 10} more")
+
+    return filtered
 
 
 def collect_descriptions(base_dir):
@@ -560,7 +761,9 @@ def commit_and_push(branch, goal, dry_run=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CI script for MMM project")
+    parser = argparse.ArgumentParser(
+        description="CI script for MMM project — with self-improvement"
+    )
     parser.add_argument(
         "--branch",
         default=None,
@@ -581,9 +784,70 @@ def main():
         "--match battle-page-polish/enemy-turn-indicators/enemy-action-cookies). "
         "When given, auto-matching is bypassed for the done/ update.",
     )
+    parser.add_argument(
+        "--record-fix",
+        nargs=2,
+        metavar=("ROADMAP_PATH", "KEYWORDS"),
+        default=None,
+        help="Record a manual correction: the roadmap path that was falsely "
+        "matched and a comma-separated list of keywords that caused the "
+        "false positive. E.g. "
+        "--record-fix battle-page-polish/hologram-row 'hologram,row,dedicated'",
+    )
+    parser.add_argument(
+        "--list-fixes",
+        action="store_true",
+        help="List all recorded corrections (false-positive records that the "
+        "CI has learned from)",
+    )
+    parser.add_argument(
+        "--reset-blocklist",
+        action="store_true",
+        help="Reset the learned false-positive blocklist (keeps raw fix "
+        "records, removes the compiled blocklist)",
+    )
     args = parser.parse_args()
 
     os.chdir(REPO_ROOT)
+
+    # -----------------------------------------------------------------------
+    # Self-improvement commands (record/list/reset corrections; no pipeline)
+    # -----------------------------------------------------------------------
+    if args.record_fix:
+        path, keywords_str = args.record_fix
+        keywords = [kw.strip() for kw in keywords_str.split(",") if kw.strip()]
+        # Try to read the description that was falsely matched
+        desc = read_full_description(ROADMAP_DIR, path)
+        if not desc:
+            # Fall back: look in done/
+            desc = read_full_description(DONE_DIR, path)
+        excerpt = (desc or path).split("\n")[0][:120]
+        record_correction(path, keywords, excerpt)
+        print("\nCorrection recorded. The CI will apply this learning on next run.")
+        return
+
+    if args.list_fixes:
+        fixes = list_corrections()
+        if not fixes:
+            print("No corrections recorded yet.")
+            return
+        print(f"Recorded corrections ({len(fixes)}):\n")
+        for fpath, data in fixes:
+            print(f"  {fpath.name}")
+            print(f"    Path:     {data.get('roadmap_path', '?')}")
+            print(f"    Keywords: {', '.join(data.get('false_positive_keywords', []))}")
+            print(f"    Desc:     {data.get('description_excerpt', '?')[:80]}")
+            print()
+        print(f"Total: {len(fixes)} correction(s) filed.")
+        return
+
+    if args.reset_blocklist:
+        if FALSE_POSITIVE_BLOCKLIST.exists():
+            FALSE_POSITIVE_BLOCKLIST.unlink()
+            print("False-positive blocklist reset. (Raw fix records preserved.)")
+        else:
+            print("No blocklist to reset.")
+        return
 
     print("Megans Magische Meesters - CI Pipeline")
     print("=" * 60)
@@ -667,17 +931,34 @@ def main():
             and m["roadmap_path"].split("/")[0] not in done_set
         ]
 
-        significant_matches = [m for m in new_matches if m["score"] >= MATCH_THRESHOLD]
+        # ------------------------------------------------------------------
+        # Self-improvement: apply learned blocklist from past corrections
+        # ------------------------------------------------------------------
+        adjusted_threshold, num_fixes = compute_dynamic_threshold()
+        if adjusted_threshold != MATCH_THRESHOLD:
+            print(f"\n  [self-improvement] Dynamic threshold: {adjusted_threshold} "
+                  f"(base {MATCH_THRESHOLD} + {num_fixes} fix(es) × "
+                  f"{FIX_PENALTY_PER_CORRECTION})")
+
+        new_matches = suppress_false_positive_matches(new_matches)
+
+        significant_matches = [
+            m for m in new_matches if m["score"] >= adjusted_threshold
+        ]
         low_matches = [
-            m for m in new_matches if LOW_MATCH_FLOOR <= m["score"] < MATCH_THRESHOLD
+            m for m in new_matches
+            if LOW_MATCH_FLOOR <= m["score"] < adjusted_threshold
         ]
 
         if significant_matches:
             print(f"\n  Matched {len(significant_matches)} roadmap items to code changes:\n")
             for m in significant_matches:
                 conf = "HIGH" if m["score"] >= 0.4 else "MED" if m["score"] >= 0.25 else "LOW"
-                print(f"  [{conf:4s}] {m['roadmap_path']}")
-                print(f"    Score: {m['score']} | Keywords: {', '.join(m['matched_keywords'][:6])}")
+                adjusted = " [adjusted]" if m.get("_adjusted_by_blocklist") else ""
+                sup_kws = m.get("_suppressed_keywords", [])
+                sup_info = f" (suppressed: {', '.join(sup_kws[:3])})" if sup_kws else ""
+                print(f"  [{conf:4s}]{adjusted} {m['roadmap_path']}")
+                print(f"    Score: {m['score']} | Keywords: {', '.join(m['matched_keywords'][:6])}{sup_info}")
                 print(f"    Desc:  {m['description'][:75]}...")
                 print()
             new_matches = significant_matches
