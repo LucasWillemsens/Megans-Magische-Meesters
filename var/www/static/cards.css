@@ -530,13 +530,13 @@
 .playingCards.rotateHand ul.hand li:nth-child(12 of .cardContainer) { --hand-tx: -2.8em; --hand-ty: 2.1em; --hand-rot: 57deg; }
 .playingCards.rotateHand ul.hand li:nth-child(13 of .cardContainer) { --hand-tx: -3.5em; --hand-ty: 2.8em; --hand-rot: 66deg; }
 
-.playingCards.rotateHand ul.hand li.cardContainer {
+.playingCards.rotateHand ul.hand li.cardContainer, .playingCards.rotateHand ul.hand li:not(.cardContainer) {
     transform: translate(var(--hand-tx), var(--hand-ty)) rotate(var(--hand-rot));
 }
 
-/* Ghost cards in hand sit slightly higher so the player sees the card below */
+/* Ghost cards in hand sit slightly higher so the player sees the card below. Might need adjustment */
 .playingCards.rotateHand ul.hand li.cardContainer.ghost {
-    transform: translate(var(--hand-tx), calc(var(--hand-ty) - 0.8em)) rotate(var(--hand-rot));
+    transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2)) rotate(var(--hand-rot));
 }
 
 /* deck */

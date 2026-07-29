@@ -291,14 +291,12 @@ class CardDragDropSystem {
 
         svg.appendChild(path);
 
-        // Arrowhead — use tangent of cubic bezier at endpoint, not straight-line angle
-        // At t=1: derivative = 3*(P3 - P2) = 3*(x2 - cx2, y2 - cy2)
         const tangentX = x2 - cx2;
         const tangentY = y2 - cy2;
         const angle = Math.atan2(tangentY, tangentX);
         const arrowSize = 20;
-        const ax = x2 - arrowSize * 0.35 * Math.cos(angle);
-        const ay = y2 - arrowSize * 0.35 * Math.sin(angle);
+        const ax = x2;
+        const ay = Math.max(y2 - arrowSize * 0.35 * Math.sin(angle) - 20, y2);
 
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         marker.setAttribute('points',

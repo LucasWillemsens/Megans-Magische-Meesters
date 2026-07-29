@@ -57,7 +57,6 @@ ul.hologramRow {
 ul.hologramRow .hologram {
     position: relative;
 }
-/* Holograms are ghostly/translucent — both face-down play holograms and face-up flip holograms */
 ul.hologramRow .hologram .card {
     opacity: 0.7;
     filter: grayscale(0.2);
@@ -66,19 +65,19 @@ ul.hologramRow .hologram .cardContainer.faceDown:hover {
     cursor: pointer;
 }
 
-/* Hover bring-to-front for ghost cards */
 li.cardContainer.ghost.hover {
     z-index: 10;
+    opacity: 1;
 }
 ul.hologramRow .hologram:hover {
     z-index: 10;
+    opacity: 1;
 }
 
-/* Curved arrow between source and hologram */
 svg.hologram-arrow {
     pointer-events: none;
     position: fixed;
-    z-index: 1000;
+    z-index: 11;
     overflow: visible;
 }
 
