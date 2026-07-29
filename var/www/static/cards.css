@@ -514,83 +514,29 @@
 .playingCards ul.hand li:nth-child(26 of .cardContainer) { left: 27.5em; }
 
 /* rotate cards if rotateHand option is on */
-.playingCards.rotateHand ul.hand li:nth-child(1 of .cardContainer), .playingCards.rotateHand ul.hand li:nth-child(1 of :not(.cardContainer)){
-    -moz-transform: translate(1.9em, .9em) rotate(-42deg);
-    -webkit-transform: translate(1.9em, .9em) rotate(-42deg);
-    -o-transform: translate(1.9em, .9em) rotate(-42deg);
-    transform: translate(1.9em, .9em) rotate(-42deg);
+/* Per-position transforms stored in a custom property so ghost can overlay a lift */
+.playingCards.rotateHand ul.hand li:nth-child(1 of .cardContainer),
+.playingCards.rotateHand ul.hand li:nth-child(1 of :not(.cardContainer)) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
+.playingCards.rotateHand ul.hand li:nth-child(2 of .cardContainer) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
+.playingCards.rotateHand ul.hand li:nth-child(3 of .cardContainer) { --hand-tx: 1.1em; --hand-ty: .3em; --hand-rot: -24deg; }
+.playingCards.rotateHand ul.hand li:nth-child(4 of .cardContainer) { --hand-tx: .7em;  --hand-ty: .2em; --hand-rot: -15deg; }
+.playingCards.rotateHand ul.hand li:nth-child(5 of .cardContainer) { --hand-tx: .3em;  --hand-ty: .1em; --hand-rot: -6deg; }
+.playingCards.rotateHand ul.hand li:nth-child(6 of .cardContainer) { --hand-tx: -.1em; --hand-ty: .1em; --hand-rot: 3deg; }
+.playingCards.rotateHand ul.hand li:nth-child(7 of .cardContainer) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
+.playingCards.rotateHand ul.hand li:nth-child(8 of .cardContainer) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
+.playingCards.rotateHand ul.hand li:nth-child(9 of .cardContainer) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
+.playingCards.rotateHand ul.hand li:nth-child(10 of .cardContainer) { --hand-tx: -1.7em; --hand-ty: 1em; --hand-rot: 39deg; }
+.playingCards.rotateHand ul.hand li:nth-child(11 of .cardContainer) { --hand-tx: -2.2em; --hand-ty: 1.5em; --hand-rot: 48deg; }
+.playingCards.rotateHand ul.hand li:nth-child(12 of .cardContainer) { --hand-tx: -2.8em; --hand-ty: 2.1em; --hand-rot: 57deg; }
+.playingCards.rotateHand ul.hand li:nth-child(13 of .cardContainer) { --hand-tx: -3.5em; --hand-ty: 2.8em; --hand-rot: 66deg; }
+
+.playingCards.rotateHand ul.hand li.cardContainer {
+    transform: translate(var(--hand-tx), var(--hand-ty)) rotate(var(--hand-rot));
 }
-.playingCards.rotateHand ul.hand li:nth-child(2 of .cardContainer) {
-    -moz-transform: translate(1.5em, .5em) rotate(-33deg);
-    -webkit-transform: translate(1.5em, .5em) rotate(-33deg);
-    -o-transform: translate(1.5em, .5em) rotate(-33deg);
-    transform: translate(1.5em, .5em) rotate(-33deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(3 of .cardContainer) {
-    -moz-transform: translate(1.1em, .3em) rotate(-24deg);
-    -webkit-transform: translate(1.1em, .3em) rotate(-24deg);
-    -o-transform: translate(1.1em, .3em) rotate(-24deg);
-    transform: translate(1.1em, .3em) rotate(-24deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(4 of .cardContainer) {
-    -moz-transform: translate(.7em, .2em) rotate(-15deg);
-    -webkit-transform: translate(.7em, .2em) rotate(-15deg);
-    -o-transform: translate(.7em, .2em) rotate(-15deg);
-    transform: translate(.7em, .2em) rotate(-15deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(5 of .cardContainer) {
-    -moz-transform: translate(.3em, .1em) rotate(-6deg);
-    -webkit-transform: translate(.3em, .1em) rotate(-6deg);
-    -o-transform: translate(.3em, .1em) rotate(-6deg);
-    transform: translate(.3em, .1em) rotate(-6deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(6 of .cardContainer) {
-    -moz-transform: translate(-.1em, .1em) rotate(3deg);
-    -webkit-transform: translate(-.1em, .1em) rotate(3deg);
-    -o-transform: translate(-.1em, .1em) rotate(3deg);
-    transform: translate(-.1em, .1em) rotate(3deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(7 of .cardContainer) {
-    -moz-transform: translate(-.5em, .2em) rotate(12deg);
-    -webkit-transform: translate(-.5em, .2em) rotate(12deg);
-    -o-transform: translate(-.5em, .2em) rotate(12deg);
-    transform: translate(-.5em, .2em) rotate(12deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(8 of .cardContainer) {
-    -moz-transform: translate(-.9em, .3em) rotate(21deg);
-    -webkit-transform: translate(-.9em, .3em) rotate(21deg);
-    -o-transform: translate(-.9em, .3em) rotate(21deg);
-    transform: translate(-.9em, .3em) rotate(21deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(9 of .cardContainer) {
-    -moz-transform: translate(-1.3em, .6em) rotate(30deg);
-    -webkit-transform: translate(-1.3em, .6em) rotate(30deg);
-    -o-transform: translate(-1.3em, .6em) rotate(30deg);
-    transform: translate(-1.3em, .6em) rotate(30deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(10 of .cardContainer) {
-    -moz-transform: translate(-1.7em, 1em) rotate(39deg);
-    -webkit-transform: translate(-1.7em, 1em) rotate(39deg);
-    -o-transform: translate(-1.7em, 1em) rotate(39deg);
-    transform: translate(-1.7em, 1em) rotate(39deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(11 of .cardContainer) {
-    -moz-transform: translate(-2.2em, 1.5em) rotate(48deg);
-    -webkit-transform: translate(-2.2em, 1.5em) rotate(48deg);
-    -o-transform: translate(-2.2em, 1.5em) rotate(48deg);
-    transform: translate(-2.2em, 1.5em) rotate(48deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(12 of .cardContainer) {
-    -moz-transform: translate(-2.8em, 2.1em) rotate(57deg);
-    -webkit-transform: translate(-2.8em, 2.1em) rotate(57deg);
-    -o-transform: translate(-2.8em, 2.1em) rotate(57deg);
-    transform: translate(-2.8em, 2.1em) rotate(57deg);
-}
-.playingCards.rotateHand ul.hand li:nth-child(13 of .cardContainer) {
-    -moz-transform: translate(-3.5em, 2.8em) rotate(66deg);
-    -webkit-transform: translate(-3.5em, 2.8em) rotate(66deg);
-    -o-transform: translate(-3.5em, 2.8em) rotate(66deg);
-    transform: translate(-3.5em, 2.8em) rotate(66deg);
+
+/* Ghost cards in hand sit slightly higher so the player sees the card below */
+.playingCards.rotateHand ul.hand li.cardContainer.ghost {
+    transform: translate(var(--hand-tx), calc(var(--hand-ty) - 0.8em)) rotate(var(--hand-rot));
 }
 
 /* deck */

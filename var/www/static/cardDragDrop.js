@@ -291,11 +291,14 @@ class CardDragDropSystem {
 
         svg.appendChild(path);
 
-        // Arrowhead
-        const angle = Math.atan2(dy, dx);
+        // Arrowhead — use tangent of cubic bezier at endpoint, not straight-line angle
+        // At t=1: derivative = 3*(P3 - P2) = 3*(x2 - cx2, y2 - cy2)
+        const tangentX = x2 - cx2;
+        const tangentY = y2 - cy2;
+        const angle = Math.atan2(tangentY, tangentX);
         const arrowSize = 20;
-        const ax = x2 - arrowSize * 0.5 * Math.cos(angle);
-        const ay = y2 - arrowSize * 0.5 * Math.sin(angle);
+        const ax = x2 - arrowSize * 0.35 * Math.cos(angle);
+        const ay = y2 - arrowSize * 0.35 * Math.sin(angle);
 
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         marker.setAttribute('points',
@@ -314,17 +317,13 @@ class CardDragDropSystem {
         const sourceLane = card.dataset.sourceLane ?? '0';
         const sourceOrdinal = card.dataset.sourceOrdinal ?? '0';
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
-        card.classList.remove('faceDown');
-        // Properly find the card div — for lane cards children[0] is <input>, not the card div
-        const cardDiv = card.querySelector(':scope > .card');
-        if (cardDiv) cardDiv.classList.remove('back');
 
-        // If this is a lane card (not a hologram), add ghost and create flip hologram
+        // If this is a lane card (not a hologram), keep it face-down and create a face-up hologram
         if (!card.closest('.hologram')) {
             const laneElement = card.closest('li.lane');
             const holoRow = laneElement.querySelector('.hologramRow');
 
-            // Make the flipped lane card ghostly
+            // Lane card stays face-down — ghostly to indicate it was flipped
             card.classList.add('ghost');
 
             // Create face-up hologram clone
@@ -338,9 +337,11 @@ class CardDragDropSystem {
             const buttons = holoClone.querySelectorAll('button');
             buttons.forEach(btn => btn.remove());
 
-            // Ensure the clone's card div does NOT have the 'back' class
+            // The lane card is still face-down (back class present), so strip back from clone
             const cloneCardDiv = holoClone.querySelector(':scope > .card');
             if (cloneCardDiv) cloneCardDiv.classList.remove('back');
+            const cloneCardContainer = holoClone.querySelector('.cardContainer');
+            if (cloneCardContainer) cloneCardContainer.classList.remove('faceDown');
 
             flipHologram.classList.add('hologram');
             flipHologram.appendChild(holoClone);
@@ -354,6 +355,11 @@ class CardDragDropSystem {
 
             // Hover arrow between lane card and hologram
             this._addHoverArrow(card, flipHologram);
+        } else {
+            // For hologram clicks (play hologram flipping face-up), flip face-up
+            card.classList.remove('faceDown');
+            const cardDiv = card.querySelector(':scope > .card');
+            if (cardDiv) cardDiv.classList.remove('back');
         }
 
         this.staged.flips++;
