@@ -315,7 +315,9 @@ class CardDragDropSystem {
         const sourceOrdinal = card.dataset.sourceOrdinal ?? '0';
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
         card.classList.remove('faceDown');
-        card.children[0].classList.remove('back');
+        // Properly find the card div — for lane cards children[0] is <input>, not the card div
+        const cardDiv = card.querySelector(':scope > .card');
+        if (cardDiv) cardDiv.classList.remove('back');
 
         // If this is a lane card (not a hologram), add ghost and create flip hologram
         if (!card.closest('.hologram')) {
@@ -335,6 +337,10 @@ class CardDragDropSystem {
             if (form) form.remove();
             const buttons = holoClone.querySelectorAll('button');
             buttons.forEach(btn => btn.remove());
+
+            // Ensure the clone's card div does NOT have the 'back' class
+            const cloneCardDiv = holoClone.querySelector(':scope > .card');
+            if (cloneCardDiv) cloneCardDiv.classList.remove('back');
 
             flipHologram.classList.add('hologram');
             flipHologram.appendChild(holoClone);
