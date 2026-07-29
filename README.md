@@ -30,7 +30,7 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 
 Polish the battle page to make the game feel responsive, readable, and exciting.
 
-- [~] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out. _(Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out.)_
+- [~] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped. _(Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.)_
 - [~] Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style. _(Render multiple cards in a lane with a consistent partly stacked visual style, also update hologram cards to match this style.)_
 - [~] Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn. _(Animate specials with correct sequences, activated when the last card is drawn from a deck. Play special move animations in order while highlighting the active lane special, and show a shuffle-back effect at the end before starting the next players / enemy turn.)_
 
@@ -80,7 +80,7 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 
 Create a deck page that lets players manage decks with ordering, artwork, metadata, and creation support.
 
-- [ ] Show card artwork previews on the deck page to make each deck easier to scan and personalize.
+- [~] Show card artwork previews on the deck page to make each deck easier to scan and personalize. _(Show card artwork previews on the deck page to make each deck easier to scan and personalize.)_
 - [ ] Support creating new decks from the deck page to let players experiment with multiple strategies.
 - [~] Add drag-and-drop deck ordering to make reordering cards intuitive and efficient. _(Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.)_
 - [~] Allow deck name and description editing so players can label their decks clearly. _(Allow deck name and description editing so players can label their decks clearly.)_
@@ -89,9 +89,9 @@ Create a deck page that lets players manage decks with ordering, artwork, metada
 
 Improve game page metadata so each match feels like a distinct playable entry.
 
-- [~] Ensure bot rematches shuffle the board and use a fresh deck automatically. _(Ensure bot rematches shuffle the board and use a fresh deck automatically.)_
+- [ ] Ensure bot rematches shuffle the board and use a fresh deck automatically.
 - [~] Add artwork, name, and description support to the game page to make matches easier to identify. _(Artwork (Game.artSource with fallback image) and an auto-generated name ("<challenger> vs <opponent>" title) are shown on the game page; a game description field is still missing.)_
-- [ ] Make the "Play again" action create a new challenge instead of reusing the old one.
+- [~] Make the "Play again" action create a new challenge instead of reusing the old one. _(Make the "Play again" action create a new challenge instead of reusing the old one.)_
 
 #### History Page
 
@@ -115,12 +115,12 @@ Also add an efficient way to create cards in general and allow use efficient cli
 
 Clarify multiplayer and account behavior to support both asynchronous battle flow and secure identity.
 
-- [~] Prevent cookies from consuming state incorrectly when the opponent is not active. _(Prevent cookies from consuming state incorrectly when the opponent is not active.)_
+- [ ] Prevent cookies from consuming state incorrectly when the opponent is not active.
 - [ ] Consider encrypting frontend account keys before sending them to the server to protect account operations.
 - [ ] Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before chaining effects.
 - [ ] Implement login through secure account links or email key tokens for account-based play.
-- [~] Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active. _(Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.)_
-- [ ] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.
+- [ ] Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.
+- [~] Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior. _(Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.)_
 
 ### Low priority
 
@@ -129,10 +129,10 @@ Clarify multiplayer and account behavior to support both asynchronous battle flo
 Develop customization systems that grow the game beyond simple battles, including symbol-driven behavior, links, upgrades, and future card-soul mechanics.
 
 - [~] Consider AI-assisted image generation and approval workflows for creating unique card upgrades. _(Consider AI-assisted image generation and approval workflows for creating unique card upgrades.)_
-- [ ] Make card links followable via middle-click to support quick navigation and preservation of the current board.
+- [~] Make card links followable via middle-click to support quick navigation and preservation of the current board. _(Make card links followable via middle-click to support quick navigation and preservation of the current board.)_
 - [ ] Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.
 - [ ] Explore card-soul and trial mechanics as a future expansion path for manifesting cards and symbols.
-- [ ] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.
+- [~] Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time. _(Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.)_
 - [~] Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned. _(Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.)_
 
 #### Sound design

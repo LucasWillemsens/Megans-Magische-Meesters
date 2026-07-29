@@ -150,6 +150,7 @@
             <ul class="lanes">
                 {% for lane in ownLaneRows %}
                 <li class="lane {{lane.name}}">
+                    <ul class="hologramRow"></ul>
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
                             {% if card.state.faceDown %}

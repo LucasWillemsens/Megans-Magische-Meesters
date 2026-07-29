@@ -904,4 +904,81 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         self.assertContains(response, 'class="deck blocked"')
 
+    # ------------------------------------------------------------------
+    # Hologram row tests
+    # ------------------------------------------------------------------
+
+    def test_player_lanes_have_hologram_row(self):
+        """Player lanes render an empty .hologramRow above the card rows."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # Count hologramRow elements in player lanes (should be 4 — one per lane)
+        self.assertEqual(content.count('class="hologramRow"'), 4)
+
+    def test_enemy_lanes_have_no_hologram_row(self):
+        """Enemy lanes must NOT contain a .hologramRow."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # Enemy board section should not mention hologramRow
+        enemy_section = re.search(
+            r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
+            content, re.DOTALL
+        )
+        if enemy_section:
+            self.assertNotIn('hologramRow', enemy_section.group(1))
+
+    def test_ghost_class_defined_in_stylesheet(self):
+        """The .ghost CSS class must be defined in the card drag-drop stylesheet."""
+        import os
+        css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cardDragDrop.css')
+        with open(css_path) as f:
+            css_content = f.read()
+        self.assertIn('.ghost', css_content)
+        self.assertIn('opacity: 0.4', css_content)
+        self.assertIn('filter: grayscale(0.3)', css_content)
+        self.assertIn('pointer-events: none', css_content)
+
+    def test_hologram_row_precedes_card_row(self):
+        """Each player lane has hologramRow before the first cardRow."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        # In the player lanes section, every hologramRow must appear
+        # before the first cardRow of its lane.  Check the raw ordering
+        # of hologramRow relative to cardRow within the ownLaneRows loop.
+        player_board = re.search(
+            r'<li class="playerBoard\s*">.*?</li>\s*</ul>\s*<div class="deckHand">',
+            content, re.DOTALL
+        )
+        self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")
+        pb_html = player_board.group(0)
+
+        # Search for the sequence inside the player board's own lanes:
+        #   lane opening -> hologramRow -> cardRow
+        # for each of the 4 player lanes.
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            pattern = re.escape(f'<li class="lane {lane_name}">')
+            holo_before_card = re.search(
+                pattern + r'\s*<ul class="hologramRow"></ul>\s*<ul class="cardRow"',
+                pb_html
+            )
+            self.assertIsNotNone(
+                holo_before_card,
+                f"Lane {lane_name} missing hologramRow before cardRow"
+            )
+
 

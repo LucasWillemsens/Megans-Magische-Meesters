@@ -1,0 +1,1 @@
+Show card artwork previews on the deck page to make each deck easier to scan and personalize.

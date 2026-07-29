@@ -1020,12 +1020,12 @@ ul.cardRow{
         margin:0;
     }
 
-    li.cardContainer:hover {
+    li.cardContainer:not(.blocked):hover {
         z-index: 3;
         box-shadow: none !important;
         filter: drop-shadow(0.1em 0.1em 0.15em #333) !important;
     }
-     li.cardContainer:hover:active {
+     li.cardContainer:not(.blocked):hover:active {
         box-shadow: unset;
         filter: none !important;
     }
@@ -1081,21 +1081,28 @@ ul.cardRow{
             cursor: grab;
         }
     }
-    .playerScreen .deckHand .hand li.cardContainer:hover{
+    ul.hand li.cardContainer.blocked::after{
+        cursor: not-allowed !important;
+    }
+    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):hover{
         opacity: 1 !important;
     } 
     
-    .playerScreen .deckHand .hand li.cardContainer:focus-within{
+    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
         opacity: 1 !important;
         z-index: 2;
     }
-    li.cardContainer:not(.faceDown):hover > .smallCard{
+
+    .playerScreen .deckHand .hand li.cardContainer.blocked:hover {
+        opacity: 0.55 !important;
+    }
+    li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
         background: var(--card-background-highlight);
     }
-    li.cardContainer:hover:active > .smallCard{
+    li.cardContainer:not(.blocked):hover:active > .smallCard{
         background: var(--card-background-highlight);
     }
-    li.cardContainer:focus-within 
+    li.cardContainer:not(.blocked):focus-within 
     {
         outline:auto;
         outline-offset: 6px; 
@@ -1104,7 +1111,12 @@ ul.cardRow{
             background: var(--card-background-highlight);
         }
     }
-    li.cardContainer:focus-within:active{
+
+    li.cardContainer.blocked:focus-within {
+        outline:auto;
+        outline-offset: 6px;
+    }
+    li.cardContainer:not(.blocked):focus-within:active{
         outline-style: solid;
         outline-width: 2px;
         outline-offset: 0.2rem;
@@ -1263,7 +1275,10 @@ ul.hand li.cardContainer.blocked > .card.smallCard {
 }
 
 li.cardContainer.blocked:hover {
+    z-index: 3;
     cursor: not-allowed !important;
+    box-shadow: none !important;
+    filter: grayscale(0.85) drop-shadow(0.1em 0.1em 0.15em #333) !important;
 }
 
 /* Guard green backing-card slide from blocked cards */
