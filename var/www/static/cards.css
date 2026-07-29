@@ -1019,15 +1019,18 @@ ul.cardRow{
     .cardsText h3{
         margin:0;
     }
-
+    .playerScreen li.cardContainer.ghost{
+        box-shadow: none;
+        filter: none;
+    }   
     li.cardContainer:not(.blocked):hover {
         z-index: 3;
         box-shadow: none !important;
-        filter: drop-shadow(0.1em 0.1em 0.15em #333) !important;
+        filter: drop-shadow(0.1em 0.1em 0.15em #333);
     }
      li.cardContainer:not(.blocked):hover:active {
         box-shadow: unset;
-        filter: none !important;
+        filter: none;
     }
 
     li.cardContainer > .smallCard{
@@ -1226,12 +1229,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     transition: all 0.25s ease-in-out;
 }
 
-ul.hand li.cardContainer:hover > .card.smallCard::after{
-    right: 80%;
-    top: 80%;
-    filter: drop-shadow(4px 4px 4px #000);
-}
-
 .duplicate {
     pointer-events: none;
     z-index: 999;
@@ -1252,36 +1249,28 @@ ul.hand li.cardContainer:hover > .card.smallCard::after{
 }
 
 /* Blocked state for exhausted action budgets */
-li.cardContainer.blocked {
-    filter: grayscale(0.85);
-    opacity: 0.55;
+.playerScreen li.cardContainer.blocked {
+    filter: grayscale(0.85) !important;
+    box-shadow: none;
     cursor: not-allowed;
 }
 
-ul.deck.blocked {
+.playerScreen ul.deck.blocked {
     filter: grayscale(0.85);
-    opacity: 0.55;
     cursor: not-allowed;
 }
 
-ul.deck.blocked button.draw:disabled {
+.playerScreen ul.deck.blocked button.draw:disabled {
     filter: grayscale(0.85);
-    opacity: 0.55;
     cursor: not-allowed;
 }
 
-ul.hand li.cardContainer.blocked > .card.smallCard {
-    transform: translateY(-0.5em);
-}
-
-li.cardContainer.blocked:hover {
+.playerScreen li.cardContainer.blocked:hover {
     z-index: 3;
     cursor: not-allowed !important;
-    box-shadow: none !important;
-    filter: grayscale(0.85) drop-shadow(0.1em 0.1em 0.15em #333) !important;
+    box-shadow: none;
 }
 
-/* Guard green backing-card slide from blocked cards */
 ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     right: 80%;
     top: 80%;

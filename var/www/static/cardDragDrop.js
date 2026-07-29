@@ -260,8 +260,8 @@ class CardDragDropSystem {
         svg.style.pointerEvents = 'none';
         svg.style.zIndex = '1000';
         svg.style.overflow = 'visible';
-        svg.style.top = '0';
-        svg.style.left = '0';
+        svg.style.top = '0'; //adjust
+        svg.style.left = '0';//adjust
         svg.style.width = '100%';
         svg.style.height = '100%';
 
@@ -270,8 +270,8 @@ class CardDragDropSystem {
 
         const x1 = sourceRect.left + sourceRect.width / 2;
         const y1 = sourceRect.top + sourceRect.height / 2;
-        const x2 = targetRect.left + targetRect.width / 2;
-        const y2 = targetRect.top + targetRect.height / 2;
+        const x2 = targetRect.left + targetRect.width / 2; // Adjust
+        const y2 = targetRect.top + targetRect.height / 2; // Adjust
 
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -293,7 +293,7 @@ class CardDragDropSystem {
 
         // Arrowhead
         const angle = Math.atan2(dy, dx);
-        const arrowSize = 10;
+        const arrowSize = 20;
         const ax = x2 - arrowSize * 0.5 * Math.cos(angle);
         const ay = y2 - arrowSize * 0.5 * Math.sin(angle);
 
