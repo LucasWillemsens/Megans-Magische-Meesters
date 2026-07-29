@@ -1,6 +1,44 @@
 class loadingAnimationsSystem {
     constructor() {
+        this._timeoutIds = [];
+        this._fastForwarded = false;
+        this._animating = false;
+        this._lastAnimatedRound = null;
         this.init();
+    }
+
+    _setTimeout(fn, delay) {
+        const id = setTimeout(() => {
+            if (!this._fastForwarded) fn();
+            this._timeoutIds = this._timeoutIds.filter(tid => tid !== id);
+        }, delay);
+        this._timeoutIds.push(id);
+        return id;
+    }
+
+    _clearAllTimeouts() {
+        this._timeoutIds.forEach(id => clearTimeout(id));
+        this._timeoutIds = [];
+    }
+
+    fastForward(nextUrl, boardPath) {
+        if (this._fastForwarded) return;
+        this._fastForwarded = true;
+        this._animating = false;
+        this._clearAllTimeouts();
+        document.body.classList.remove('animating');
+        document.querySelectorAll('.timeline-banner, .enemyTurnMarker').forEach(el => el.remove());
+        window.location.href = nextUrl || (boardPath ? boardPath() : '/');
+    }
+
+    _lockInteraction() {
+        this._animating = true;
+        document.body.classList.add('animating');
+    }
+
+    _unlockInteraction() {
+        this._animating = false;
+        document.body.classList.remove('animating');
     }
 
     init() {
@@ -9,7 +47,9 @@ class loadingAnimationsSystem {
 
     Animate(classSelector = 'loading', delay = 1200) {
         const animationsElements = Array.from(document.getElementsByClassName(classSelector));
-        const phase = document.getElementById('turnPhase')?.dataset.phase ?? '';
+        const phaseEl = document.getElementById('turnPhase');
+        const phase = phaseEl?.dataset.phase ?? '';
+        const round = parseInt(phaseEl?.dataset.round ?? '0', 10);
         const nextUrl = document.getElementById('boardNext')?.dataset.nextUrl ?? '';
         const moveDuration = Math.max(0.2, Math.min(1.2, delay / 1000));
         const perElementWindow = delay / 2;
@@ -19,6 +59,20 @@ class loadingAnimationsSystem {
         // Check for timeline steps (special draw sequence)
         const timelineElement = document.getElementById('timelineSteps');
         const timeline = timelineElement ? JSON.parse(timelineElement.textContent) : null;
+
+        const boardPath = () => {
+            const path = window.location.pathname;
+            let shortPath = path.substring(0, path.lastIndexOf('action'));
+            if (!shortPath ) {
+                shortPath = path;
+            }
+            return shortPath;
+        };
+
+        const reloadToBoard = () => {
+            this._unlockInteraction();
+            window.location.href = nextUrl || boardPath();
+        };
 
         const animateElement = (element) => {
             element.classList.add('animating');
@@ -38,7 +92,7 @@ class loadingAnimationsSystem {
                         element.classList.remove('loading');
                     };
                     duplicate.addEventListener('transitionend', revealElement, { once: true });
-                    setTimeout(revealElement, moveDuration * 1000 + 100);
+                    this._setTimeout(revealElement, moveDuration * 1000 + 100);
                     requestAnimationFrame(() => {
                         duplicate.classList.add('to-original');
                     });
@@ -51,22 +105,25 @@ class loadingAnimationsSystem {
         const playerElements = animationsElements.filter((element) => element.closest('.enemyBoard') == null);
         const enemyElements = animationsElements.filter((element) => element.closest('.enemyBoard') != null);
 
-        const boardPath = () => {
-            const path = window.location.pathname;
-            let shortPath = path.substring(0, path.lastIndexOf('action'));
-            if (!shortPath ) {
-                shortPath = path;
-            }
-            return shortPath;
-        };
-
-        const reloadToBoard = () => {
-            window.location.href = nextUrl || boardPath();
-        };
+        // Prevent re-entering the same round's enemy phase (Bug 2 fix)
+        if (phase === 'enemy' && this._lastAnimatedRound === round) {
+            this._unlockInteraction();
+            this._clearAllTimeouts();
+            document.querySelectorAll('.enemyTurnMarker').forEach(el => el.remove());
+            reloadToBoard();
+            return;
+        }
+        if (phase === 'enemy' || phase === 'playerMoves') {
+            this._lastAnimatedRound = round;
+        }
 
         if (phase === 'player') {
-            turnMarker(delay, 'Your turn');
-            animationsElements.forEach((element) => element.classList.remove('loading'));
+            this._lockInteraction();
+            turnMarker(delay, 'Your turn', () => this.fastForward(nextUrl, boardPath), this);
+            this._setTimeout(() => {
+                animationsElements.forEach((element) => element.classList.remove('loading'));
+                this._unlockInteraction();
+            }, delay + 300);
             const deckHand = document.querySelector('.playerScreen .deckHand');
             if (deckHand) {
                 deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -75,25 +132,28 @@ class loadingAnimationsSystem {
         }
 
         if (phase === 'playerMoves') {
+            this._lockInteraction();
             playerElements.forEach(animateElement);
             const playerWindow = playerElements.length * perElementWindow;
             const playerFinished = playerElements.length > 0 ? moveDuration * 1000 : 0;
             if (timeline && timeline.length > 0) {
-                // Play timeline after draw animations finish
-                setTimeout(() => {
-                    this.playTimeline(timeline, delay, nextUrl, boardPath);
+                this._setTimeout(() => {
+                    if (!this._fastForwarded) {
+                        this.playTimeline(timeline, delay, nextUrl, boardPath);
+                    }
                 }, Math.max(playerWindow, playerFinished) + 200);
             } else {
                 const reloadWindow = Math.max(
                     Math.min(Math.max(playerWindow, delay / 2), maxWindow),
                     playerFinished,
                 );
-                setTimeout(reloadToBoard, reloadWindow);
+                this._setTimeout(reloadToBoard, reloadWindow);
             }
             return;
         }
 
         if (phase === 'enemy') {
+            this._lockInteraction();
             focusEnemySide();
             playerElements.forEach(animateElement);
             let cursor = playerElements.length * perElementWindow;
@@ -109,11 +169,11 @@ class loadingAnimationsSystem {
                     ? Math.max(boardElements.length * perElementWindow, moveDuration * 1000)
                     : 0;
                 const boardWindow = markerWindow + Math.max(movesWindow, delay / 2);
-                setTimeout(() => {
-                    turnMarker(boardWindow - 300, `${name}'s turn`);
+                this._setTimeout(() => {
+                    turnMarker(boardWindow - 300, `${name}'s turn`, () => this.fastForward(nextUrl, boardPath), this);
                 }, cursor);
                 if (boardElements.length > 0) {
-                    setTimeout(() => {
+                    this._setTimeout(() => {
                         boardElements.forEach(animateElement);
                     }, cursor + markerWindow);
                     lastFinish = Math.max(lastFinish, cursor + markerWindow + moveDuration * 1000);
@@ -122,17 +182,19 @@ class loadingAnimationsSystem {
             });
             const reloadWindow = Math.max(Math.min(cursor, maxWindow), lastFinish);
             if (timeline && timeline.length > 0) {
-                // Play timeline after enemy animations finish
-                setTimeout(() => {
-                    this.playTimeline(timeline, delay, nextUrl, boardPath);
+                this._setTimeout(() => {
+                    if (!this._fastForwarded) {
+                        this.playTimeline(timeline, delay, nextUrl, boardPath);
+                    }
                 }, reloadWindow + 200);
             } else {
-                setTimeout(reloadToBoard, reloadWindow);
+                this._setTimeout(reloadToBoard, reloadWindow);
             }
             return;
         }
 
         if (animationsElements.length > 0) {
+            this._lockInteraction();
             playerElements.forEach(animateElement);
             const playerWindow = playerElements.length * perElementWindow;
             const enemyWindow = enemyElements.length * perElementWindow;
@@ -142,17 +204,17 @@ class loadingAnimationsSystem {
             const reloadWindow = Math.max(Math.min(enemyStart + enemyWindow, maxWindow), enemyFinished);
 
             if (enemyElements.length > 0) {
-                setTimeout(() => {
-                    turnMarker(reloadWindow - playerWindow - 300);
+                this._setTimeout(() => {
+                    turnMarker(reloadWindow - playerWindow - 300, 'Enemy turn', () => this.fastForward(nextUrl, boardPath), this);
                 }, playerWindow);
-                setTimeout(() => {
+                this._setTimeout(() => {
                     enemyElements.forEach(animateElement);
                 }, enemyStart);
             }
 
-            setTimeout(reloadToBoard, reloadWindow);
+            this._setTimeout(reloadToBoard, reloadWindow);
         } else if (nextUrl && nextUrl !== boardPath()) {
-            setTimeout(() => {
+            this._setTimeout(() => {
                 window.location.href = nextUrl;
             }, delay / 2);
         } else {
@@ -160,39 +222,39 @@ class loadingAnimationsSystem {
         }
     }
 
-    /**
-     * Play a timeline of steps sequentially.
-     * Each step waits for the previous step's animations to finish.
-     */
     playTimeline(timeline, delay, nextUrl, boardPath) {
         if (!timeline || timeline.length === 0) {
+            this._unlockInteraction();
             window.location.href = nextUrl || (boardPath ? boardPath() : '/');
             return;
         }
 
-        // Fixed total budget for the whole sequence
-        const totalBudget = delay * 5; // ~6 seconds
+        const totalBudget = delay * 5;
         const stepBudget = totalBudget / Math.max(timeline.length, 1);
         let cursor = 0;
 
         timeline.forEach((step, index) => {
             const stepDuration = this._computeStepDuration(step, stepBudget);
-            setTimeout(() => {
-                this._playStep(step, stepDuration, delay);
+            this._setTimeout(() => {
+                if (!this._fastForwarded) {
+                    this._playStep(step, stepDuration, delay);
+                }
             }, cursor);
             cursor += stepDuration;
         });
 
-        // After all steps complete, reload to nextUrl
-        setTimeout(() => {
-            window.location.href = nextUrl || (boardPath ? boardPath() : '/');
+        this._setTimeout(() => {
+            this._unlockInteraction();
+            if (!this._fastForwarded) {
+                window.location.href = nextUrl || (boardPath ? boardPath() : '/');
+            }
         }, cursor + 500);
     }
 
     _computeStepDuration(step, budget) {
         switch (step.kind) {
             case 'special-trigger':
-                return Math.max(2000, budget * 1.5); // Banner needs time to read
+                return Math.max(2000, budget * 1.5);
             case 'card-effect':
                 return Math.max(800, budget);
             case 'participant-effect':
@@ -202,7 +264,7 @@ class loadingAnimationsSystem {
                 if (cardCount === 0) return 200;
                 if (cardCount <= 3) return 1500;
                 if (cardCount <= 8) return 2000;
-                return 2500; // Compress per-card stagger for large counts
+                return 2500;
             }
             default:
                 return budget;
@@ -227,11 +289,16 @@ class loadingAnimationsSystem {
     }
 
     _playTriggerStep(step, duration) {
-        // Show banner
         if (step.banner) {
-            showBanner(step.banner, duration, 'special');
+            showBanner(step.banner, duration, 'special', () => this.fastForward(
+                document.getElementById('boardNext')?.dataset.nextUrl ?? '',
+                () => {
+                    const path = window.location.pathname;
+                    let shortPath = path.substring(0, path.lastIndexOf('action'));
+                    return shortPath || path;
+                }
+            ), this);
         }
-        // Highlight the lane of the winning stat
         if (step.lane != null) {
             this._highlightLane(step.participantId, step.lane, duration, true);
         }
@@ -245,38 +312,32 @@ class loadingAnimationsSystem {
         const perCardStagger = Math.max(50, staggerTotal / Math.max(cards.length, 1));
         const cardDuration = Math.min(600, Math.max(200, staggerTotal / 2));
 
-        // Highlight destination lane
         if (step.lane != null) {
             this._highlightLane(step.participantId, step.lane, duration, false);
         }
 
         cards.forEach((card, index) => {
-            setTimeout(() => {
+            this._setTimeout(() => {
                 this._animateCardEffect(card, cardDuration, delay);
             }, index * perCardStagger);
         });
     }
 
     _animateCardEffect(cardInfo, cardDuration, delay) {
-        // Find the card element by data-card-id
         const selector = `[data-card-id="${cardInfo.cardId}"]`;
         const element = document.querySelector(selector);
         if (!element) return;
 
-        // Determine if this is a trust-only effect (no flight, just glow)
         if (cardInfo.trust && cardInfo.sourceLane === cardInfo.destinationLane) {
-            // Card stays in place, just add trust glow
             element.classList.add('trust-glow');
-            setTimeout(() => {
+            this._setTimeout(() => {
                 element.classList.remove('trust-glow');
             }, cardDuration + 500);
             return;
         }
 
-        // Use duplicateCard for flight animations
         const sourceLane = cardInfo.sourceLane;
         const sourceOrdinal = cardInfo.sourceOrdinal;
-        // Create duplicate flying from source to the element's current position
         const duplicate = duplicateCard(element, sourceLane, sourceOrdinal);
         if (duplicate) {
             const moveDuration = Math.min(1.0, cardDuration / 1000);
@@ -292,11 +353,11 @@ class loadingAnimationsSystem {
                 element.classList.remove('loading');
                 if (cardInfo.trust) {
                     element.classList.add('trust-glow');
-                    setTimeout(() => element.classList.remove('trust-glow'), 1500);
+                    this._setTimeout(() => element.classList.remove('trust-glow'), 1500);
                 }
             };
             duplicate.addEventListener('transitionend', onReveal, { once: true });
-            setTimeout(onReveal, moveDuration * 1000 + 100);
+            this._setTimeout(onReveal, moveDuration * 1000 + 100);
             requestAnimationFrame(() => {
                 duplicate.classList.add('to-original');
             });
@@ -304,12 +365,17 @@ class loadingAnimationsSystem {
     }
 
     _playParticipantEffectStep(step, duration) {
-        // Show outcome banner
         if (step.banner) {
             const variant = step.defeatedParticipantId ? 'defeat' : 'flee';
-            showBanner(step.banner, duration, variant);
+            showBanner(step.banner, duration, variant, () => this.fastForward(
+                document.getElementById('boardNext')?.dataset.nextUrl ?? '',
+                () => {
+                    const path = window.location.pathname;
+                    let shortPath = path.substring(0, path.lastIndexOf('action'));
+                    return shortPath || path;
+                }
+            ), this);
         }
-        // Dim the affected board
         if (step.defeatedParticipantId) {
             this._dimBoard(step.defeatedParticipantId);
         }
@@ -321,21 +387,19 @@ class loadingAnimationsSystem {
     _playShuffleBack(step, duration) {
         const cards = step.affectedCards || [];
         if (cards.length === 0) {
-            // No cards to shuffle — just a brief deck wiggle
             this._wiggleDeck(step.participantId);
             return;
         }
 
-        const staggerTotal = Math.min(duration * 0.8, duration - 500); // leave 500ms for wiggle
+        const staggerTotal = Math.min(duration * 0.8, duration - 500);
         const perCardStagger = Math.max(50, staggerTotal / Math.max(cards.length, 1));
         const cardDuration = Math.min(800, Math.max(200, staggerTotal / 2));
         let completedCount = 0;
 
         cards.forEach((card, index) => {
-            setTimeout(() => {
+            this._setTimeout(() => {
                 this._flyCardToDeck(card, step.participantId, cardDuration, () => {
                     completedCount++;
-                    // Wiggle the deck after all cards arrive
                     if (completedCount >= cards.length) {
                         this._wiggleDeck(step.participantId);
                     }
@@ -344,9 +408,6 @@ class loadingAnimationsSystem {
         });
     }
 
-    /**
-     * Create a face-down card element for animation purposes.
-     */
     _makeCardClone() {
         const li = document.createElement('li');
         li.className = 'cardContainer faceDown';
@@ -356,13 +417,6 @@ class loadingAnimationsSystem {
         return li;
     }
 
-    /**
-     * Insert a temporary card element at the source lane/hand position
-     * (determined by cardInfo.sourceLane / cardInfo.sourceOrdinal) and return it.
-     * The clone is NOT inserted into the DOM; this function only builds it.
-     * Returns {element, sourceRect} where sourceRect is the bounding box of
-     * the source position, or null if the source container can't be found.
-     */
     _positionCloneAtSource(cardInfo, participantId) {
         const board = this._boardForParticipant(participantId);
         if (!board) return null;
@@ -371,17 +425,14 @@ class loadingAnimationsSystem {
         const lane = cardInfo.sourceLane;
         const ordinal = cardInfo.sourceOrdinal || 0;
 
-        // Find the source container (hand or lane cardRow)
         let sourceContainer = null;
         const laneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
 
         if (lane === 0) {
-            // Hand
             sourceContainer = isPlayer
                 ? document.querySelector('.playerScreen .deckHand .hand')
                 : board.querySelector('.enemyDeckHand .hand');
         } else if (lane > 0 && lane <= 4) {
-            // A lane — find the correct cardRow by ordinal
             const laneEl = board.querySelector(`.lane.${laneNames[lane]}`);
             if (laneEl) {
                 sourceContainer = findCardRowForOrdinal(laneEl, ordinal, 5);
@@ -390,7 +441,6 @@ class loadingAnimationsSystem {
 
         if (!sourceContainer) return null;
 
-        // Create a card clone and add it at the ordinal position in the container
         const clone = this._makeCardClone();
         clone.classList.add('duplicate', 'shuffle-flying');
         const insertIndex = Math.min(Math.max(0, ordinal - 1), sourceContainer.children.length);
@@ -421,7 +471,6 @@ class loadingAnimationsSystem {
             return;
         }
 
-        // Position a clone at the SOURCE location (lane or hand before shuffleBoard)
         const placed = this._positionCloneAtSource(cardInfo, participantId);
         if (!placed) {
             if (onComplete) onComplete();
@@ -432,7 +481,6 @@ class loadingAnimationsSystem {
         const elRect = placed.sourceRect;
         const deckRect = deck.getBoundingClientRect();
 
-        // Immediately re-position as fixed so it doesn't affect layout during flight
         duplicate.style.position = 'fixed';
         duplicate.style.left = `${elRect.left}px`;
         duplicate.style.top = `${elRect.top}px`;
@@ -443,7 +491,6 @@ class loadingAnimationsSystem {
         duplicate.style.zIndex = 1000;
         document.body.appendChild(duplicate);
 
-        // Animate to deck center at normal size, fading out
         requestAnimationFrame(() => {
             duplicate.style.left = `${deckRect.left + deckRect.width / 2 - elRect.width / 2}px`;
             duplicate.style.top = `${deckRect.top + deckRect.height / 2 - elRect.height / 2}px`;
@@ -451,23 +498,17 @@ class loadingAnimationsSystem {
             duplicate.style.opacity = '0.3';
         });
 
-        setTimeout(() => {
+        this._setTimeout(() => {
             duplicate.remove();
             if (onComplete) onComplete();
         }, duration + 50);
     }
 
-    /**
-     * Find the board element (player or enemy) for a given participantId.
-     * Returns the .playerBoard or .enemyBoard element, or null.
-     */
     _boardForParticipant(participantId) {
-        // Try player board first
         const playerBoard = document.querySelector('.playerBoard');
         if (playerBoard && playerBoard.dataset.participantId == participantId) {
             return playerBoard;
         }
-        // Search enemy boards
         const boards = document.querySelectorAll('.enemyBoard');
         for (const board of boards) {
             if (board.dataset.participantId == participantId) {
@@ -486,7 +527,7 @@ class loadingAnimationsSystem {
             : board.querySelector('.enemyDeckHand .deck');
         if (!deck) return;
         deck.classList.add('deck-shuffle');
-        setTimeout(() => {
+        this._setTimeout(() => {
             deck.classList.remove('deck-shuffle');
         }, 600);
     }
@@ -496,7 +537,6 @@ class loadingAnimationsSystem {
         const name = laneNames[laneNumber];
         if (!name) return;
 
-        // Find the board for this participant
         const board = this._boardForParticipant(participantId);
         if (!board) return;
 
@@ -504,18 +544,16 @@ class loadingAnimationsSystem {
         if (!lane) return;
         lane.classList.add('lane-highlight');
 
-        // Also highlight revealed cards in this lane
         const revealedCards = lane.querySelectorAll('.cardContainer:not(.faceDown)');
         revealedCards.forEach(c => c.classList.add('card-highlight'));
 
-        setTimeout(() => {
+        this._setTimeout(() => {
             lane.classList.remove('lane-highlight');
             revealedCards.forEach(c => c.classList.remove('card-highlight'));
         }, duration);
     }
 
     _dimBoard(participantId) {
-        // Dim the board of the given participant
         const board = this._boardForParticipant(participantId);
         if (board) {
             board.classList.add('board-dimmed');
@@ -524,19 +562,17 @@ class loadingAnimationsSystem {
 }
 
 /**
- * Show a banner overlay with the given text and variant styling.
- * Variants: 'special' (gold), 'defeat' (red), 'flee' (grey).
+ * Show a banner overlay with fast-forward button.
  */
-function showBanner(text, holdMs = 2000, variant = 'special') {
+function showBanner(text, holdMs = 2000, variant = 'special', onFastForward, loaderInstance) {
     const banner = document.createElement('div');
     banner.className = `timeline-banner banner-${variant}`;
-    banner.textContent = text;
     Object.assign(banner.style, {
         position: 'fixed',
         top: '30%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
-        padding: '0.75em 2em',
+        padding: '0.75em 2em 2.5em 2em',
         fontSize: '1.5rem',
         fontWeight: 'bold',
         color: '#fff',
@@ -544,12 +580,41 @@ function showBanner(text, holdMs = 2000, variant = 'special') {
         border: '3px solid',
         boxShadow: '0 0 1.5em rgba(0, 0, 0, 0.7)',
         zIndex: 1000,
-        pointerEvents: 'none',
         opacity: '0',
         transition: 'opacity 0.3s ease-in-out',
         textAlign: 'center',
         maxWidth: '80%',
     });
+
+    // Banner text
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+    banner.appendChild(textSpan);
+
+    // Fast-forward button
+    const ffBtn = document.createElement('button');
+    ffBtn.textContent = '⏩ Fast Forward';
+    Object.assign(ffBtn.style, {
+        position: 'absolute',
+        bottom: '0.3em',
+        right: '0.5em',
+        fontSize: '0.65rem',
+        padding: '0.15em 0.5em',
+        border: '1px solid rgba(255,255,255,0.5)',
+        borderRadius: '0.3em',
+        background: 'rgba(255,255,255,0.15)',
+        color: '#fff',
+        cursor: 'pointer',
+        pointerEvents: 'auto',
+        zIndex: 10001,
+    });
+    ffBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (loaderInstance && onFastForward) {
+            onFastForward();
+        }
+    });
+    banner.appendChild(ffBtn);
 
     // Variant styling
     if (variant === 'special') {
@@ -567,23 +632,22 @@ function showBanner(text, holdMs = 2000, variant = 'special') {
     requestAnimationFrame(() => {
         banner.style.opacity = '1';
     });
-    setTimeout(() => {
+    const tid = setTimeout(() => {
         banner.style.opacity = '0';
         setTimeout(() => banner.remove(), 300);
     }, Math.max(holdMs, 0));
     return banner;
 }
 
-function turnMarker(holdMs = 1200, text = 'Enemy turn') {
+function turnMarker(holdMs = 1200, text = 'Enemy turn', onFastForward, loaderInstance) {
     const marker = document.createElement('div');
     marker.className = 'enemyTurnMarker';
-    marker.textContent = text;
     Object.assign(marker.style, {
         position: 'fixed',
         top: '35%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
-        padding: '0.5em 1.5em',
+        padding: '0.5em 1.5em 2em 1.5em',
         fontSize: '2rem',
         fontWeight: 'bold',
         color: '#fff',
@@ -592,10 +656,41 @@ function turnMarker(holdMs = 1200, text = 'Enemy turn') {
         borderRadius: '0.5em',
         boxShadow: '0 0 1em rgba(0, 0, 0, 0.6)',
         zIndex: 1000,
-        pointerEvents: 'none',
         opacity: '0',
         transition: 'opacity 0.3s ease-in-out',
+        textAlign: 'center',
     });
+
+    // Text
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+    marker.appendChild(textSpan);
+
+    // Fast-forward button
+    const ffBtn = document.createElement('button');
+    ffBtn.textContent = '⏩ Fast Forward';
+    Object.assign(ffBtn.style, {
+        position: 'absolute',
+        bottom: '0.2em',
+        right: '0.4em',
+        fontSize: '0.6rem',
+        padding: '0.1em 0.4em',
+        border: '1px solid rgba(255,255,255,0.4)',
+        borderRadius: '0.3em',
+        background: 'rgba(255,255,255,0.12)',
+        color: '#fff',
+        cursor: 'pointer',
+        pointerEvents: 'auto',
+        zIndex: 10001,
+    });
+    ffBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (loaderInstance && onFastForward) {
+            onFastForward();
+        }
+    });
+    marker.appendChild(ffBtn);
+
     document.body.appendChild(marker);
     requestAnimationFrame(() => {
         marker.style.opacity = '1';
@@ -615,15 +710,10 @@ function focusEnemySide() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/**
- * Find the correct .cardRow within a lane for a given ordinal.
- * When a lane has multiple rows (overflow), this calculates which row
- * the ordinal falls into based on cards-per-row.
- */
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
     const rows = laneElement.querySelectorAll(':scope > ul.cardRow');
     if (rows.length <= 1) return rows[0] || null;
-    const cpr = cardsPerRow || 5; // fallback default
+    const cpr = cardsPerRow || 5;
     const rowIndex = Math.min(Math.max(0, Math.floor((ordinal - 1) / cpr)), rows.length - 1);
     return rows[rowIndex];
 }
@@ -631,7 +721,7 @@ function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
 function duplicateCard(element, lane, ordinal)
 {
     let laneElement  = null;
-    const cardsPerRow = 5; // Default, will be recalculated by LaneCardStacking
+    const cardsPerRow = 5;
     const duplicate = element.cloneNode(true);
     duplicate.classList.add('duplicate');
     const enemyBoard = element.closest('.enemyBoard');

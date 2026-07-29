@@ -628,6 +628,7 @@ div.playerScreen{
             min-width: 8rem;
             height: 100%;
             position: relative;
+            overflow: hidden clip;
         }
         ul.lanes li.lane.Intelligence {
             background-color: 
@@ -1343,4 +1344,46 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
 /* Timeline banner variant styles */
 .timeline-banner {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Interaction lock during animations — only fast-forward is clickable */
+body.animating .playerBoard,
+body.animating .deckHand,
+body.animating .enemyBoards {
+    pointer-events: none;
+    user-select: none;
+}
+body.animating .lane-highlight {
+    pointer-events: auto;
+}
+body.animating button.end-turn:not(.fast-forward-btn),
+body.animating button.draw,
+body.animating .cardContainer[draggable="true"],
+body.animating .cardContainer.faceDown:not(.blocked) {
+    pointer-events: none !important;
+}
+
+/* CSS-generated playing card face (no-art fallback) */
+.card.smallCard .playing-card-rank {
+    display: block;
+    font-size: 1.1em;
+    font-weight: bold;
+    line-height: 1.1;
+    text-align: center;
+}
+.card.smallCard .playing-card-suit {
+    display: block;
+    font-size: 1.5em;
+    line-height: 1.1;
+    text-align: center;
+}
+.card.smallCard .playing-card-suit.suit-0 { color: #090; }  /* Clubs - green */
+.card.smallCard .playing-card-suit.suit-1 { color: #000; }  /* Spades - black */
+.card.smallCard .playing-card-suit.suit-2 { color: #00f; }  /* Diamonds - blue */
+.card.smallCard .playing-card-suit.suit-3 { color: #f00; }  /* Hearts - red */
+li.cardContainer > .smallCard button .playing-card-rank,
+li.cardContainer > .smallCard button .playing-card-suit {
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1.2;
 }

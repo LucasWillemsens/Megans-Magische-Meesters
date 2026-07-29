@@ -8,7 +8,7 @@
 class LaneCardStacking {
     constructor() {
         this.debounceTimer = null;
-        this.overlapOffset = 1.4; // em per card overlap (from CSS nth-child)
+        this.overlapOffset = 2.0; // em per card overlap — increased from 1.4 to prevent lanes overflowing into neighbors
         this.init();
     }
 

@@ -2,7 +2,7 @@
 
 {% block content %}
 {% if turnPhase %}
-<div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
+<div id="turnPhase" data-phase="{{ turnPhase }}" data-round="{{ game.roundNumber }}" hidden></div>
 {% endif %}
 <div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
 {% if timelineSteps %}
@@ -85,8 +85,8 @@
                                 data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                                    <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -114,8 +114,8 @@
                             <li class="cardContainer {{ card.cssClass }}">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                                    <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -164,8 +164,8 @@
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
                                 <div class="card back smallCard">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                                    <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -187,7 +187,8 @@
                                 style="--card-rotation: {{ card_rotation }}deg;">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                    <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                                    <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                     {% endif %}
@@ -213,8 +214,8 @@
                                 style="--card-rotation: {{ trusted_card_rotation }}deg;">
                                 <div class="card smallCard">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                                    <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -279,7 +280,8 @@
                     <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
                     <button type="submit" class="{{ card.cssClass }}" title="Play to {{ card.card.cardType }}">
                         {% if card.card.artSource == "" %}
-                        <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                        <span class="playing-card-rank">{{ card.card.title | playing_card_rank }}</span>
+                        <span class="playing-card-suit suit-{{ card.card.cardType }}">{{ card.card.cardType | playing_card_suit_symbol }}</span>
                         {% else %}
                         <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                         {% endif %}
