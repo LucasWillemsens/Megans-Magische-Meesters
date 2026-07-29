@@ -1344,3 +1344,71 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
 .timeline-banner {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
+
+/* ════════════════════════════════════════════════════════════════
+   Client-side asset generation — CSS playing card fallback
+   ════════════════════════════════════════════════════════════════ */
+
+/* When a .card.smallCard uses CSS Playing Cards framework classes
+   (rank-*), overlay smallCardInfo at the bottom so the rank/suit
+   symbols remain visible behind a semi-transparent strip. */
+.card.smallCard[class*="rank-"] .smallCardInfo {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.78);
+    border-top: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0 0 0.3em 0.3em;
+    padding: 2px 0;
+    z-index: 1;
+}
+
+/* Ensure the playing card itself has a visible background and
+   clips any overflowing pseudo-element content. */
+.card.smallCard[class*="rank-"] {
+    background-color: var(--card-background, #c7dce0);
+    overflow: hidden;
+    position: relative;
+}
+
+/* Spotlight playing card (viewCard.jinja2 large detail view).
+   Sized 14rem × 14rem with larger rank/suit text. */
+.spotlight.playing-card-spotlight.card {
+    width: 14rem;
+    height: 14rem;
+    font-size: 2.5em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: var(--card-background, #c7dce0);
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+}
+.spotlight.playing-card-spotlight .rank {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.75rem;
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+.spotlight.playing-card-spotlight .suit {
+    position: absolute;
+    top: 2rem;
+    left: 0.75rem;
+    font-size: 1.2rem;
+}
+
+/* cardOptions in createGame — radio-button labels need the card
+   to be a flex container to stack vertically with the label text. */
+.cardOptions .smallCard.card[class*="rank-"] {
+    display: flex;
+}
+.cardOptions .smallCard.card[class*="rank-"] .smallCardInfo {
+    position: static;
+    background: none;
+    border: none;
+    padding: 0;
+}

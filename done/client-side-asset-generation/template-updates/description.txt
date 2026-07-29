@@ -1,0 +1,151 @@
+Update all templates that render card faces to show CSS playing card markup (from the cards.css framework) instead of the fallback placeholder image `1flubeltje.jpg` when `artSource == ""`. The playing card rendering applies the rank class, suit class, rank span, and suit span on the `.card` element so the CSS framework generates the visual appearance.
+
+## General pattern
+
+Every card currently follows this pattern:
+```jinja2
+<div class="card smallCard">
+    {% if card.artSource == "" %}
+    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" ... />
+    {% else %}
+    <img class="fit-picture" src="{{ static(card.artSource)}}" ... />
+    {% endif %}
+    <div class="smallCardInfo">
+        <p>{{ card.title }}</p>
+        <p class="cardType">TypeName</p>
+    </div>
+</div>
+```
+
+Replace with:
+```jinja2
+<div class="card smallCard{% if card.artSource == "" %} {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
+    {% if card.artSource == "" %}
+    <span class="rank">{{ card|playing_card_rank_display }}</span>
+    <span class="suit">{{ card|playing_card_suit_display }}</span>
+    {% else %}
+    <img class="fit-picture" src="{{ static(card.artSource)}}" ... />
+    {% endif %}
+    <div class="smallCardInfo">
+        <p>{{ card.title }}</p>
+        <p class="cardType">TypeName</p>
+    </div>
+</div>
+```
+
+The rank and suit classes go on the **same `.card` element** as the CSS framework expects (`.playingCards .card.rank-j.spades`). The rank and suit spans provide the top-left text labels; the CSS framework's `:after` pseudo-elements generate the large center symbols and the mirrored bottom-right rank.
+
+For the `.card` element to receive the CSS framework styles, it must be inside a container with class `.playingCards`. When a template section does NOT already have a `.playingCards` wrapper, one must be added as a parent div.
+
+## Templates to modify
+
+### 1. `MMM/jinja2/MMM/index.jinja2` — Latest cards listing
+
+- Lines 56–73: The `<div class="card smallCard">` for each card in the loop
+- **Already has** `.playingCards` wrapper on line 46: `<div class="cards playingCards fourColours">`
+- Change lines 58–62: replace the img fallback with playing card spans
+- Add rank/suit CSS classes to the `.card` div (line 57)
+
+### 2. `MMM/jinja2/MMM/viewCard.jinja2` — Card detail page
+
+- Lines 16–21: The spotlight art image
+- **NO existing `.playingCards` wrapper** — add one around the card info section
+- Replace the img fallback with a playing card div structure (not inside an `<img>` element — use a `<div>` with class `"fit-picture spotlight playing-card-spotlight"` plus rank/suit classes and rank/suit spans inside)
+- This is a larger "spotlight" rendering, not a `.smallCard`, so the playing card will need different sizing here
+
+### 3. `MMM/jinja2/MMM/viewPlayer.jinja2` — Player collection
+
+- Lines 94–110: The `<div class="card smallCard">` for each card in the collection
+- **Already has** `.playingCards` wrapper on line 84: `<div class="cards playingCards fourColours">`
+- Change lines 96–100: replace the img fallback with playing card spans
+- Add rank/suit CSS classes to the `.card` div (line 95)
+
+### 4. `MMM/jinja2/MMM/createGame.jinja2` — Card selection for game creation
+
+- Lines 106–110: The `<div class="smallCard">` for each card in the owned cards section (inside `<label>`)
+- Lines 61–65: Deck art rendering (uses same fallback pattern but for Deck model, not Card — only modify the card section)
+- **NO existing `.playingCards` wrapper** — add one around the card options section
+- Note: This section uses `<div class="smallCard">` (NOT `card smallCard` — note the order difference from other templates). The pattern is inside a `<label>` element, so adapt accordingly: add `card` class and rank/suit classes
+- Change the card radio-button labels to include the playing card rendering
+
+### 5. `MMM/jinja2/MMM/battle/viewBoard.jinja2` — Battle board
+
+This template has FIVE locations where face-up cards are rendered, all using `card.card` (GameCard → Card):
+
+| Location | Lines | Context | artSource access |
+|----------|-------|---------|-----------------|
+| Enemy revealed lane cards | 86–107 | `card.card.artSource` | `card.card.artSource` |
+| Enemy trusted lane cards | 114–133 | `card.card.artSource` | `card.card.artSource` |
+| Player face-down lane cards (with back) | 166–183 | Behind the back, still shows name | `card.card.artSource` |
+| Player face-up lane cards | 188–204 | Revealed cards | `card.card.artSource` |
+| Player trusted lane cards | 214–233 | Trusted cards | `card.card.artSource` |
+| Hand cards (in form buttons) | 281–294 | Hand card with art | `card.card.artSource` |
+
+- **Already has** `.playingCards` wrapper: `<div class="playerScreen playingCards fourColours rotateHand">`
+- **Important**: The board template uses `card.card` (GameCard wrapping Card). Filters receive the Card object, so use `card.card|playing_card_rank_class` etc.
+- Each location needs the same transformation: replace the fallback `<img>` with rank/suit spans, add rank/suit classes to the `.card.smallCard` div
+
+Also note: Player face-down lane cards (lines 166–183) show the card back but still show card title/type. The face-down look uses the ".back" class, which hides inner content (text-indent: -4000px). So the playing card rank/suit would be invisible anyway — that's correct. But the fallback img would also be invisible. The key change here is just to add the rank/suit classes for consistency when the card is later flipped face-up (via cookie-based flip). Actually, for face-down cards we should keep the current `.card back smallCard` — no change needed except to add the CSS classes so that when the card is flipped client-side, it shows the right classes.
+
+Wait, actually face-down cards currently also show a "back of card" with no details. In the board template, face-down cards show the back AND also have an img + smallCardInfo hidden by the `.back` class styling. The `.back` class does `text-indent: -4000px` which hides text, and the card has `background-color: #ccc` with a pattern. The img would be behind the back pattern, so it's never visible.
+
+For face-down cards, we don't need to change the rendering at all — they already use `.card.back` which handles the visual. But we should still add the rank/suit classes so that when the card is flipped (by removing `.back`), the CSS framework instantly shows the right playing card look. However, the face-down card in the current code doesn't have an `artSource` check since it's always showing the back. Looking at lines 166-183:
+
+```jinja2
+<div class="card back smallCard">
+    {% if card.card.artSource == "" %}
+    <img ... src="{{ static('1flubeltje.jpg')}}" ... />
+    {% else %}
+    <img ... src="{{ static(card.card.artSource)}}" ... />
+    {% endif %}
+    <div class="smallCardInfo">
+        <p>{{ card.card.title }}</p>
+        <p class="cardType">TypeName</p>
+    </div>
+</div>
+```
+
+For face-down cards in the board, the `.back` class hides everything via `text-indent: -4000px` and sets a background pattern. The img inside is irrelevant visually. The server sends this HTML and on client-side flip, the `.back` class is removed to reveal the content.
+
+So for face-down cards, I think we should:
+1. Still replace the img with rank/suit spans (for when the card is flipped and `.back` is removed)
+2. Add the rank/suit CSS classes on the `.card` element
+
+But wait — the face-down card template currently doesn't differentiate between artSource being empty or not. The img tag is always rendered (even with `1flubeltje.jpg`). So I should apply the same artSource check and rendering logic.
+
+Actually, let me re-examine. For face-down cards, the content inside the `.card.back` div is hidden. So it doesn't matter what we put there — it's hidden. But when the client-side JS flips the card (removes `.back`), the content becomes visible. So if we use playing card markup, when the card is flipped, it shows the playing card appearance. That's exactly what we want!
+
+OK so my approach is correct: apply the same transformation to ALL card renderings, including face-down cards in the board. The face-down card currently shows the card back and will continue to do so. When flipped (`.back` removed), the playing card markup becomes visible.
+
+## Implementation steps
+
+1. Edit `index.jinja2` — replace fallback img with playing card spans in the card loop
+2. Edit `viewCard.jinja2` — replace fallback img with playing card div in the spotlight section
+3. Edit `viewPlayer.jinja2` — replace fallback img with playing card spans in the collection loop
+4. Edit `createGame.jinja2` — replace fallback img with playing card spans in the card selection radio buttons
+5. Edit `viewBoard.jinja2` — replace all 6 face-up/face-down card rendering locations
+
+## Files to modify
+
+- `MMM/jinja2/MMM/index.jinja2`
+- `MMM/jinja2/MMM/viewCard.jinja2`
+- `MMM/jinja2/MMM/viewPlayer.jinja2`
+- `MMM/jinja2/MMM/createGame.jinja2`
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2`
+
+## Acceptance criteria
+
+- [ ] In `index.jinja2`, a card with `artSource == ""` shows the CSS playing card look (rank/suit classes + rank/suit spans) instead of the `1flubeltje.jpg` image
+- [ ] In `index.jinja2`, a card with `artSource != ""` still shows its configured artwork image
+- [ ] In `viewBoard.jinja2`, a face-up revealed card with `artSource == ""` shows the CSS playing card look
+- [ ] In `viewBoard.jinja2`, a face-down card with `artSource == ""` shows the card back, and when flipped (`.back` removed) reveals the playing card look
+- [ ] In `viewBoard.jinja2`, a hand card with `artSource == ""` shows the playing card look
+- [ ] In `viewPlayer.jinja2`, cards with `artSource == ""` show the playing card look
+- [ ] In `createGame.jinja2`, cards with `artSource == ""` show the playing card look in radio button labels
+- [ ] In `viewCard.jinja2`, a card with `artSource == ""` shows a larger playing card rendering
+- [ ] No template errors occur when filters are applied (filters from subgoal 1 must be complete first)
+- [ ] The `1flubeltje.jpg` fallback is no longer referenced for card art (only for deck art where applicable)
+
+## Dependencies
+
+- Subgoal **suit-rank-helpers** must be complete first (the 5 Jinja2 filters must exist)

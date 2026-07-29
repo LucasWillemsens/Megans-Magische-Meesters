@@ -92,16 +92,17 @@
             <ul class="basic-mat">
                 {% for card in cardOwner.card.all() %}
                 <li class="cardContainer">
-                    <div class="card smallCard">
+                    <div class="card smallCard{% if card.artSource == "" %} {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
                         {% if card.artSource == "" %}
-                        <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                        <span class="rank">{{ card|playing_card_rank_display }}</span>
+                        <span class="suit">{{ card|playing_card_suit_display }}</span>
                         {% else %}
                         <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                         {% endif %}
                 
                         <div class="smallCardInfo">
                             <a href="{{returnURL}}card/{{ card.id }}/">
-                                {{ card.title }}
+                                {% if card.artSource == "" %}{{ card|playing_card_default_name }}{% else %}{{ card.title }}{% endif %}
                             </a>
                             <p class="cardType">
                                 {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}

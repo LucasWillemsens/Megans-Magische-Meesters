@@ -103,17 +103,20 @@
                     <div class="smallCard">
                         <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
                             <label for="startingCard{{card.id}}">
+                                <div class="card smallCard{% if card.artSource == "" %} {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
                                 {% if card.artSource == "" %}
-                                <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                                <span class="rank">{{ card|playing_card_rank_display }}</span>
+                                <span class="suit">{{ card|playing_card_suit_display }}</span>
                                 {% else %}
                                 <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                                 {% endif %}
 
                                 <div class="smallCardInfo">
-                                        {{ card.title }}
+                                        {% if card.artSource == "" %}{{ card|playing_card_default_name }}{% else %}{{ card.title }}{% endif %}
                                     <p class="cardType">
                                         {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
                                     </p>
+                                </div>
                                 </div>
                             </label>
                         </input>

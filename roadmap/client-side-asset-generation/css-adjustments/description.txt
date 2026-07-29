@@ -1,0 +1,157 @@
+Add CSS rules so the CSS Playing Cards framework rendering (rank/suit classes, rank/suit spans, and the framework's `:after` pseudo-element suit symbols) fits within the existing `.smallCard` layout alongside `.smallCardInfo` without visual overlap or broken sizing.
+
+## Background
+
+The existing card layout uses a `.card.smallCard` div containing either an `<img>` or (after the template-updates subgoal) rank/suit spans, plus a `.smallCardInfo` div with title and type text. The CSS Playing Cards framework defines `.playingCards .card` with specific dimensions (width: 4.25rem, height: 6rem, padding: .25em) and positions `.rank` and `.suit` spans at the top-left. The `.smallCardInfo` div is currently centered in the card below the image.
+
+The problem: when rank/suit spans replace the image, the `.smallCardInfo` (which shows title + type at the bottom of the card) may overlap with the CSS framework's large center suit symbols (rendered via `.suit:after`) and the mirrored bottom-right rank (rendered via `.rank:after`).
+
+## CSS rules to add (in `var/www/static/cards.css`)
+
+### 1. Playing card layout within `.smallCard`
+
+Add a rule that when a `.card.smallCard` has rank classes (`.rank-2` through `.rank-a`), the framework's default `width: 4.25rem` and `height: 6rem` should be maintained, but the card needs to accommodate both the playing card display and the info panel.
+
+The `.smallCardInfo` should be positioned at the bottom of the card with a semi-transparent background so it overlays the bottom suit symbols but remains readable:
+
+```css
+/* When a card has playing card classes, position smallCardInfo at the bottom */
+.card.smallCard.rank-2,
+.card.smallCard.rank-3,
+.card.smallCard.rank-4,
+.card.smallCard.rank-5,
+.card.smallCard.rank-6,
+.card.smallCard.rank-7,
+.card.smallCard.rank-8,
+.card.smallCard.rank-9,
+.card.smallCard.rank-10,
+.card.smallCard.rank-j,
+.card.smallCard.rank-q,
+.card.smallCard.rank-k,
+.card.smallCard.rank-a {
+    /* Ensure playing card fills the space */
+    display: inline-block;
+}
+
+.card.smallCard.rank-2 .smallCardInfo,
+/* ... all ranks ... */
+.card.smallCard.rank-a .smallCardInfo {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.75);
+    border-top: 1px solid #666;
+    border-radius: 0 0 0.3em 0.3em;
+    padding: 2px 0;
+    z-index: 1;
+}
+```
+
+Or better, use a generic selector pattern to avoid listing all 13 ranks:
+
+```css
+.card.smallCard[class*="rank-"] .smallCardInfo {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.75);
+    border-top: 1px solid #666;
+    border-radius: 0 0 0.3em 0.3em;
+    padding: 2px 0;
+    z-index: 1;
+}
+```
+
+However, the CSS framework's `.rank:after` pseudo-element also renders content at the bottom-right. The semi-transparent `.smallCardInfo` overlay will partially cover it, which is acceptable since the mirrored rank is redundant with the top-left rank.
+
+### 2. Card background
+
+The CSS framework sets `background-color: var(--card-background)` for `.playingCards .card`. The `.smallCardInfo` can use a lighter background to stay readable:
+
+```css
+.card.smallCard[class*="rank-"] {
+    background-color: var(--card-background);
+    overflow: hidden;
+}
+```
+
+### 3. Hand card adjustments
+
+Hand cards in the battle board use `.playingCards.rotateHand` which adds transforms. The playing card should rotate correctly within the hand. The `.smallCardInfo` should still sit at the bottom after rotation. No special rules needed since `.smallCardInfo` is inside the rotated container.
+
+### 4. Spotlight card (viewCard.jinja2)
+
+For the card detail page, the `.spotlight` class makes the card larger (14rem × 14rem). For a playing card rendering there, we need a special style:
+
+```css
+.fit-picture.spotlight.playing-card-spotlight,
+.spotlight.playing-card-spotlight {
+    width: 14rem;
+    height: 14rem;
+    font-size: 3em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: var(--card-background);
+    border-radius: 0.5rem;
+    border: 3px solid black;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+}
+.spotlight.playing-card-spotlight .rank {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.75rem;
+    font-size: 1.5rem;
+}
+.spotlight.playing-card-spotlight .suit {
+    position: absolute;
+    top: 2.5rem;
+    left: 0.75rem;
+    font-size: 1.5rem;
+}
+```
+
+### 5. Card options in createGame
+
+The `.cardOptions .smallCard` in `createGame.jinja2` uses a column-reverse flex layout. The playing card classes need to work inside this context. The `card` class from the framework provides inline-block display which may conflict with the `flex` display on the parent. A reset may be needed:
+
+```css
+.cardOptions .smallCard.card {
+    display: flex;  /* override the inline-block from .playingCards .card */
+}
+.cardOptions .smallCard.card[class*="rank-"] .smallCardInfo {
+    position: static;  /* let flexbox handle positioning */
+    background: none;
+    border: none;
+}
+```
+
+## Implementation steps
+
+1. Add the `.card.smallCard[class*="rank-"] .smallCardInfo` overlay rule to `cards.css`
+2. Add the `overflow: hidden` on the playing card container
+3. Add the spotlight playing card rules for `viewCard.jinja2`
+4. Add the card-options adjustments for `createGame.jinja2`
+5. Test visually by loading the app and navigating to pages with cards that have `artSource == ""`
+
+## Files to modify
+
+- `var/www/static/cards.css` — Add the new CSS rules at the end of the file (before the final `@keyframes` blocks) or grouped logically near the `.smallCardInfo` section
+
+## Acceptance criteria
+
+- [ ] A card with `artSource == ""` shows the playing card suit symbols (♠♥♦♣) in the center of the card via the CSS framework's `:after` pseudo-elements
+- [ ] A card with `artSource == ""` shows the rank letter/number at the top-left of the card
+- [ ] `.smallCardInfo` (title + type) is readable at the bottom of the card, overlaid on the suit symbols with a semi-transparent background
+- [ ] In `viewBoard.jinja2`, hand cards with playing card look rotate correctly and show info properly
+- [ ] In `viewCard.jinja2`, the spotlight playing card is large (14rem) and readable
+- [ ] In `createGame.jinja2`, the card radio buttons show playing cards without layout breakage
+- [ ] No regression: cards with `artSource != ""` still show their artwork image correctly (these changes should only activate when `[class*="rank-"]` is present)
+- [ ] Face-down cards (`.card.back`) are unaffected and still show the card back pattern
+
+## Dependencies
+
+- Subgoal **template-updates** should be substantially complete so the CSS changes can be tested against the actual rendered markup
