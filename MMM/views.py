@@ -460,17 +460,17 @@ def resSpecial(participant, count, timeline=None):
     from MMM.special_timeline import build_res_timeline
     print(f"{participant.player.name} holds and trusts up to {count} cards")
     newCards = getTrustableCards(participant)
-    if newCards is None or len(newCards) < 1:
-        return
-    random.shuffle(newCards)
-    chosen = newCards[:min(count, len(newCards))]
-    chosen_ids = [card.id for card in chosen]
-    for newCard in chosen:
-        newCard.state.trust()
-        newCard.state.save()
-    # Record timeline steps after execution.
-    # Pass chosen_ids so build_res_timeline can re-query with fresh state
-    # after trust() changed the card states.
+    chosen_ids = []
+    if newCards:
+        random.shuffle(newCards)
+        chosen = newCards[:min(count, len(newCards))]
+        chosen_ids = [card.id for card in chosen]
+        for newCard in chosen:
+            newCard.state.trust()
+            newCard.state.save()
+    # Always record timeline steps, even if no cards were trustable.
+    # The trigger banner should still display so the special "activates"
+    # visually — otherwise it looks like nothing happened.
     if timeline is not None:
         build_res_timeline(participant, count, timeline, card_ids=chosen_ids)
 
@@ -663,18 +663,11 @@ def _run_bot_turn(game, human_player_id):
         if hand_card is None:
             next_deck_card = bot_participant.getNextDeckCard()
             if bot_participant.drawCard() is not None:
-                bot_actions.append(
-                    {
-                        "participantId": bot_participant.id,
-                        "playerId": bot_participant.player_id,
-                        "cardId": next_deck_card.id,
-                        "laneValue": 0,
-                        "sourceLane": next_deck_card.state.lane,
-                        "sourceOrdinal": next_deck_card.state.laneOrdinal,
-                        "flipFaceUp": False,
-                    }
-                )
                 if bot_participant.getNextDeckCard() is None:
+                    # Drawing emptied the deck: specials + shuffle will handle
+                    # everything visually.  Don't record the draw action — the
+                    # card is immediately shuffled back, so a deck→hand→deck
+                    # animation would conflict with the shuffle timeline.
                     timeline = []
                     specialActions(bot_participant, timeline)
                     from MMM.special_timeline import build_shuffle_step
@@ -682,6 +675,18 @@ def _run_bot_turn(game, human_player_id):
                     bot_participant.shuffleBoard()
                     if timeline:
                         bot_timelines.extend(timeline)
+                else:
+                    bot_actions.append(
+                        {
+                            "participantId": bot_participant.id,
+                            "playerId": bot_participant.player_id,
+                            "cardId": next_deck_card.id,
+                            "laneValue": 0,
+                            "sourceLane": next_deck_card.state.lane,
+                            "sourceOrdinal": next_deck_card.state.laneOrdinal,
+                            "flipFaceUp": False,
+                        }
+                    )
             # Re-check for hand cards after drawing
             hand_card = (
                 GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)

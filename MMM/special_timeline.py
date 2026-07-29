@@ -156,10 +156,10 @@ def build_spd_timeline(participant, speed, power, opponent, timeline):
         # Rush down
         banner = f"{participant.player.name} rushes down {opponent.player.name}"
         timeline.append(build_trigger_step(participant, banner, lane=2))
-        # Opponent's special steps are appended to the SAME timeline (flattening)
-        # by calling the opponent's special functions with the same timeline
-        from MMM.views import specialActions
-        specialActions(opponent, timeline)
+        # Opponent's special steps are flattened into the same timeline
+        # by spdSpecial (the caller), which calls specialActions(opponent, timeline)
+        # AFTER build_spd_timeline returns.  We ONLY record the trigger here —
+        # do NOT call specialActions ourselves or we'd double-execute them.
         return ""
     else:
         if opponentSpd < speed:
@@ -243,12 +243,12 @@ def build_res_timeline(participant, count, timeline, card_ids=None):
     else:
         from MMM.views import getTrustableCards
         newCards = getTrustableCards(participant)
-    if not newCards:
-        return
     import random
     random.shuffle(newCards)
     chosen = newCards[:min(count, len(newCards))]
 
+    # Always add the trigger banner, even when no cards can be trusted.
+    # This ensures the special "activates" visually.
     banner = f"{participant.player.name} holds and trusts up to {count} cards"
     timeline.append(build_trigger_step(participant, banner, lane=4))
 
