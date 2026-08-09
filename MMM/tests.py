@@ -1,6 +1,7 @@
 import json
 import re
 from http.cookies import SimpleCookie
+from types import SimpleNamespace
 
 from django.test import TestCase
 from django.urls import reverse
@@ -118,6 +119,55 @@ class BattleFlowTests(TestCase):
         self.assertIn("0d", content)
         self.assertIn("0p", content)
         self.assertIn("0f", content)
+
+    def test_artless_cards_render_with_css_playing_card_markup(self):
+        from mysite.jinja2 import (
+            playing_card_default_name,
+            playing_card_rank_class,
+            playing_card_rank_display,
+            playing_card_suit_class,
+        )
+
+        helper_card = SimpleNamespace(id=9, cardType=1)
+        self.assertEqual(playing_card_rank_class(helper_card), "rank-j")
+        self.assertEqual(playing_card_rank_display(helper_card), "J")
+        self.assertEqual(playing_card_suit_class(helper_card), "spades")
+        self.assertEqual(playing_card_default_name(helper_card), "Jack of Spades")
+
+        card = self.human_cards[0]
+        response = self.client.get(reverse("MMM:viewCard", args=[card.id]))
+        content = response.content.decode()
+        rank_class = playing_card_rank_class(card)
+        suit_class = playing_card_suit_class(card)
+        self.assertIn(
+            f'class="spotlight playing-card-spotlight card {rank_class} {suit_class}"',
+            content,
+        )
+        self.assertIn(
+            f'<span class="rank">{playing_card_rank_display(card)}</span>',
+            content,
+        )
+        self.assertNotIn("1flubeltje.jpg", content)
+
+    def test_generated_deck_cards_use_css_markup_in_collection(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from mysite.jinja2 import playing_card_rank_class, playing_card_suit_class
+
+        call_command("add_deck_cards", stdout=StringIO())
+        lucas = Player.objects.get(name="Lucas")
+        generated_card = Card.objects.filter(
+            ownerHistory__cardOwner=lucas,
+        ).order_by("id").first()
+
+        response = self.client.get(reverse("MMM:viewPlayer", args=[lucas.id]))
+        content = response.content.decode()
+        self.assertIn(
+            f'class="card smallCard {playing_card_rank_class(generated_card)} '
+            f'{playing_card_suit_class(generated_card)}"',
+            content,
+        )
+        self.assertNotIn("1flubeltje.jpg", content)
 
     def test_confirm_is_idempotent(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -400,6 +450,56 @@ class BattleFlowTests(TestCase):
         self.assertContains(response, 'data-phase="enemy"')
         self.assertNotContains(response, "cardContainer loading")
         self.assertEqual(response.cookies["turn_phase"].value, "player")
+
+    def test_enemy_resolve_special_hands_off_to_player_phase(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        # Leave exactly one bot card in the deck and give the bot only a
+        # Resolve stat.  Its last draw therefore triggers the Resolve special.
+        bot_cards = list(
+            GameCard.objects.filter(
+                game_id=self.game.id, user_id=self.bot_participant.id
+            ).order_by("id")
+        )
+        last_card = bot_cards[-1]
+        for ordinal, game_card in enumerate(bot_cards[:-1], start=1):
+            game_card.state.inDeck = False
+            game_card.state.lane = 4
+            game_card.state.laneOrdinal = ordinal
+            game_card.state.faceDown = False
+            game_card.state.trusted = True
+            game_card.state.save()
+        last_card.state.inDeck = True
+        last_card.state.lane = -1
+        last_card.state.laneOrdinal = 0
+        last_card.state.faceDown = True
+        last_card.state.trusted = False
+        last_card.state.save()
+
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+        self.assertEqual(response.cookies["turn_phase"].value, "enemy")
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertEqual(response.cookies["turn_phase"].value, "player")
+        self.assertFalse(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.bot_participant.id,
+                cssClass="loading",
+            ).exists()
+        )
+
+        # The browser's next reload must be the player's phase, not another
+        # enemy-phase render that can show the marker again.
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="player"')
+        self.assertEqual(response.cookies["turn_phase"].value, "")
 
     def test_enemy_hand_cards_can_be_marked_loading(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -1373,5 +1473,3 @@ class SpecialTimelineTests(TestCase):
             "intSpecial should produce card-effect steps even after playCard moves cards. "
             "Bug: build_int_timeline looks for cards in hand after playCard already moved them."
         )
-
-

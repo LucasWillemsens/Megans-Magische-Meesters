@@ -10,15 +10,20 @@
     
     <div class="cardInfo">
         
-        <h2> {{card.title}} </h2>
+        <h2> {% if card.artSource == "" %}{{ card|playing_card_default_name }}{% else %}{{card.title}}{% endif %} </h2>
 
         <!-- ART -->
+        <div class="playingCards">
         {% if card.artSource == "" %}
-        <img class="fit-picture spotlight" src="{{ static('1flubeltje.jpg')}}" alt="{{card.title}} card artwork" />
+        <div class="spotlight playing-card-spotlight card {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}">
+            <span class="rank">{{ card|playing_card_rank_display }}</span>
+            <span class="suit">{{ card|playing_card_suit_display }}</span>
+        </div>
         {% else %}
         <img class="fit-picture spotlight" src="{{ static(card.artSource)}}"
             alt="{{card.title}} card artwork" />
         {% endif %}
+        </div>
 
         <!-- TYPE -->
         <p class="cardType">
@@ -69,4 +74,3 @@
     </div>
     <a href="{{returnURL}}">back</a>
 {% endblock %}
-

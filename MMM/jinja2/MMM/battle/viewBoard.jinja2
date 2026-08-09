@@ -49,14 +49,14 @@
                 <ul class="deck enemyDeck">
                     {% if enemy.deckStack %}
                         {% for card in enemy.deckStack %}
-                    <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                    <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
                         data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
                         <div class="card back smallCard"></div>
                     </li>
                         {% endfor %}
                     {% else %}
                     <li>
-                        <div class="card back emptyDeck{% if enemy.deckCount > 0 %} loading{% endif %}">{% if enemy.deckCount > 0 %}Shuffling...{% else %}Empty{% endif %}</div>
+                        <div class="card back emptyDeck">Empty</div>
                     </li>
                     {% endif %}
                 </ul>
@@ -83,10 +83,10 @@
                             {% else %}
                             <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}">
-                                <div class="card smallCard">
+                                <div class="card smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -95,7 +95,7 @@
                                     <div class="smallCardInfo">
                                         {# <a href="{{returnURL}}card/{{ card.id }}/"> #}
                                             <p>
-                                                {{ card.card.title }}
+                                                {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                             </p>
                                             {#
                                         </a> #}
@@ -112,10 +112,10 @@
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             <li class="cardContainer {{ card.cssClass }}">
-                                <div class="card smallCard">
+                                <div class="card smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -123,7 +123,7 @@
                             
                                     <div class="smallCardInfo">
                                             <p>
-                                                {{ card.card.title }}
+                                                {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                             </p>
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
@@ -162,10 +162,10 @@
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}
                                 style="--card-rotation: {{ card_rotation }}deg;">
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
-                                <div class="card back smallCard">
+                                <div class="card back smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -173,7 +173,7 @@
                             
                                     <div class="smallCardInfo">
                                             <p>
-                                                {{ card.card.title }}
+                                                {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                             </p>
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
@@ -185,16 +185,17 @@
                             <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"
                                 style="--card-rotation: {{ card_rotation }}deg;">
-                                <div class="card smallCard">
+                                <div class="card smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                     {% endif %}
                             
                                     <div class="smallCardInfo">
                                             <p>
-                                                {{ card.card.title }}
+                                                {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                             </p>
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
@@ -211,10 +212,10 @@
                             {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
                             <li class="cardContainer {{ card.cssClass }}"
                                 style="--card-rotation: {{ trusted_card_rotation }}deg;">
-                                <div class="card smallCard">
+                                <div class="card smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                     {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
+                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                     {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
@@ -222,7 +223,7 @@
                             
                                     <div class="smallCardInfo">
                                             <p>
-                                                {{ card.card.title }}
+                                                {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                             </p>
                                         <p class="cardType">
                                             {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
@@ -270,7 +271,7 @@
                 {% for card in handCards %}
             <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true"{% endif %} data-source-lane="{{ card.state.lane }}"
                 data-source-ordinal="{{ card.state.laneOrdinal }}">
-                <div class="card smallCard">
+                <div class="card smallCard{% if card.card.artSource == "" %} {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
 
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                     {{ csrf_input }}
@@ -279,14 +280,15 @@
                     <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
                     <button type="submit" class="{{ card.cssClass }}" title="Play to {{ card.card.cardType }}">
                         {% if card.card.artSource == "" %}
-                        <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                        <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                        <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                         {% else %}
                         <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                         {% endif %}
                     
                         <div class="smallCardInfo">
                                 <p>
-                                    {{ card.card.title }}
+                                    {% if card.card.artSource == "" %}{{ card.card|playing_card_default_name }}{% else %}{{ card.card.title }}{% endif %}
                                 </p>
                             <p class="cardType">
                                 {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}

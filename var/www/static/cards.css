@@ -1344,3 +1344,57 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
 .timeline-banner {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
+
+/* CSS playing-card fallback */
+.playingCards .card.smallCard[class*="rank-"] {
+    background-color: var(--card-background);
+    overflow: hidden;
+}
+
+.playingCards .card.smallCard[class*="rank-"] .smallCardInfo {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    padding: 2px 0;
+    background: rgba(255, 255, 255, 0.78);
+    border-top: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0 0 0.3em 0.3em;
+}
+
+.cardOptions .card.smallCard[class*="rank-"] {
+    display: inline-block;
+    width: 4.25rem;
+    height: 6rem;
+}
+
+/* The detail page uses a larger CSS playing card instead of an image. */
+.playingCards .spotlight.playing-card-spotlight.card {
+    position: relative;
+    display: flex;
+    width: 14rem;
+    height: 14rem;
+    align-items: center;
+    justify-content: center;
+    background: var(--card-background);
+    border: 3px solid black;
+    border-radius: 0.5rem;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+    font-size: 2.5em;
+}
+
+.spotlight.playing-card-spotlight .rank,
+.spotlight.playing-card-spotlight .suit {
+    position: absolute;
+    left: 0.75rem;
+    font-weight: bold;
+}
+
+.spotlight.playing-card-spotlight .rank {
+    top: 0.5rem;
+}
+
+.spotlight.playing-card-spotlight .suit {
+    top: 2rem;
+}
