@@ -1,0 +1,34 @@
+Add a hold-to-draw shortcut: hold the **d** key to draw a card.
+
+## Behavior
+
+- Pressing and **holding d** starts a 1-second loading indicator on the deck (the draw button `.deckHand button.draw` in `MMM/jinja2/MMM/battle/viewBoard.jinja2`).
+- If the player **keeps holding d for the full second**, the draw happens: the draw form (`action=draw`) submits, exactly as if the draw button was clicked.
+- If the player **releases d before the second is up**, nothing happens — the loading indicator is removed and no card is drawn.
+- The shortcut is disabled when drawing is not allowed:
+  - The deck is `.blocked` / the draw button is `disabled` (draws budget exhausted — `remainingAllowances().draws <= 0` in `cardDragDrop.js`), or the deck is empty (`ownDeckCount == 0`).
+  - During the enemy turn phase (`#turnPhase[data-phase="enemy"]`).
+- Repeatedly pressing d while one hold is in progress must not stack timers or double-submit.
+- Must not fire when focus is in an input/textarea/select.
+
+## Implementation notes
+
+- Same hold-pattern as hold-to-end-turn: keydown starts a 1s `setTimeout`, keyup clears it, completion submits the draw form (the `.deckHand button.draw` submits `action=draw` via its form).
+- The loading indicator can reuse the same spinner style as the end-turn shortcut (a shared CSS class).
+- Since the draw button is a `<button type="submit">` inside a form, a programmatic click is the simplest reliable trigger.
+- Optional safety: ignore the shortcut while loading animations are present on the board (`.loading` cards), since the server state may be mid-update.
+
+## Files to modify
+
+- `var/www/static/cardDragDrop.js` (or the same new `keyboardShortcuts.js` module as hold-to-end-turn)
+- `var/www/static/cards.css` or `cardDragDrop.css` — loading indicator styles (shared with hold-to-end-turn)
+
+## Acceptance criteria
+
+- [ ] Holding d for 1s submits the draw form
+- [ ] Releasing d before 1s does nothing (no draw, no leftover spinner)
+- [ ] The loading indicator is visible on the deck while holding and removed on release
+- [ ] No double-submit on repeated d presses
+- [ ] Disabled when the draws budget is exhausted (deck blocked/button disabled) or the deck is empty
+- [ ] Disabled during the enemy turn phase
+- [ ] Inactive while typing in inputs

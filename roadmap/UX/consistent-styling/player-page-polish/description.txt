@@ -1,0 +1,47 @@
+Polish the player page: possessive typo, challenge card overlap, and clickable challenge cards.
+
+## Issues to fix (all in `MMM/jinja2/MMM/viewPlayer.jinja2`)
+
+### 1. Possessive typo
+
+The page title at line 6:
+```jinja2
+<h1> {{player.name}}'s page </h1>
+```
+renders "Lucas's page" when the name ends in `s`. When a name ends in `s`, the possessive should be just an apostrophe: "Lucas' page". (Per the goal text: "When the users name ends in s, don't add an s after the '.")
+
+Fix: conditionally render `'s` only when the name does not end in `s`:
+```jinja2
+<h1>{{ player.name }}{% if not player.name|lower|last == 's' %}'s{% else %}'{% endif %} page</h1>
+```
+(Or compute a `possessive` string server-side in `viewPlayer()` in `MMM/views.py`.)
+
+### 2. Challenge title and subtitle overlap
+
+The challenge card (lines 29–44) mixes `.smallCardInfo` with a `<h3>` title and `<p class="cardType">` subtitle lines, plus a `.basic-mat smallvertical` participant list. The title ("Game N") and the subtitle (lootPile/start time) overlap visually.
+
+Fix: give the challenge card a proper stacked layout — title on top, subtitle below with spacing, no negative margins — and make the layout consistent across the lootPile, start time, and participant list lines.
+
+### 3. Whole game card clickable
+
+Only the `<h3>` title currently links to the game:
+```jinja2
+<a href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}">
+    <h3>Game {{loop.index}}</h3>
+</a>
+```
+
+The whole challenge card should be clickable to link to the game. Make the entire `<li>` (or its wrapping container) a link — e.g. wrap the whole challenge card content in a single `<a>` styled as a block, or add a click handler / stretched-link pattern on the `li`. Ensure the link keeps `draggable="false"` and doesn't break the participant list markup.
+
+## Files to modify
+
+- `MMM/jinja2/MMM/viewPlayer.jinja2` — typo fix, challenge card layout, whole-card link
+- `MMM/views.py` — only if computing the possessive server-side
+- `var/www/static/cards.css` or `style.css` — challenge card layout styles
+
+## Acceptance criteria
+
+- [ ] "Lucas" renders "Lucas' page"; "Meg" renders "Meg's page"
+- [ ] Challenge title and subtitle don't overlap
+- [ ] Clicking anywhere on a challenge card opens the game page
+- [ ] The challenge page still shows lootPile, start time, and participants legibly

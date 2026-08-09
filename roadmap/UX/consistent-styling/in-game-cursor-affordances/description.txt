@@ -1,0 +1,45 @@
+Give in-game cards the correct cursors so players can tell what is clickable and what is not.
+
+## Issues to fix
+
+### 1. Clickable face-down cards need a pointer cursor
+
+Card backs that can be clicked to flip the card face up should receive the click-action cursor to signal their clickability.
+
+Currently `cardDragDrop.css` only sets `cursor: pointer` for hologram face-down cards:
+```css
+ul.hologramRow .hologram .cardContainer.faceDown:hover {
+    cursor: pointer;
+}
+```
+
+The following clickable face-down cards are missing it:
+- Player-board lane cards: `.playerBoard .cardContainer.faceDown:not(.blocked)` (flip-by-click, `setupFaceDownCardClickListeners()` in `cardDragDrop.js` attaches one-shot click listeners)
+- Hologram play-preview cards: `.hologram .cardContainer.faceDown` (click to flip the preview face-up)
+
+Not clickable (must NOT get the pointer cursor):
+- Face-down cards that are `.blocked` (flips budget exhausted — they show `cursor: not-allowed` from the blocked rules)
+- Enemy board cards (`.enemyBoard *` already has `cursor: default` via `.playerScreen .enemyDeckHand, .playerScreen .enemyDeckHand *` in cards.css)
+
+### 2. Top deck card hover rotation
+
+The top deck card should rotate slightly when hovered to indicate drawability, when it's hovered **and** the user may draw that turn.
+
+- The draw button lives at `.deckHand button.draw` (a `.card.back` styled button inside the deck's last `li`).
+- When `turnAllowances.draws_left > 0`, hover should add a slight rotation (e.g. `transform: rotate(-4deg)` or a small tilt) plus the existing `cursor: pointer`.
+- When the deck is `.blocked` / the button is `disabled` (draws exhausted), no rotation and `cursor: not-allowed` (already handled by `.playerScreen ul.deck.blocked button.draw:disabled`).
+- Empty decks (`.card.back.emptyDeck`) should not rotate.
+
+## Files to modify
+
+- `var/www/static/cardDragDrop.css` — cursor rules for clickable face-down cards
+- `var/www/static/cards.css` — deck hover rotation rules
+
+## Acceptance criteria
+
+- [ ] Player face-down lane cards (not blocked) show `cursor: pointer` on hover
+- [ ] Hologram face-down cards show `cursor: pointer` on hover
+- [ ] Blocked face-down cards show `cursor: not-allowed` (unchanged)
+- [ ] Enemy cards never show a pointer cursor (unchanged)
+- [ ] The top deck card tilts/rotates on hover only when a draw is allowed this turn
+- [ ] No rotation on blocked decks, disabled draw buttons, or empty decks

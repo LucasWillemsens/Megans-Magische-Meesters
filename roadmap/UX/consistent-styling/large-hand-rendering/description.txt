@@ -1,0 +1,52 @@
+Fix hand rendering when a hand has more than 26 cards (or overflows the viewport).
+
+## Problem
+
+The CSS framework only defines stacking offsets for 26 hand cards and rotation for 13:
+```css
+.playingCards ul.hand li:nth-child(1 of .cardContainer)  { left: 0; }
+... up to ...
+.playingCards ul.hand li:nth-child(26 of .cardContainer) { left: 27.5em; }
+```
+(cards.css lines ~488–514), and:
+```css
+.playingCards.rotateHand ul.hand li:nth-child(1 of .cardContainer) { --hand-rot: -42deg; }
+... up to ...
+.playingCards.rotateHand ul.hand li:nth-child(13 of .cardContainer) { --hand-rot: 66deg; }
+```
+(lines ~518–531)
+
+A hand with more than 26 cards renders cards 27+ unpositioned (stacked on the same spot). Also, the 14th card starts a new hand visually but the new hand does not rotate — every 13 cards should form a new rotated hand fan.
+
+## Desired behavior
+
+- **New rotated hand every 13 cards**: cards 1–13 fan out with the existing rotation pattern; card 14 begins a second hand fan that also rotates (same pattern), card 27 a third, etc. Each fan stacks above the previous one (or below — choose the arrangement that reads naturally on the board; the fans should be visually separated rows).
+- **Horizontal scrollbar**: when more than 26 cards are in hand, **or** when the viewport cannot contain the cards properly, the hand container element (`.deckHand > ul.hand`) receives a **horizontal scroll bar** the user can use to scroll to the further hands. The extra hand fans incrementally appear as new rotated hands every 13 cards.
+- Fan positioning should keep cards within the visible board width when possible; scrolling reveals the rest.
+
+## Implementation notes
+
+- Hand markup lives in `MMM/jinja2/MMM/battle/viewBoard.jinja2` (`.deckHand > ul.hand`, iterating `handCards`).
+- The board already splits **lane** card rows dynamically via `laneStacking.js` (`LaneCardStacking` measuring lane width and splitting `ul.cardRow`/`ul.hologramRow`). Consider a similar approach for the hand: measure the hand container width and split the single `ul.hand` into multiple fanned `ul.hand` elements (one per 13 cards) inside a scrollable wrapper.
+- Alternatively compute fan counts server-side in `contextBoard()` and render multiple `<ul class="hand">` siblings; style each `ul.hand` with `left` offsets so fans don't overlap the same screen space, and wrap them in a `div.hand-scroll` with `overflow-x: auto`.
+- The rotation pattern per fan is the existing `--hand-tx/--hand-ty/--hand-rot` set — apply it to each fan's children by re-numbering nth-child within each fan (e.g. use `:nth-child(N of .cardContainer)` per fan element, which the CSS already uses).
+- Dragging cards (`cardDragDrop.js`) queries `ul.hand li.cardContainer` — ensure splitting into multiple fans doesn't break the drag listeners (they attach by class, so extra fans work; but the drop/staging logic reads `data-source-lane/ordinal` from the element, which is unaffected).
+- The `emptyHand` placeholder (`li > div.card.back.emptyHand`) must remain visible when there are no cards.
+
+## Files to modify
+
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — hand fan rendering
+- `MMM/views.py` — possibly expose hand-fan metadata
+- `var/www/static/cards.css` — hand fan offsets, scroll wrapper, rotation per fan
+- `var/www/static/laneStacking.js` or a new hand fanning script — viewport measurement
+
+## Acceptance criteria
+
+- [ ] 13 cards: one rotating fan (unchanged from today)
+- [ ] 14–26 cards: two fans, the second one also rotates
+- [ ] 27+ cards: third fan appears; all fans rotate with the same pattern
+- [ ] The hand container shows a horizontal scrollbar when cards overflow the viewport
+- [ ] Scrolling reveals the additional fans
+- [ ] Fan rows don't overlap each other illegibly
+- [ ] Drag-to-play still works from any fan
+- [ ] Empty hand still shows the `emptyHand` placeholder

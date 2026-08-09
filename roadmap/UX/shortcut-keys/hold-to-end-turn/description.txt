@@ -1,0 +1,31 @@
+Add a hold-to-end-turn shortcut: hold the **e** key to end the turn.
+
+## Behavior
+
+- Pressing and **holding e** starts a 1-second loading indicator on the end-turn button (`.end-turn` in `MMM/jinja2/MMM/battle/viewBoard.jinja2`).
+- If the player **keeps holding e for the full second**, the turn ends: the button's form (`action=end_turn`) submits, exactly as if the button was clicked.
+- If the player **releases e before the second is up**, nothing happens — the loading indicator is removed and the turn does not end.
+- Repeatedly pressing e while one hold is already in progress must not stack timers or double-submit.
+- The shortcut is disabled during the enemy turn phase (`#turnPhase[data-phase="enemy"]`) — ending your turn then is impossible.
+- The shortcut must not fire when focus is in an input/textarea/select.
+
+## Implementation notes
+
+- Add a keydown/keyup listener (in `var/www/static/cardDragDrop.js` or a small new module) that starts a 1s `setTimeout` on keydown and clears it on keyup.
+- The loading indicator can be a CSS spinner class (e.g. `.loading` or a pseudo-element spinner) on the `.end-turn` button; keep the button's existing appearance otherwise.
+- On completion, submit the end-turn form via `form.submit()` or a programmatic click of the button (the button has `autofocus` when `turnPhase != "enemy"`, so Enter would do the same — but e is the dedicated shortcut).
+- Guard against the game already being finished (board redirected to /result/) — the listener is destroyed with the page, so no special handling needed beyond not firing mid-animation if `document.querySelectorAll('.loading').length > 0` (optional safety).
+
+## Files to modify
+
+- `var/www/static/cardDragDrop.js` (or a new `keyboardShortcuts.js` module included on the board page)
+- `var/www/static/cards.css` or `cardDragDrop.css` — loading indicator styles
+
+## Acceptance criteria
+
+- [ ] Holding e for 1s submits the end-turn form
+- [ ] Releasing e before 1s does nothing (no submit, no leftover spinner)
+- [ ] The loading indicator is visible while holding and removed on release
+- [ ] No double-submit on repeated e presses
+- [ ] Disabled during the enemy turn phase
+- [ ] Inactive while typing in inputs

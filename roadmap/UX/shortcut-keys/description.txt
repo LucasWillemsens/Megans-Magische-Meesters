@@ -3,3 +3,23 @@ press 1-9 to select the first card in hand, as if you are dragging it.
 If there are more than 10 cards in hand, select the card as the player types but skip the numbers with 0 in it. So the 10th card in hand is selected by typing 11. Pressing 0 will reset the typed number for selection. When the card is selected, the hologram system is activated, but no cookie is created yet. A card play preview is shown in this way as if the card will be played to the lane of it's own card type. Typing Space or enter will confirm the preview and play the card to the lane it belongs in, or the player can use arrow keys to change the lane or click on the drop zone of the lane it wants to play the selected card into.
 Pressing e will show a loading symbol on the end turn button for 1 second, if the player completes the loading time by holding the e button it ends the turn of the player. If the player releases the e key before that, nothing happens.
 Pressing d will show a loading symbol on the deck for 1 second, if the player completes the loading time by holding the d button it draws a card. If the player releases the d key before that, nothing happens.
+
+## Design notes
+
+- Keyboard play must ride on the existing client-side staging machinery in `var/www/static/cardDragDrop.js` (`CardDragDropSystem`): the hologram preview, the `createupdateCookie()` play-cookie writer, the `.ghost` hand-card style, and the `remainingAllowances()` budget checks. No cookie is written until the player confirms.
+- Hand cards are `li.cardContainer` elements with `draggable="true"`, `data-source-lane`/`data-source-ordinal`, and a hidden `input[name="card_id"]`. Lanes are `li.lane` with classes `Intelligence`(1)/`Speed`(2)/`Visciousness`(3)/`Resolve`(4); each lane has a `ul.hologramRow` for previews and a `div.drop-zone` with id `drop-zone-N`.
+- Key handling must be inactive while the player is typing in an input, must respect `.blocked` states and turn allowances (a card that cannot be played must not be selectable for play; a blocked deck/draw button must not draw), and must not fire during the enemy turn phase (`#turnPhase[data-phase="enemy"]`).
+- Hold-to-act interactions (e, d) need a visible loading indicator and must do nothing on early release.
+
+## Subgoals
+
+1. **keyboard-card-selection** — Digit parser (1–9 direct, sequences skipping 0, 0 resets), card selection with hologram preview in the card's own lane, no cookie yet.
+2. **confirm-and-navigate** — Space/Enter confirm, arrow-key lane navigation, click-on-drop-zone confirm, Escape/0 cancel, ghost hand card.
+3. **hold-to-end-turn** — Hold e for 1 second to end the turn, loading symbol on the end-turn button, cancel on early release.
+4. **hold-to-draw** — Hold d for 1 second to draw, loading symbol on the deck, cancel on early release.
+
+## Dependency order
+
+keyboard-card-selection → confirm-and-navigate → hold-to-end-turn → hold-to-draw
+
+(The hold-to actions are independent of the selection flow and could be built in parallel, but the selection flow is the core of this goal.)

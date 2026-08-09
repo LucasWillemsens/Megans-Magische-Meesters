@@ -1,0 +1,77 @@
+Update all templates that render card faces to show CSS playing card markup (from the cards.css framework) instead of the fallback placeholder image `1flubeltje.jpg` when `artSource == "static"`. The playing card rendering applies the rank class, suit class, rank span, and suit span on the `.card` element so the CSS framework generates the visual appearance.
+
+## General pattern
+
+Every card follows this pattern after the update:
+```jinja2
+<div class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
+    {% if card.artSource == "static" %}
+    <span class="rank">{{ card|playing_card_rank_display }}</span>
+    <span class="suit">{{ card|playing_card_suit_display }}</span>
+    {% else %}
+    {% if card.artSource == "" %}
+    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+    {% else %}
+    <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+    {% endif %}
+    {% endif %}
+
+    <div class="smallCardInfo">
+        {% if card.artSource != "static" %}
+        <p class="cardTitle">{{ card.title }}</p>
+        {% endif %}
+        <p class="cardType">
+            {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+        </p>
+    </div>
+</div>
+```
+
+Note the marker convention: **`artSource == "static"`** selects the CSS playing-card rendering (cards created by `add_deck_cards.py` use `artSource = "static"`). The empty string `""` remains the "no art" fallback and still renders `1flubeltje.jpg`. The `.smallCardInfo` title is hidden for static cards (the rank/suit are the identity) but the cardType line stays.
+
+For the `.card` element to receive the CSS framework styles, it must be inside a container with class `.playingCards`. When a template section does NOT already have a `.playingCards` wrapper, one must be added as a parent div.
+
+## Templates to modify
+
+1. **`MMM/jinja2/MMM/index.jinja2`** — Latest cards listing. Already has `.playingCards` wrapper (`<div class="cards playingCards">`).
+2. **`MMM/jinja2/MMM/viewCard.jinja2`** — Card detail page. Already has a `.playingCards` wrapper around the spotlight art. Static cards render a larger `spotlight playing-card-spotlight card staticCard` div with rank/suit classes and spans, and the page title shows `playing_card_default_name` instead of the raw title.
+3. **`MMM/jinja2/MMM/viewPlayer.jinja2`** — Player collection. Already has `.playingCards` wrapper. Static cards render with the `staticCard` rank/suit classes and spans, title hidden.
+4. **`MMM/jinja2/MMM/createGame.jinja2`** — Card selection for game creation. Already has `.playingCards` wrapper around the owned-cards section. Static cards render with rank/suit classes and spans inside the `<label>`. (Deck art is a Deck, not a Card — it keeps the old fallback pattern.)
+5. **`MMM/jinja2/MMM/battle/viewBoard.jinja2`** — Battle board. This template has FIVE locations where face-up cards are rendered plus the hand cards, all using `card.card` (GameCard → Card). The board template already has `.playingCards` wrapper (`<div class="playerScreen playingCards rotateHand">`). Important: filters receive the Card object, so use `card.card|playing_card_rank_class` etc. Static cards add `staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}` to the `.card` div and render rank/suit spans; the title is hidden. Face-down cards (`.card.back`) also carry the classes so a client-side flip (removing `.back`) instantly reveals the correct playing card.
+
+## Implementation steps
+
+1. Edit `index.jinja2` — replace fallback img with playing card spans in the card loop
+2. Edit `viewCard.jinja2` — replace fallback img with playing card div in the spotlight section
+3. Edit `viewPlayer.jinja2` — replace fallback img with playing card spans in the collection loop
+4. Edit `createGame.jinja2` — replace fallback img with playing card spans in the card selection radio buttons
+5. Edit `viewBoard.jinja2` — replace all face-up/face-down card rendering locations
+
+## Files to modify
+
+- `MMM/jinja2/MMM/index.jinja2`
+- `MMM/jinja2/MMM/viewCard.jinja2`
+- `MMM/jinja2/MMM/viewPlayer.jinja2`
+- `MMM/jinja2/MMM/createGame.jinja2`
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2`
+
+## Acceptance criteria
+
+- [ ] In `index.jinja2`, a card with `artSource == "static"` shows the CSS playing card look (rank/suit classes + rank/suit spans) instead of the `1flubeltje.jpg` image
+- [ ] In `index.jinja2`, a card with `artSource != "static"` still shows its configured artwork image (or the fallback when `artSource == ""`)
+- [ ] In `viewBoard.jinja2`, a face-up revealed card with `artSource == "static"` shows the CSS playing card look
+- [ ] In `viewBoard.jinja2`, a face-down card with `artSource == "static"` shows the card back, and when flipped (`.back` removed) reveals the playing card look
+- [ ] In `viewBoard.jinja2`, a hand card with `artSource == "static"` shows the playing card look
+- [ ] In `viewPlayer.jinja2`, cards with `artSource == "static"` show the playing card look
+- [ ] In `createGame.jinja2`, cards with `artSource == "static"` show the playing card look in radio button labels
+- [ ] In `viewCard.jinja2`, a card with `artSource == "static"` shows a larger playing card rendering and the default name in the title
+- [ ] No template errors occur when filters are applied (filters from subgoal 1 must be complete first)
+- [ ] The `1flubeltje.jpg` fallback remains only for `artSource == ""` (and deck art, which is not a Card)
+
+## Dependencies
+
+- Subgoal **suit-rank-helpers** must be complete first (the Jinja2 filters must exist).
+
+## Status: COMPLETE
+
+All five templates were updated. The board template renders static cards with the `staticCard` rank/suit classes in all five face-up/face-down locations plus the hand; face-down cards carry the classes so client-side flips reveal the playing card. Covered by tests in `MMM/tests.py` (`test_artless_cards_render_with_css_playing_card_markup` and related).

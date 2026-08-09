@@ -1,0 +1,50 @@
+Fix card selection on the challenge page and pick the first option as the default.
+
+## Issues to fix (in `MMM/jinja2/MMM/createGame.jinja2`)
+
+### 1. Card selection is broken
+
+The card selection markup is malformed. The radio inputs are written as:
+```jinja2
+<input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
+    <label for="startingCard{{card.id}}">
+        ...
+    </label>
+</input>
+```
+
+Issues:
+- **`<input>` is a void element** — writing `</input>` is invalid HTML and the `<label>` ends up nested *inside* the input in some browsers' DOM parsing, breaking label-click selection and the radio group's behavior.
+- The same malformed pattern exists for the player selection (`challengePlayer`) and deck selection (`startingDeck`) fieldsets.
+- The label content (the card preview) may also render oddly because of the invalid nesting — the `.smallCard` div structure inside the label needs to lay out the radio + preview correctly.
+
+Fix: restructure to the valid pattern — `<input>` self-closed, `<label>` as a sibling wrapping only the preview content:
+```jinja2
+<div class="smallCard">
+    <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
+    <label for="startingCard{{card.id}}">
+        <div class="card smallCard...">...</div>
+    </label>
+</div>
+```
+(Note: the `</input>` closing tags must be removed everywhere.)
+
+### 2. Pick the first option as the default
+
+The radio groups (`challengePlayer`, `startingDeck`, `startingCard`) all have `required` but no default selection, so the form can't be submitted until the user picks something, and nothing is preselected. The first option in each group should be checked by default:
+```jinja2
+<input type="radio" ... {% if loop.first %}checked{% endif %}>
+```
+For the deck group, when decks exist the first deck is default; when only the "New" (whole collection) option exists, that one is checked. For cards, the first owned card is default.
+
+## Files to modify
+
+- `MMM/jinja2/MMM/createGame.jinja2` — valid input/label markup + `checked` on first options
+
+## Acceptance criteria
+
+- [ ] Clicking a card preview (label) selects its radio button
+- [ ] The form can be submitted with no manual selection (first options are pre-checked)
+- [ ] Selecting a different option overrides the default
+- [ ] No `</input>` closing tags remain in the template
+- [ ] Player, deck, and card selection groups all work the same way

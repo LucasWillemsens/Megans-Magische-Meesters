@@ -1,0 +1,35 @@
+Add keyboard card selection with hologram preview — no cookie yet.
+
+## Behavior
+
+- Typing **1–9** selects that hand card directly (1 = first card in hand).
+- With more than 10 cards in hand, typed digit sequences select the card at that position, but **skip any sequence containing a 0**: the 10th card is selected by typing **11**, the 11th by **12**, etc. (i.e. the typed number maps to the hand position with the zero stripped from the intermediate steps).
+- Pressing **0** resets the typed number buffer without selecting anything.
+- When a card is selected, the **hologram system is activated**: a face-up hologram preview clone of the hand card appears in the `.hologramRow` of the lane matching the card's own type (`cardType + 1`: Intelligence→lane 1, Speed→lane 2, Visciousness→lane 3, Resolve→lane 4), styled like a dragged card preview (`--card-rotation`). **No play cookie is written yet** — this is purely a preview.
+- The selected hand card should look "grabbed": reuse the existing `.ghost` styling (opacity/filter) or a dedicated `.keyboard-selected` class with the same intent, and the preview hologram sits in the lane's `.hologramRow` exactly like a drag preview.
+- Only **playable** hand cards are selectable: cards inside a `.blocked` `li.cardContainer` (plays budget exhausted, `remainingAllowances().plays <= 0`) are skipped by the digit parser, and selection is disabled during the enemy turn phase (`#turnPhase[data-phase="enemy"]`).
+- Typing a number while no hand cards exist, or while the hand/board is mid-animation (`.loading` cards present), does nothing.
+
+## Implementation notes
+
+- Listen on `document` keydown in `var/www/static/cardDragDrop.js` (the `CardDragDropSystem` owns the hand card data and the hologram creation helpers).
+- Selection state lives on the system instance, e.g. `this.keyboardSelection = { cardEl, laneValue, hologramEl, typedBuffer }`.
+- The hologram preview can reuse the same clone-building code as `onDropZoneDrop()` (clone card, strip form/buttons, add faceUp, append to lane's `.hologramRow`, set `--card-rotation`), but must NOT call `createupdateCookie()`.
+- Skip key handling when `e.target` is an `input`, `textarea`, or `select`.
+- Clearing the preview (cancel, another selection, turn end, board reload) must remove the hologram element and restore the hand card's normal styling.
+
+## Files to modify
+
+- `var/www/static/cardDragDrop.js` — digit parser + selection + preview creation
+- `var/www/static/cards.css` or `cardDragDrop.css` — optional styling for the selected hand card state
+
+## Acceptance criteria
+
+- [ ] Pressing 1–9 selects the corresponding hand card (1 = first) and shows its hologram preview in the matching lane
+- [ ] With 10+ cards in hand, typing 11 selects the 10th card; 0 alone resets the buffer with no selection
+- [ ] Sequences containing 0 are never treated as valid positions (e.g. "10" does not select card 10; only "11" does)
+- [ ] The preview is visible in the lane's `.hologramRow` with rotation styling, like a drag preview
+- [ ] **No cookie is written** when only selecting/previewing
+- [ ] Blocked hand cards are never selected; selection does nothing during the enemy turn phase
+- [ ] Typing in inputs/textareas never triggers selection
+- [ ] Selecting another card or cancelling removes the previous preview hologram

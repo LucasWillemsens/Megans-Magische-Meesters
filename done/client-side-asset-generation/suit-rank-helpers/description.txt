@@ -1,0 +1,81 @@
+Create Jinja2 filter functions that compute CSS playing card rank/suit classes and default card names from a Card model instance. All go into `mysite/jinja2.py`.
+
+## Implementation
+
+### 1. Playing card rank helper
+
+A card's rank is determined by `card.id % 13`, mapping to a 13-position cycle:
+
+| id % 13 | CSS class   | Display | Name      |
+|---------|-------------|---------|-----------|
+| 0       | `rank-2`    | `2`     | Two       |
+| 1       | `rank-3`    | `3`     | Three     |
+| 2       | `rank-4`    | `4`     | Four      |
+| 3       | `rank-5`    | `5`     | Five      |
+| 4       | `rank-6`    | `6`     | Six       |
+| 5       | `rank-7`    | `7`     | Seven     |
+| 6       | `rank-8`    | `8`     | Eight     |
+| 7       | `rank-9`    | `9`     | Nine      |
+| 8       | `rank-10`   | `10`    | Ten       |
+| 9       | `rank-j`    | `J`     | Jack      |
+| 10      | `rank-q`    | `Q`     | Queen     |
+| 11      | `rank-k`    | `K`     | King      |
+| 12      | `rank-a`    | `A`     | Ace       |
+
+Create a Jinja2 filter:
+- **`playing_card_rank_class(card)`** → returns the CSS rank class string (e.g. `"rank-j"`)
+
+And a second filter for display:
+- **`playing_card_rank_display(card)`** → returns the rank display text (e.g. `"J"`)
+
+### 2. Playing card suit helper
+
+A card's suit is determined by its `cardType` field:
+
+| cardType | Enum value        | CSS class | Symbol | Name      |
+|----------|-------------------|-----------|--------|-----------|
+| 0        | Intelligence      | `clubs`   | `♣`    | Clubs     |
+| 1        | Speed             | `spades`  | `♠`    | Spades    |
+| 2        | Viciousness       | `diams`   | `♦`    | Diamonds  |
+| 3        | Resolve           | `hearts`  | `♥`    | Hearts    |
+
+Note: The CSS framework uses the class `.diams` (not `.diamonds`) for diamonds.
+
+Create Jinja2 filters:
+- **`playing_card_suit_class(card)`** → returns the CSS suit class string (e.g. `"spades"`, `"diams"`)
+- **`playing_card_suit_display(card)`** → returns the suit symbol string (e.g. `"♠"`, `"♦"`)
+
+### 3. Default card name
+
+Create a Jinja2 filter:
+- **`playing_card_default_name(card)`** → returns a generated default name like `"Jack of Spades"` or `"Three of Clubs"`
+
+Format: `<RankName> of <SuitName>` where RankName uses the table from step 1 and SuitName uses the table from step 2.
+
+### 4. Register filters in the Jinja2 environment
+
+In `mysite/jinja2.py`, update the `environment()` function to register all five filters via `env.filters.update()` (rank class, rank display, suit class, suit display, default name).
+
+Define the filter functions above the `environment()` function.
+
+## Files to create/modify
+
+- `mysite/jinja2.py` — Add 5 filter functions and register them with `env.filters.update()`
+
+## Acceptance criteria
+
+- [ ] `playing_card_rank_class(card)` returns correct CSS class for each `card.id % 13`
+- [ ] `playing_card_rank_display(card)` returns correct display text for each rank
+- [ ] `playing_card_suit_class(card)` returns correct CSS class for each cardType 0–3
+- [ ] `playing_card_suit_display(card)` returns correct Unicode suit symbol for each cardType
+- [ ] `playing_card_default_name(card)` returns "Jack of Spades" for a card with id%13=9 and cardType=1 (Speed→Spades)
+- [ ] `playing_card_default_name(card)` returns "Three of Clubs" for a card with id%13=1 and cardType=0 (Intelligence→Clubs)
+- [ ] All filters are registered and accessible in Jinja2 templates (e.g. `{{ card|playing_card_rank_class }}` works without error)
+
+## Dependencies
+
+- None; this subgoal is self-contained and only modifies `mysite/jinja2.py`.
+
+## Status: COMPLETE
+
+Implemented in `mysite/jinja2.py` — all five filters (`playing_card_rank_class`, `playing_card_rank_display`, `playing_card_suit_class`, `playing_card_suit_display`, `playing_card_default_name`) exist and are registered. Covered by tests in `MMM/tests.py` (see `test_artless_cards_render_with_css_playing_card_markup`).

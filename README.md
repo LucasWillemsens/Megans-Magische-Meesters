@@ -92,7 +92,7 @@ Build the pre-battle experience, including deck ordering, challenge management, 
 - [ ] Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.
 - [ ] Support canceling a pending challenge cleanly in the UI.
 - [ ] Allow the player to set a custom deck order before battle begins.
-- [ ] Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
+- [ ] Add roaming challenge flow:
 
 #### Deck page
 
@@ -187,6 +187,37 @@ Any setting like this should be stored as a rule in a new database table called 
 - [ ] Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.
 - [ ] Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicated.
 - [ ] Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable game-logic functions.
+
+### UX
+
+Improve UX in various ways, including the improvement of accesibillity
+
+#### Consistent Styling
+
+Fix Various inconsistent stlying issues:
+
+- [ ] Fix card selection on the challenge page and pick the first option as the default.
+- [ ] Fix hand card vertical spacing and readability on the battle board.
+- [ ] Give in-game cards the correct cursors so players can tell what is clickable and what is not.
+- [ ] When a card is played to a lane, its laneOrdinal should become the highest laneOrdinal in that lane.
+- [ ] Fix deck rendering when a deck has more than 32 cards.
+- [ ] Fix hand rendering when a hand has more than 26 cards (or overflows the viewport).
+- [ ] Make the owned cards on the player page sortable.
+- [ ] Polish the player page: possessive typo, challenge card overlap, and clickable challenge cards.
+
+#### Shortcut Keys
+
+Add shortcut keys for selecting cards when playing on keyboard:
+press 1-9 to select the first card in hand, as if you are dragging it.
+If there are more than 10 cards in hand, select the card as the player types but skip the numbers with 0 in it. So the 10th card in hand is selected by typing 11. Pressing 0 will reset the typed number for selection. When the card is selected, the hologram system is activated, but no cookie is created yet. A card play preview is shown in this way as if the card will be played to the lane of it's own card type. Typing Space or enter will confirm the preview and play the card to the lane it belongs in, or the player can use arrow keys to change the lane or click on the drop zone of the lane it wants to play the selected card into.
+Pressing e will show a loading symbol on the end turn button for 1 second, if the player completes the loading time by holding the e button it ends the turn of the player. If the player releases the e key before that, nothing happens.
+Pressing d will show a loading symbol on the deck for 1 second, if the player completes the loading time by holding the d button it draws a card. If the player releases the d key before that, nothing happens.
+
+- [ ] Confirm, navigate, or cancel a keyboard-selected card — completing the selection flow from the keyboard-card-selection subgoal.
+- [ ] Add a hold-to-draw shortcut: hold the **d** key to draw a card.
+- [ ] Add a hold-to-end-turn shortcut: hold the **e** key to end the turn.
+- [ ] Add keyboard card selection with hologram preview — no cookie yet.
+
 
 ### Battle Interaction
 

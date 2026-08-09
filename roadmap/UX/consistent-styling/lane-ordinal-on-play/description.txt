@@ -1,0 +1,39 @@
+When a card is played to a lane, its laneOrdinal should become the highest laneOrdinal in that lane.
+
+## Desired behavior
+
+- Playing a card to a lane must place it **on top** of the stacked cards already in that lane: its `laneOrdinal` = `max(laneOrdinal of cards in that lane) + 1` (or `1` when the lane is empty).
+- This applies to both player plays and bot plays, and to special-action plays (intSpecial plays random hand cards to lanes, spdSpecial rushes cards, etc.).
+- The lane stacking visuals (`.cardRow` with ordinal-based z-index) rely on correct ordinals: a played card that keeps an old/duplicate ordinal renders underneath or at a wrong offset.
+
+## Current state (verify first)
+
+`BattleParticipant.playCard()` in `MMM/models.py` already does:
+```python
+gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
+```
+and `getNewMaxCardInLaneOrdinal()` returns `max(...) + 1` (or 1 when empty). This appears to satisfy the requirement for the normal play path.
+
+**Verify** whether any path still sets a stale/incorrect laneOrdinal on play:
+- Special actions in `MMM/views.py` that call `playCard()` with `specialClause=True` — do they go through the same `updateOrdinal` call? (playCard does it unconditionally after `state.play(lane)`, so it should be fine — confirm.)
+- Any direct `GameCard.state.laneOrdinal` assignment or `state.play()` calls outside `playCard()` (e.g. `drawCard()`, starting-card init, shuffle) that could leave a card with a wrong ordinal when it lands in a lane.
+- `getNewMaxCardInLaneOrdinal` counts only non-trusted cards in `state__lane=lane` — check whether trusted cards in the same lane should count toward the max (they render in a separate `.cardRow`, so probably not — document the decision).
+
+## Outcome
+
+- If all paths already set the highest laneOrdinal: document the finding in the done/ entry with the verification (which paths were checked) and mark the subgoal complete with no code change.
+- If any path is broken (stale ordinal on play): fix it to use the same `getNewMaxCardInLaneOrdinal` logic.
+
+## Files to modify
+
+- `MMM/models.py` — only if a broken path is found
+- `MMM/views.py` — only if a special action bypasses the ordinal update
+- `MMM/tests.py` — add a test that playing a card to a lane with existing cards assigns the highest laneOrdinal (if not already covered)
+
+## Acceptance criteria
+
+- [ ] Playing a card to an occupied lane gives it `max + 1` ordinal (top of stack)
+- [ ] Playing to an empty lane gives ordinal 1
+- [ ] Bot plays and special-action plays behave identically
+- [ ] The played card renders on top of the lane stack
+- [ ] Verified: no code path plays a card without updating its ordinal (or the found path is fixed)

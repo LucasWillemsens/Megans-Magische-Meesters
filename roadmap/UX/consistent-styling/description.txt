@@ -27,4 +27,18 @@ On the player page:
 On challenge page:
 	card selection is fucked up
 	pick the first option as default value
-		
+
+## Subgoals
+
+1. **in-game-cursor-affordances** — Click cursors on clickable face-down cards, deck hover rotation to signal drawability.
+2. **hand-card-visibility** — Fix hand card margin-top and unreadable cardType text.
+3. **large-deck-rendering** — Decks over 32 cards: mod-32 remainder deck plus inert side-decks.
+4. **large-hand-rendering** — Hands over 26 cards: horizontal scrollbar, new rotated hand every 13 cards.
+5. **lane-ordinal-on-play** — Played cards get the highest laneOrdinal in their lane.
+6. **player-page-polish** — Possessive typo, challenge card overlap, whole game card clickable.
+7. **owned-cards-sorting** — Sort collection by name, card type, date achieved.
+8. **challenge-page-default-selection** — Fix broken card selection, default to the first option.
+
+## Dependency order
+
+Mostly independent. Suggested order: in-game-cursor-affordances → hand-card-visibility → large-deck-rendering → large-hand-rendering → lane-ordinal-on-play → player-page-polish → owned-cards-sorting → challenge-page-default-selection. The player-page and challenge-page items are fully independent of the in-game items.

@@ -1,0 +1,144 @@
+Add CSS rules so the CSS Playing Cards framework rendering (rank/suit classes, rank/suit spans, and the framework's `:after` pseudo-element suit symbols) fits within the existing `.smallCard` layout alongside `.smallCardInfo` without visual overlap or broken sizing.
+
+## Background
+
+The existing card layout uses a `.card.smallCard` div containing either an `<img>` or (after the template-updates subgoal) rank/suit spans, plus a `.smallCardInfo` div with title and type text. The CSS Playing Cards framework defines `.playingCards .card` with specific dimensions (width: 4.25rem, height: 6rem) and positions `.rank` and `.suit` spans at the top-left. The `.smallCardInfo` div is currently centered in the card below the image.
+
+The problem: when rank/suit spans replace the image, the `.smallCardInfo` (which shows the card type at the bottom of the card) may overlap with the CSS framework's large center suit symbols (rendered via `.suit:after`) and the mirrored bottom-right rank (rendered via `.rank:after`).
+
+## CSS rules added (in `var/www/static/cards.css`)
+
+### 1. Playing card layout within `.smallCard`
+
+A generic selector activates the playing-card treatment whenever a `.smallCard` carries a rank class:
+
+```css
+.playingCards .card.smallCard[class*="rank-"] {
+    background-color: var(--card-background);
+    overflow: hidden;
+}
+```
+
+### 2. `.smallCardInfo` overlay at the bottom of the card
+
+The `.smallCardInfo` is positioned at the bottom of the card with a semi-transparent background so it overlays the bottom suit symbols but remains readable:
+
+```css
+.playingCards .card.smallCard[class*="rank-"] .smallCardInfo {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    padding: 2px 0;
+    background: rgba(255, 255, 255, 0.78);
+    border-top: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0 0 0.3em 0.3em;
+}
+```
+
+### 3. Static card footer
+
+Static CSS cards show only their type in the footer. The footer stays inside the card instead of inheriting the old title/card-type spacing:
+
+```css
+.playingCards .card.staticCard .smallCardInfo {
+    min-height: 1.1rem;
+    height: auto;
+    gap: 0;
+    padding: 0.2rem 0;
+}
+.playingCards .card.staticCard .smallCardInfo .cardType {
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1;
+}
+```
+
+### 4. Card options in createGame
+
+The `.cardOptions .smallCard` in `createGame.jinja2` uses a column-reverse flex layout. The playing card classes need to work inside this context:
+
+```css
+.cardOptions .card.smallCard[class*="rank-"] {
+    display: inline-block;
+    width: 4.25rem;
+    height: 6rem;
+}
+```
+
+### 5. Spotlight card (viewCard.jinja2)
+
+For the card detail page, the `.spotlight` class makes the card large (14rem × 14rem):
+
+```css
+.playingCards .spotlight.playing-card-spotlight.card {
+    position: relative;
+    display: flex;
+    width: 14rem;
+    height: 14rem;
+    align-items: center;
+    justify-content: center;
+    background: var(--card-background);
+    border: 3px solid black;
+    border-radius: 0.5rem;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+    font-size: 2.5em;
+}
+.spotlight.playing-card-spotlight .rank,
+.spotlight.playing-card-spotlight .suit {
+    position: absolute;
+    left: 0.75rem;
+    font-weight: bold;
+}
+.spotlight.playing-card-spotlight .rank { top: 0.5rem; }
+.spotlight.playing-card-spotlight .suit { top: 2rem; }
+```
+
+### 6. Face-down card content hiding
+
+CSS card content remains in the DOM so click-to-flip can reveal it, but it must not leak through the patterned back while the card is face down:
+
+```css
+.playingCards .card.back .rank,
+.playingCards .card.back .suit,
+.playingCards .card.back .smallCardInfo,
+.playingCards .card.back .fit-picture {
+    visibility: hidden;
+}
+.playingCards .card.back .suit::after {
+    content: none !important;
+}
+```
+
+## Implementation steps
+
+1. Add the `.card.smallCard[class*="rank-"]` overlay rule to `cards.css`
+2. Add the `overflow: hidden` on the playing card container
+3. Add the static-card footer rules
+4. Add the spotlight playing card rules for `viewCard.jinja2`
+5. Add the card-options adjustments for `createGame.jinja2`
+6. Test visually by loading the app and navigating to pages with cards that have `artSource == "static"`
+
+## Files to modify
+
+- `var/www/static/cards.css` — The new rules live at the end of the file (lines ~1348–1448)
+
+## Acceptance criteria
+
+- [ ] A card with `artSource == "static"` shows the playing card suit symbols (♠♥♦♣) in the center of the card via the CSS framework's `:after` pseudo-elements
+- [ ] A card with `artSource == "static"` shows the rank letter/number at the top-left of the card
+- [ ] `.smallCardInfo` (type) is readable at the bottom of the card, overlaid on the suit symbols with a semi-transparent background
+- [ ] In `viewBoard.jinja2`, hand cards with playing card look rotate correctly and show info properly
+- [ ] In `viewCard.jinja2`, the spotlight playing card is large (14rem) and readable
+- [ ] In `createGame.jinja2`, the card radio buttons show playing cards without layout breakage
+- [ ] No regression: cards with `artSource != "static"` still show their artwork image correctly (these changes only activate when `[class*="rank-"]` is present)
+- [ ] Face-down cards (`.card.back`) are unaffected and still show the card back pattern
+
+## Dependencies
+
+- Subgoal **template-updates** must be complete so the CSS changes can be tested against the actual rendered markup.
+
+## Status: COMPLETE
+
+All CSS rules were added to `var/www/static/cards.css` (lines ~1348–1448). Static cards render correctly on the board, the player page, the challenge page, and the card detail spotlight; face-down backs hide the playing-card content until flipped.

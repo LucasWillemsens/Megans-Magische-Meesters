@@ -1,0 +1,48 @@
+Fix deck rendering when a deck has more than 32 cards.
+
+## Problem
+
+The CSS framework only defines stacking offsets for 32 deck cards:
+```css
+.playingCards ul.deck li:nth-child(1)  { left: 0;    bottom: 0; }
+... up to ...
+.playingCards ul.deck li:nth-child(32) { left: 62px; bottom: 31px; }
+```
+(cards.css lines ~543–574)
+
+A deck with more than 32 cards renders cards 33+ without positioning (they stack on top of each other at the same spot, looking broken). Decks are only limited by the player's collection size, so this is reachable (e.g. the full 52-card standard deck).
+
+## Desired behavior
+
+- Render only the **remainder of `deckSize mod 32`** as the actual deck stack (the visible deck).
+- For every **full 32 cards** in the whole deck, add a new **inert deck** to the **left** of the visible deck. These inert decks:
+  - are pure visual indicators of "there is a full 32-card block behind this",
+  - may **overlap slightly** so the bottom cards of each deck render close to each other but not exactly touching,
+  - go **off-screen to the left** without affecting the viewport when there are many blocks,
+  - are not clickable and carry no draw button (the draw button stays on the visible deck's top card).
+- The deck count display (`Deck: {{ ownDeckCount }}`) already shows the real count — keep it.
+
+## Implementation notes
+
+- The deck markup lives in `MMM/jinja2/MMM/battle/viewBoard.jinja2` (`.deckHand > ul.deck`, iterating `ownDeckStack` with the draw button on `loop.last`).
+- The cleanest approach: in the template, render `ownDeckStack` truncated to `ownDeckCount % 32` cards (when `% 32 == 0`, render a 32-card stack or nothing — decide: an empty deck shows "Empty", a full-32 multiple shows just the top stack of 32), and render `deckSize // 32` inert deck blocks to the left.
+- Alternatively compute the blocks in `contextBoard()`/`newBoard()` in `MMM/views.py` and pass them through context.
+- Inert decks: `<ul class="deck">` with `<li><div class="card back"></div></li>` (one card per block, maybe 2–3 stacked for depth), absolutely positioned to the left with slight overlap (`left: -3em` increments), `pointer-events: none`.
+- The enemy deck uses the same `ul.deck enemyDeck` markup — apply the same treatment (enemy decks can also exceed 32).
+
+## Files to modify
+
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — deck block rendering
+- `MMM/views.py` — possibly expose `deckBlockCount` / `deckVisibleCount` in the board context
+- `var/www/static/cards.css` — inert deck styling
+
+## Acceptance criteria
+
+- [ ] A 40-card deck renders one inert block (left) + an 8-card visible stack
+- [ ] A 65-card deck renders two inert blocks + a 1-card visible stack
+- [ ] A 32-card deck renders no inert block + a 32-card stack (unchanged behavior)
+- [ ] Inert blocks overlap slightly and go off-screen left without widening the viewport
+- [ ] Inert blocks have no draw button and are not clickable
+- [ ] The draw button still works on the visible deck
+- [ ] Enemy decks behave identically
+- [ ] The deck count text still shows the real total

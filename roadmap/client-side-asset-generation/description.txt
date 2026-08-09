@@ -1,3 +1,19 @@
 Allow usage of efficient client computed assets. These can be especially usefull for testing or as a fallback when asset loading fails.
 
 For example: New cards should be able to use the card look of the cards.css default deck of cards. Use this as the first subgoal in completing this goal. The symbols of the regular deck of cards should map thusly: Spades -> Speed. Diamonds -> Visciousness. Hearts -> Resolve. The numbers or faces on a card do not matter for gameplay purposes but should uniquely identify the cards as a replacement of what otherwise be the art and the name. Give a default name to the regular cards like: jack of spades or three of clubs
+
+## Status
+
+The first subgoal (CSS playing-card look for artless cards) is **complete**: the suit/rank helpers, the template updates, and the CSS adjustments were implemented and merged (PR #22). The completed subgoals are documented under `done/client-side-asset-generation/`; further client-computed-asset work remains open.
+
+## Subgoals
+
+1. **suit-rank-helpers** — Jinja2 filter functions that compute a playing card rank class, rank display letter, suit class, and suit symbol from a Card model instance. Also a function to generate a default name (e.g. "Jack of Spades"). All go into `mysite/jinja2.py`. *(Done — see done/client-side-asset-generation/suit-rank-helpers.)*
+2. **template-updates** — Update all templates that render cards (index.jinja2, viewCard.jinja2, viewPlayer.jinja2, createGame.jinja2, viewBoard.jinja2) to render CSS playing card markup (rank class, suit class, rank span, suit span) instead of the fallback image `1flubeltje.jpg` when `artSource == "static"`. *(Done — see done/client-side-asset-generation/template-updates.)*
+3. **css-adjustments** — Add CSS rules so the playing card rendering fits within the existing `.smallCard` layout alongside `.smallCardInfo` without overlap or broken sizing. *(Done — see done/client-side-asset-generation/css-adjustments.)*
+
+## Dependency order
+
+suit-rank-helpers → template-updates → css-adjustments
+
+(Each subgoal must be completed before the next begins, though css-adjustments can be partially done in parallel with template-updates for testing.)

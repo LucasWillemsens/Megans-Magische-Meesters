@@ -1,0 +1,33 @@
+Make the owned cards on the player page sortable.
+
+## Desired behavior
+
+The collection on the player page (`viewPlayer.jinja2`, "Owned cards" section, `cardOwner.card.all()`) should be sortable by:
+- **Name** (alphabetical)
+- **Card type** (Intelligence, Speed, Visciousness, Resolve — lane order)
+- **Date achieved** (`CardOwnerHistory.aquiredAt`)
+
+## Implementation notes
+
+- The collection is a `ul.basic-mat` of `li.cardContainer` cards rendered by `{% for card in cardOwner.card.all() %}` in `MMM/jinja2/MMM/viewPlayer.jinja2` (lines ~92–119).
+- `CardOwnerHistory` (in `MMM/models.py`) records ownership with `aquiredAt`; `Player.getKnownCards()` returns every card ever owned, and `cardOwner.card.all()` is the queryset rendered here. Check the relationship direction: the template iterates `cardOwner.card.all()` (Card→owner-history M2M). For "date achieved" sorting the queryset needs to join `CardOwnerHistory.aquiredAt` for the current owner.
+- Two viable approaches:
+  1. **Server-side sorting links** — small control (three links/buttons: "Name / Type / Date") that reloads the page with a `?sort=name|type|date` query param; `viewPlayer()` orders the queryset accordingly. Simple, robust, no JS.
+  2. **Client-side sorting** — a small JS sort of the rendered `li.cardContainer` elements (by `data-*` attributes rendered into the DOM). No page reload; needs the attributes (title, cardType index, aquired date) present in the markup.
+- Prefer whichever is simpler to keep consistent with the codebase's vanilla-JS style; both are acceptable. If server-side: keep the default order (currently queryset order) and persist the choice in the query param only (no DB change).
+- The sort control should be visible next to the "Owned cards" heading (`cardsText` block).
+
+## Files to modify
+
+- `MMM/jinja2/MMM/viewPlayer.jinja2` — sort control + data attributes (if client-side) or sort-aware rendering
+- `MMM/views.py` — `viewPlayer()` sort handling (if server-side)
+- `var/www/static/*.js` or inline script — client-side sort (if client-side)
+
+## Acceptance criteria
+
+- [ ] Sort by name orders cards alphabetically by title
+- [ ] Sort by card type groups cards in lane order (Intelligence → Speed → Visciousness → Resolve)
+- [ ] Sort by date achieved orders by `CardOwnerHistory.aquiredAt` (oldest or newest first — pick one and document it)
+- [ ] The default (unsorted) view is unchanged
+- [ ] All static and non-static cards sort correctly (sort uses title for static cards too, not the playing-card default name — or use the same ordering as name; decide and document)
+- [ ] No regressions on the rest of the player page

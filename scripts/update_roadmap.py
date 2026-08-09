@@ -41,6 +41,7 @@ SECTION_TITLES = {
     "low-prio": "Low priority",
     "later-actions": "Later actions",
     "refactor-parallel-project": "Refactor: parallel project",
+    "UX": "UX",
     "deck-page": "Deck page",
     "game-page-metadata": "Game page metadata",
     "customization-card-systems": "Customization and card systems",

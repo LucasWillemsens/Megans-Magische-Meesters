@@ -1,0 +1,35 @@
+Confirm, navigate, or cancel a keyboard-selected card — completing the selection flow from the keyboard-card-selection subgoal.
+
+## Behavior
+
+While a card is keyboard-selected (hologram preview showing):
+
+- **Space or Enter** confirms the play: write the play cookie via the existing `createupdateCookie(cardId, laneValue, false, sourceLane, sourceOrdinal)` path exactly as `onDropZoneDrop()` does (same payload shape: `{laneValue, sourceLane, sourceOrdinal, flipFaceUp: false}`), targeting the currently displayed lane. Then mark the hand card as played: add `.ghost`, remove `draggable`, increment `this.staged.plays`, and call `this.applyTurnAffordances()` — mirroring a real drag-drop end state.
+- **Arrow keys** (←/↑/↓/→) move the preview to the next lane, wrapping 1→2→3→4→1. Moving the preview removes it from the old lane's `.hologramRow` and re-creates it in the new lane's `.hologramRow`, updating `this.keyboardSelection.laneValue`.
+- **Clicking a drop zone** (`.drop-zone`, id `drop-zone-N`) while a card is selected confirms the play into that lane, just like Space/Enter — the drop zone's lane index wins over the preview's current lane.
+- **Escape or 0** cancels: remove the preview hologram, restore the hand card's normal styling (remove selection/ghost classes), clear `this.keyboardSelection`.
+- Confirming must respect turn allowances: if `remainingAllowances().plays <= 0` at confirm time, refuse the confirm (keep the preview or cancel it) — same truthfulness as `onCardDragStart()`.
+- Confirming a card whose `.blocked` state changed (e.g. budget exhausted mid-selection) must also refuse.
+
+## Implementation notes
+
+- All in `var/www/static/cardDragDrop.js` — extend the keydown handler from keyboard-card-selection.
+- Reuse `createupdateCookie()` verbatim; do not introduce a second cookie writer.
+- The `.ghost` + `staged.plays++` + `applyTurnAffordances()` sequence must match `onDropZoneDrop()` so the server POST later executes the cookie identically whether the play came from drag or keyboard.
+- After confirming, the hand card stays visible as a ghost (like a real drag) until the next action POST re-renders the board.
+- The hologram preview must not be confused with a click-to-flip hologram: it should never receive the face-down click listener (`onFaceDownCardClick`).
+
+## Files to modify
+
+- `var/www/static/cardDragDrop.js`
+
+## Acceptance criteria
+
+- [ ] Space/Enter writes the play cookie for the displayed lane and ghosts the hand card
+- [ ] Arrow keys move the preview across lanes with wrap-around (4 → 1)
+- [ ] Clicking a drop zone confirms into that drop zone's lane
+- [ ] Escape/0 cancels and cleans up the preview
+- [ ] Confirm is refused (and explained via existing tooltip/blocked styles) when the plays budget is exhausted
+- [ ] The cookie payload matches `onDropZoneDrop()`'s output format exactly
+- [ ] The hand card appears as a ghost after confirm, same as a drag
+- [ ] The preview hologram is never click-to-flip

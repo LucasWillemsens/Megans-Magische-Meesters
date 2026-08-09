@@ -1,0 +1,53 @@
+Fix hand card vertical spacing and readability on the battle board.
+
+## Issues to fix
+
+### 1. Margin-top for hand cards
+
+The hand cards (`ul.hand li.cardContainer`) have a broken vertical offset:
+- `.playingCards ul.hand` is `height: 8em` with `margin-bottom: 3.5em`
+- `.playingCards ul.hand li` is `position: absolute; bottom: 0` and each `li.cardContainer` has `width: calc(4.75rem + 6px); height: calc(6.5rem + 6px)`
+
+The result: hand cards sit too low / overlap the lanes, or have inconsistent top spacing. Hand cards should have a fixed, correct margin-top so the whole row aligns consistently.
+
+### 2. Every hand card's cardType is unreadable
+
+In `cards.css` the `.smallCardInfo .cardType` rule uses:
+```css
+.smallCardInfo .cardType{
+    margin-block-start: 0px;
+    margin-bottom: -2.75rem;   /* negative margin pushes it out of place */
+    font-size: 7px;
+    ...
+}
+```
+
+The negative `margin-bottom: -2.75rem` combined with the tiny `7px` font makes the type label invisible or overlapping inside hand cards. The cardType must be readable on every hand card.
+
+### 3. Face cards are really low
+
+Static face cards (rank-j/q/k, rendered via `.playingCards .card.rank-j` etc.) sit too low in the card. The CSS-playing-cards framework positions the big suit symbol (`rank-j .suit:after` etc.) at `bottom: .25em` with `font-size: 3em`, which collides with the `.smallCardInfo` footer and makes the face look sunken.
+
+### 4. Other static cards are also too low
+
+Non-face static cards (`rank-2` through `rank-10`, `rank-a`) have their center suit symbols (`suit:after` with `\A`-separated suit stacks) rendered low in the card, near the footer. The static card body should be vertically centered within the card, with the `.smallCardInfo` footer at the very bottom.
+
+## Approach
+
+- Fix `.smallCardInfo .cardType` spacing: remove the negative bottom margin, use a sensible margin and font-size (e.g. 0.6–0.75rem, readable), and ensure it is contained within `.smallCardInfo`.
+- Ensure `ul.hand li.cardContainer` has a consistent `margin-top` (the `.hand` container and `.deckHand` flex row should align card tops or bottoms consistently — pick what the board layout intends and make it uniform).
+- For static cards in the hand, constrain the suit symbols so they don't collide with the footer: e.g. reduce `font-size` of the `.suit:after` symbol stack inside `.smallCard` or add `padding-bottom` to the card body.
+- Face cards: adjust the bottom offset of the `rank-j/q/k .suit:after` big symbol so it sits centered in the visible area above the footer.
+- Keep the changes scoped to hand cards and static cards; do not regress the non-static cards with images.
+
+## Files to modify
+
+- `var/www/static/cards.css` — `.smallCardInfo .cardType`, `.playingCards ul.hand` spacing, static card symbol positioning
+
+## Acceptance criteria
+
+- [ ] Hand cards have a fixed, correct margin-top (no overlap with lanes, consistent row)
+- [ ] The cardType label is readable on every hand card (font-size ≥ 0.6rem, no negative-margin clipping)
+- [ ] Static face cards sit at a normal height in the card, not sunken
+- [ ] Static non-face cards' suit symbols are centered, not pushed into the footer
+- [ ] Non-static (image) cards are unaffected

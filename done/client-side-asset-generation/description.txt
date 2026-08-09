@@ -1,0 +1,9 @@
+Allow usage of efficient client computed assets. These can be especially useful for testing or as a fallback when asset loading fails.
+
+The first subgoal is complete: new cards use the CSS playing-card look of the cards.css default deck. Suit/rank Jinja2 filters, template updates across all five card-rendering templates, and the CSS adjustments are implemented and merged (PR #22), with tests in MMM/tests.py.
+
+- **suit-rank-helpers** — `playing_card_rank_class`, `playing_card_rank_display`, `playing_card_suit_class`, `playing_card_suit_display`, `playing_card_default_name` filters in `mysite/jinja2.py`. Rank from `card.id % 13` (2→A), suit from `cardType` (0=Clubs/Intelligence, 1=Spades/Speed, 2=Diamonds(diams)/Viciousness, 3=Hearts/Resolve). All registered in the Jinja2 environment.
+- **template-updates** — All five card-rendering templates (index, viewCard, viewPlayer, createGame, viewBoard ×5 locations + hand) render `staticCard` + rank/suit classes and rank/suit spans for `artSource == "static"` cards; title hidden for static cards, cardType shown. Face-down board cards carry the classes so client-side flips reveal the playing card. `1flubeltje.jpg` remains only for `artSource == ""` and deck art.
+- **css-adjustments** — `.playingCards .card.smallCard[class*="rank-"]` treatment with overflow hidden; `.smallCardInfo` overlaid semi-transparent at the card bottom; `.staticCard` footer styles; `.cardOptions` sizing; 14rem spotlight for the card detail page; `.card.back` hides rank/suit/info so backs stay clean.
+
+Further client-computed-asset work (e.g. as a fallback when asset loading fails, or efficient asset generation) remains open in roadmap/client-side-asset-generation/.
