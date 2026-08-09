@@ -1398,3 +1398,51 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
 .spotlight.playing-card-spotlight .suit {
     top: 2rem;
 }
+
+/* Static CSS cards show only their type in the footer.  Keep that footer
+   inside the card instead of inheriting the old title/card-type spacing. */
+.playingCards .card.staticCard .smallCardInfo {
+    min-height: 1.1rem;
+    height: auto;
+    gap: 0;
+    padding: 0.2rem 0;
+}
+
+.playingCards .card.staticCard .smallCardInfo .cardType {
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1;
+}
+
+/* Keep the hand's submit control from changing the card face's dimensions or
+   colors.  Its markup otherwise matches the cards rendered on the board. */
+.playerScreen .hand .cardActionForm {
+    display: contents;
+}
+
+.playerScreen .hand .cardActionButton {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+/* CSS card content remains in the DOM so click-to-flip can reveal it, but it
+   must not leak through the patterned back while the card is face down. */
+.playingCards .card.back .rank,
+.playingCards .card.back .suit,
+.playingCards .card.back .smallCardInfo,
+.playingCards .card.back .fit-picture {
+    visibility: hidden;
+}
+
+.playingCards .card.back .suit::after {
+    content: none !important;
+}

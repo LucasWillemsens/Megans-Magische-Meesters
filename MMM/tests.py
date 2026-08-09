@@ -137,10 +137,17 @@ class BattleFlowTests(TestCase):
         card = self.human_cards[0]
         response = self.client.get(reverse("MMM:viewCard", args=[card.id]))
         content = response.content.decode()
+        self.assertIn("/static/1flubeltje.jpg", content)
+        self.assertNotIn("playing-card-spotlight card staticCard", content)
+
+        card.artSource = "static"
+        card.save(update_fields=["artSource"])
+        response = self.client.get(reverse("MMM:viewCard", args=[card.id]))
+        content = response.content.decode()
         rank_class = playing_card_rank_class(card)
         suit_class = playing_card_suit_class(card)
         self.assertIn(
-            f'class="spotlight playing-card-spotlight card {rank_class} {suit_class}"',
+            f'class="spotlight playing-card-spotlight card staticCard {rank_class} {suit_class}"',
             content,
         )
         self.assertIn(
@@ -154,8 +161,21 @@ class BattleFlowTests(TestCase):
         from django.core.management import call_command
         from mysite.jinja2 import playing_card_rank_class, playing_card_suit_class
 
+        lucas = Player.objects.create(name="Lucas")
+        owner_history = CardOwnerHistory.objects.create(cardOwner=lucas)
+        legacy_card = Card.objects.create(
+            title="Two of Clubs", artSource="", cardType=0
+        )
+        legacy_card.ownerHistory.add(owner_history)
+
         call_command("add_deck_cards", stdout=StringIO())
-        lucas = Player.objects.get(name="Lucas")
+        call_command("add_deck_cards", stdout=StringIO())
+        legacy_card.refresh_from_db()
+        self.assertEqual(legacy_card.artSource, "static")
+        self.assertEqual(
+            Card.objects.filter(ownerHistory=owner_history).count(),
+            52,
+        )
         generated_card = Card.objects.filter(
             ownerHistory__cardOwner=lucas,
         ).order_by("id").first()
@@ -163,11 +183,14 @@ class BattleFlowTests(TestCase):
         response = self.client.get(reverse("MMM:viewPlayer", args=[lucas.id]))
         content = response.content.decode()
         self.assertIn(
-            f'class="card smallCard {playing_card_rank_class(generated_card)} '
+            f'class="card smallCard staticCard {playing_card_rank_class(generated_card)} '
             f'{playing_card_suit_class(generated_card)}"',
             content,
         )
-        self.assertNotIn("1flubeltje.jpg", content)
+        self.assertIn(f'href="http://127.0.0.1:8000/card/{generated_card.id}/"', content)
+        self.assertNotIn("/static/1flubeltje.jpg", content)
+        self.assertNotIn("class=\"cardTitle\">Two of Clubs", content)
+        self.assertIn("Intelligence", content)
 
     def test_confirm_is_idempotent(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -309,6 +332,8 @@ class BattleFlowTests(TestCase):
         # (mirroring the bot draw flow, no cookie round-trip)
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, 'cardContainer loading')
+        self.assertContains(response, 'class="cardActionButton')
+        self.assertContains(response, "/static/1flubeltje.jpg")
         self.assertContains(response, 'data-source-lane="-')
 
         # the loading card's data-source-* must describe where the card came
@@ -330,6 +355,24 @@ class BattleFlowTests(TestCase):
             ).count(),
             1,
         )
+
+    def test_static_hand_card_uses_the_same_css_face_as_field_cards(self):
+        for card in self.human_cards + self.bot_cards:
+            card.artSource = "static"
+            card.save(update_fields=["artSource"])
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(draw_url, {"action": "draw"})
+
+        self.assertContains(response, 'class="cardActionButton')
+        self.assertContains(response, "staticCard")
+        self.assertContains(response, '<span class="suit">')
+        self.assertContains(response, 'class="cardType"')
+        self.assertNotContains(response, 'class="cardTitle"')
+        self.assertNotContains(response, "/static/1flubeltje.jpg")
 
     def test_draw_sets_no_play_cookie(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -378,7 +421,21 @@ class BattleFlowTests(TestCase):
         ).count()
         self.assertGreater(bot_deck_count, 0)
         content = response.content.decode()
-        self.assertEqual(content.count("data-card-id="), bot_deck_count + bot_hand_count)
+        enemy_deck_hand = re.search(
+            r'<div class="enemyDeckHand">(.*?)<ul class="lanes">',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(enemy_deck_hand)
+        self.assertEqual(
+            enemy_deck_hand.group(1).count("data-card-id="),
+            bot_deck_count + bot_hand_count,
+        )
+        self.assertNotIn("fourColours", content)
+        self.assertIn(
+            f'title="{self.bot_cards[0].title} of {self.bot.name}"',
+            content,
+        )
 
     def test_end_turn_turn_phase_sequence_across_reloads(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])

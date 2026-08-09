@@ -1,6 +1,6 @@
 """
-Management command to add all 52 cards from a standard playing-card deck
-to Lucas' collection, without art — exercising the CSS-playing-card fallback.
+Management command to add or refresh all 52 cards from a standard playing-card
+deck in Lucas' collection.  These cards use the CSS-playing-card renderer.
 
 Usage:
     python manage.py add_deck_cards
@@ -10,7 +10,6 @@ from django.core.management.base import BaseCommand
 from MMM.models import Player, Card, CardOwnerHistory
 
 
-# Rank names in order: id%13=0 → "Two", id%13=1 → "Three", ... id%13=12 → "Ace"
 RANK_NAMES = [
     "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
     "Ten", "Jack", "Queen", "King", "Ace",
@@ -19,10 +18,11 @@ RANK_NAMES = [
 # Suit names indexed by cardType:
 #   0=Intelligence(Clubs), 1=Speed(Spades), 2=Viciousness(Diamonds), 3=Resolve(Hearts)
 SUIT_NAMES = ["Clubs", "Spades", "Diamonds", "Hearts"]
+STATIC_ART_SOURCE = "static"
 
 
 class Command(BaseCommand):
-    help = "Add all 52 standard playing cards to Lucas' collection (no art)"
+    help = "Add or refresh all 52 standard playing cards in Lucas' collection"
 
     def handle(self, *args, **options):
         # 1. Get or create Lucas
@@ -43,24 +43,31 @@ class Command(BaseCommand):
         else:
             self.stdout.write("CardOwnerHistory already exists for Lucas")
 
-        # 3. Create 52 cards (13 ranks × 4 suits)
-        existing_titles = set(
-            Card.objects.filter(ownerHistory=owner_history).values_list("title", flat=True)
-        )
+        # 3. Create or refresh 52 cards (13 ranks × 4 suits).  Matching cards
+        # are updated so this command also migrates cards created by the old
+        # version, which stored an empty artSource.
         created_count = 0
-        skipped_count = 0
+        updated_count = 0
 
         for suit_idx in range(4):          # Clubs, Spades, Diamonds, Hearts
             for rank_idx in range(13):     # Two through Ace
                 title = f"{RANK_NAMES[rank_idx]} of {SUIT_NAMES[suit_idx]}"
-                if title in existing_titles:
-                    self.stdout.write(f"  Skipping (exists): {title}")
-                    skipped_count += 1
+                existing_cards = Card.objects.filter(
+                    ownerHistory=owner_history,
+                    title=title,
+                )
+                if existing_cards.exists():
+                    changed = existing_cards.update(
+                        artSource=STATIC_ART_SOURCE,
+                        cardType=suit_idx,
+                    )
+                    updated_count += changed
+                    self.stdout.write(f"  Updated: {title}")
                     continue
 
                 card = Card.objects.create(
                     title=title,
-                    artSource="",           # No art → triggers CSS playing card display
+                    artSource=STATIC_ART_SOURCE,
                     cardType=suit_idx,
                 )
                 card.ownerHistory.add(owner_history)
@@ -68,5 +75,5 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Created: {title}")
 
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone. Created {created_count} new card(s), skipped {skipped_count} existing."
+            f"\nDone. Created {created_count} new card(s), updated {updated_count}."
         ))
