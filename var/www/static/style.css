@@ -166,6 +166,165 @@ a:hover {
         padding-left: 0.5rem;
     }
 
+.cards .cardsText.owned-cards-text {
+    height: auto;
+    min-width: min(100%, 30rem);
+}
+
+.owned-cards-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.owned-cards-heading h3 {
+    margin: 0;
+}
+
+.collection-sort-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+}
+
+.collection-sort-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.collection-sort-control {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    background: #fff;
+    font-size: 0.9rem;
+    line-height: 1.2;
+}
+
+.collection-sort-control:hover {
+    background: #f0f6f6;
+    text-decoration: none;
+}
+
+.collection-sort-control:focus-visible {
+    outline: 3px solid #174c8c;
+    outline-offset: 2px;
+}
+
+.collection-sort-control.is-active,
+.collection-sort-control[aria-current="true"] {
+    border-color: #174c8c;
+    background: #dbeafe;
+    font-weight: 700;
+}
+
+.players .challenge-list {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    width: min(100%, 48rem);
+}
+
+.players .challenge-list > .challenge-card {
+    display: block;
+    width: 100%;
+    padding: 0;
+}
+
+.challenge-card-link {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 1rem;
+    border: 2px solid #777;
+    border-radius: 0.5rem;
+    background: #fff;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+
+.challenge-card-link:hover {
+    border-color: #222;
+    background: #f0f6f6;
+    text-decoration: none;
+}
+
+.challenge-card-link:focus-visible {
+    outline: 3px solid #174c8c;
+    outline-offset: 4px;
+}
+
+.challenge-card-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.challenge-card-title {
+    margin: 0;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.challenge-card-subtitle {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0;
+    min-width: 0;
+}
+
+.challenge-card-subtitle p {
+    margin: 0;
+    padding: 0;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.challenge-participants {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    margin: 1rem 0 0;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid #bbb;
+    list-style: none;
+}
+
+.challenge-participants > li {
+    padding: 0;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.challenge-card-versus {
+    font-style: italic;
+}
+
+.challenge-no-participants {
+    margin: 1rem 0 0;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid #bbb;
+}
+
+@media (max-width: 40rem) {
+    .challenge-card-link {
+        padding: 0.8rem;
+    }
+
+    .challenge-card-subtitle {
+        gap: 0.4rem;
+    }
+}
+
 .playerOptions{
     display: flex;
     flex-direction: row;

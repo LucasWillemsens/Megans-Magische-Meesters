@@ -3,17 +3,21 @@
 {% block content %}
     <div class="players">
         <div class="title">
-            <h1> {{player.name}}'s page </h1>
+            {% if player.name.endswith("s") or player.name.endswith("S") %}
+                <h1>{{player.name|e}}' page</h1>
+            {% else %}
+                <h1>{{player.name|e}}'s page</h1>
+            {% endif %}
             <p>
-                Welcome {{player.name}}, this is your personal magical masters page!
+                Welcome {{player.name|e}}, this is your personal magical masters page!
             </p>
         </div>
         <div class="playerInfo">
-            <h2> {{player.name}} </h2>
+            <h2>{{player.name|e}}</h2>
             {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name|e}}'s profile picture" />
             {% else %}
-                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name}}'s profile picture" />
+                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name|e}}'s profile picture" />
             {% endif %}
         </div>
     </div>
@@ -21,55 +25,45 @@
     <div class="players">
     <h2> Challenges </h2>
         {% if challenges != [] %}
-        <ul class="basic-mat">
+        <ul class="basic-mat challenge-list">
             {% for challenge in challenges %}
-            <li>
-                <!-- Game {{loop.index}} -->
-                
-                <div class="smallCardInfo">
-                    <a href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}">
-                        <h3>
-                            Game {{loop.index}}
-                        </h3>
-                    </a>
-                    <p class="cardType">
-                        lootPile: {{challenge.printLootPile()}}
-                    </p>
-                    
-                    {% if challenge.participants.count() > 0 %}
-                    <p class="cardType">
-                        (Started {{printLocalTime(challenge.participants.all()[0].joinedBattle)}})
-                    </p>
-                    {% endif %}
-                </div>
-                
+            <li class="challenge-card">
+                <a class="challenge-card-link" href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}" draggable="false">
+                    <div class="challenge-card-heading">
+                        <h3 class="challenge-card-title">Game {{loop.index}}</h3>
+                        <div class="challenge-card-subtitle challenge-card-meta">
+                            <p class="challenge-card-loot">lootPile: {{challenge.printLootPile()}}</p>
+                            {% if challenge.participants.count() > 0 %}
+                            <p class="challenge-card-start">(Started {{printLocalTime(challenge.participants.all()[0].joinedBattle)}})</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
                 {% if challenge.participants.exclude(pk__isnull=True) %}
-                    <ul class="basic-mat smallvertical">
+                    <ul class="challenge-participants">
                         <li>
                             <b>
-                                {{challenge.challenger.name}}
+                                {{challenge.challenger.name|e}}
                             </b>
                         </li>
-                            
-                        <p>
-                            versus
-                        </p>
+                        <li class="challenge-card-versus">versus</li>
                         {% for battler in challenge.participants.exclude(player__name=challenge.challenger.name).all() %}
                             <li>
-                                {{battler.player.name}}
+                                {{battler.player.name|e}}
                             </li>
                         {% endfor %}
                     </ul>
                 {% else %}
-                    <p>
+                    <p class="challenge-no-participants">
                         No participants
                     </p>
                 {% endif %}
+                </a>
             </li>
             {% endfor %}
         </ul>
         {% else %}
-        <p> {{player.name}} has never challenged anyone.</p>
+        <p>{{player.name|e}} has never challenged anyone.</p>
         {% endif %}
         <div class="createButton">
             <a href="{{returnURL}}game/create/{{player.id}}" draggable="false">
@@ -82,15 +76,28 @@
     {% if cardOwner %}
         <h2> Collection </h2>
         <div class="cards playingCards">
-            <div class="cardsText">
-                <h3> Owned cards </h3>
+            <div class="cardsText owned-cards-text">
+                <div class="owned-cards-heading">
+                    <h3> Owned cards </h3>
+                    <nav class="collection-sort-controls" aria-label="Sort owned cards">
+                        <span class="collection-sort-label">Sort by:</span>
+                        <a class="collection-sort-control{% if activeSort == "default" %} is-active{% endif %}"
+                            href="{{returnURL}}player/{{player.id}}/"{% if activeSort == "default" %} aria-current="true"{% endif %}>Default</a>
+                        <a class="collection-sort-control{% if activeSort == "name" %} is-active{% endif %}"
+                            href="{{returnURL}}player/{{player.id}}/?sort=name"{% if activeSort == "name" %} aria-current="true"{% endif %}>Name</a>
+                        <a class="collection-sort-control{% if activeSort == "type" %} is-active{% endif %}"
+                            href="{{returnURL}}player/{{player.id}}/?sort=type"{% if activeSort == "type" %} aria-current="true"{% endif %}>Type</a>
+                        <a class="collection-sort-control{% if activeSort == "date" %} is-active{% endif %}"
+                            href="{{returnURL}}player/{{player.id}}/?sort=date"{% if activeSort == "date" %} aria-current="true"{% endif %}>Date achieved</a>
+                    </nav>
+                </div>
                 <p>
                     These are your cards:
                 </p>
             </div>
-            {% if cardOwner.card.exclude(pk__isnull=True) %}
+            {% if ownedCards %}
             <ul class="basic-mat">
-                {% for card in cardOwner.card.all() %}
+                {% for card in ownedCards %}
                 <li class="cardContainer">
                     <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
                         href="{{returnURL}}card/{{ card.id }}/">

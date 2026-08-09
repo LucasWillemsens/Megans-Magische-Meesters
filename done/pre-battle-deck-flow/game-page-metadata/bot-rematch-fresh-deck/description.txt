@@ -1,0 +1,1 @@
+Ensure bot rematches shuffle the board and use a fresh deck automatically.

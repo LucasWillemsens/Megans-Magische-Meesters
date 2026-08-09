@@ -1,0 +1,2 @@
+Add tests and reliability work to make the prototype stable before sharing. Create more cards for testing and automate complete end-to-end tests using a real front-end in addition to unit testing.
+Also add an efficient way to create cards in general and allow use efficient client computed assets. These can be especially usefull for testing or as a fallback when asset loading fails.

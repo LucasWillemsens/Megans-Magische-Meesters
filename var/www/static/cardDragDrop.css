@@ -43,6 +43,49 @@ li.cardContainer.ghost {
     filter: grayscale(0.3);
 }
 
+li.cardContainer.keyboard-selected {
+    opacity: 0.45;
+    filter: grayscale(0.25) drop-shadow(0 0 0.35rem rgba(255, 204, 0, 0.8));
+    outline: 0.2rem solid rgba(255, 204, 0, 0.85);
+    outline-offset: 0.2rem;
+}
+
+.shortcut-hold-loading {
+    --shortcut-hold-duration: 1s;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+
+.shortcut-hold-loading::before {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    transform: scaleX(0);
+    transform-origin: left center;
+    background: linear-gradient(90deg, rgba(255, 204, 0, 0.25), rgba(255, 204, 0, 0.85));
+    animation: shortcutHoldProgress var(--shortcut-hold-duration) linear forwards;
+}
+
+.shortcut-hold-loading > * {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes shortcutHoldProgress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shortcut-hold-loading::before {
+        transform: scaleX(1);
+        animation: none;
+    }
+}
+
 /* Hologram row above lane cards — stacked layout matching cardRow */
 ul.hologramRow {
     position: relative;
@@ -59,7 +102,25 @@ ul.hologramRow .hologram .card {
     opacity: 0.7;
     filter: grayscale(0.2);
 }
-ul.hologramRow .hologram .cardContainer.faceDown:hover {
+
+ul.hologramRow .hologram.keyboard-preview {
+    pointer-events: none;
+    opacity: 1;
+    filter: drop-shadow(0 0 0.5rem rgba(255, 204, 0, 0.75));
+}
+
+ul.hologramRow .hologram.keyboard-preview .cardContainer {
+    pointer-events: none;
+    cursor: default;
+}
+
+ul.hologramRow .hologram.keyboard-preview .card {
+    opacity: 1;
+    filter: none;
+}
+
+.playerScreen .playerBoard ul.cardRow > li.cardContainer.faceDown:not(.blocked),
+.playerScreen .playerBoard ul.hologramRow .hologram li.cardContainer.faceDown:not(.blocked) {
     cursor: pointer;
 }
 

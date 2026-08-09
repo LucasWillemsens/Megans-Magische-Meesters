@@ -1,3 +1,4 @@
+from django.db.models import Max
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.template import loader
@@ -21,6 +22,9 @@ from .models import (
 
 BASE_URL = "http://127.0.0.1:8000/"
 TURN_PHASE_COOKIE = "turn_phase"
+DECK_BLOCK_SIZE = 32
+HAND_FAN_SIZE = 13
+OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
 
 def index(request):
     context = {
@@ -34,6 +38,11 @@ def index(request):
 def viewPlayer(request, player_id):
     player = Player.objects.get(pk=player_id)
     card_owner = CardOwnerHistory.objects.filter(cardOwner_id=player.id).first()
+    requested_sort = request.GET.get("sort")
+    active_sort = (
+        requested_sort if requested_sort in OWNED_CARD_SORT_KEYS else "default"
+    )
+    owned_cards = _get_owned_cards(player, active_sort)
     battles = BattleParticipant.objects.filter(player_id=player.id)
 
     challenges = []
@@ -44,12 +53,65 @@ def viewPlayer(request, player_id):
     context = {
         "player": player,
         "cardOwner": card_owner,
+        "ownedCards": owned_cards,
+        "activeSort": active_sort,
         "challenges": list(set(challenges)),
         "assestsDir": "MMM/",
         "returnURL": BASE_URL,
         "error_message": "",
     }
     return _render(request, "MMM/viewPlayer.jinja2", context)
+
+
+def _get_owned_cards(player, sort_key="default"):
+    """Return the player's current cards with optional server-side sorting.
+
+    The collection deliberately uses Player.getCollection() rather than the
+    first CardOwnerHistory relation, so a card whose latest history belongs
+    to another player cannot appear as currently owned. The default order is
+    ascending card id, preserving the existing relation's insertion order for
+    the current data. Date sorting uses the latest relevant aquiredAt for the
+    player; equal timestamps use case-insensitive title and then id.
+    """
+    current_card_ids = [card.id for card in player.getCollection()]
+    cards = list(Card.objects.filter(id__in=current_card_ids).order_by("id"))
+
+    if sort_key == "name":
+        return sorted(cards, key=_card_name_sort_key)
+    if sort_key == "type":
+        return sorted(
+            cards,
+            key=lambda card: (card.cardType, *(_card_name_sort_key(card))),
+        )
+    if sort_key == "date":
+        acquisition_dates = _latest_acquisition_dates(player, cards)
+        return sorted(
+            cards,
+            key=lambda card: (
+                -acquisition_dates[card.id].timestamp(),
+                *_card_name_sort_key(card),
+            ),
+        )
+    return cards
+
+
+def _card_name_sort_key(card):
+    return card.title.casefold(), card.id
+
+
+def _latest_acquisition_dates(player, cards):
+    if not cards:
+        return {}
+
+    history_rows = (
+        CardOwnerHistory.objects.filter(cardOwner_id=player.id, card__in=cards)
+        .values("card__id")
+        .annotate(latest_acquired_at=Max("aquiredAt"))
+    )
+    return {
+        row["card__id"]: row["latest_acquired_at"]
+        for row in history_rows
+    }
 
 
 def viewCard(request, card_id):
@@ -228,7 +290,9 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
                 "deckCount": enemy_board["deckCount"],
                 "handCount": enemy_board["handCount"],
                 "deckStack": enemy_board["deckStack"],
+                "deckIndicators": enemy_board["deckIndicators"],
                 "handCards": enemy_board["handCards"],
+                "handFans": enemy_board["handFans"],
             }
         )
 
@@ -242,9 +306,11 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "error_message": error_message,
         "actionUrl": f"{BASE_URL}game/{game.id}/board/{player_id}/action/",
         "handCards": own_board["handCards"],
+        "handFans": own_board["handFans"],
         "ownLaneRows": own_board["laneRows"],
         "ownDeckCount": own_board["deckCount"],
         "ownDeckStack": own_board["deckStack"],
+        "ownDeckIndicators": own_board["deckIndicators"],
         "drawnCardsAmount": current_participant.drawnCardsAmount,
         "playedCardsAmount": current_participant.playedCardsAmount,
         "flippedCardsAmount": current_participant.flippedCardsAmount,
@@ -577,6 +643,7 @@ def _addLoadingAnimations(context, request):
     context["plays"] = plays
     print(f"Updating loading animations for plays: {plays} at {request.path}")
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
+    context["handFans"] = _chunk_hand_cards(context["handCards"])
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
     for enemy_board in context.get("enemyBoards", []):
         enemy_plays = [
@@ -589,6 +656,7 @@ def _addLoadingAnimations(context, request):
             enemy_board["handCards"] = _update_moved_hand_cards(
                 enemy_board["handCards"], enemy_plays
             )
+            enemy_board["handFans"] = _chunk_hand_cards(enemy_board["handCards"])
     return context
 
 
@@ -727,6 +795,7 @@ def _run_bot_turn(game, human_player_id):
 def newBoard():
     board = {
         "handCards": [],
+        "handFans": [[]],
         "handCount": 0,
         "laneRows": [
             {"name": "Intelligence", "cards": [], "trustedCards": []}, 
@@ -736,8 +805,54 @@ def newBoard():
         ],
         "deckCount": 0,
         "deckStack": [],
+        "deckIndicators": [],
     }
     return board
+
+def _ordered_lane_cards(cards):
+    return sorted(cards, key=lambda card: (card.state.laneOrdinal, card.id))
+
+def _deck_stack_key(card):
+    return card.state.lane, -card.id
+
+def _next_deck_card_from_cards(deck_cards):
+    return min(deck_cards, key=lambda card: (-card.state.lane, card.id), default=None)
+
+def _deck_presentation(deck_cards, next_deck_card=None):
+    ordered_deck_cards = sorted(deck_cards, key=_deck_stack_key)
+    active_card_count = (
+        ((len(ordered_deck_cards) - 1) % DECK_BLOCK_SIZE) + 1
+        if ordered_deck_cards
+        else 0
+    )
+    active_stack = ordered_deck_cards[-active_card_count:] if active_card_count else []
+    inert_block_count = (
+        len(ordered_deck_cards) - active_card_count
+    ) // DECK_BLOCK_SIZE
+
+    deck_card_ids = {card.id for card in ordered_deck_cards}
+    if next_deck_card is None or next_deck_card.id not in deck_card_ids:
+        next_deck_card = _next_deck_card_from_cards(ordered_deck_cards)
+    if next_deck_card is not None:
+        active_card_ids = {card.id for card in active_stack}
+        if next_deck_card.id not in active_card_ids:
+            active_stack = active_stack[1:] + [next_deck_card]
+        elif active_stack[-1].id != next_deck_card.id:
+            active_stack = [
+                card for card in active_stack if card.id != next_deck_card.id
+            ] + [next_deck_card]
+
+    deck_indicators = [
+        {"cardCount": DECK_BLOCK_SIZE} for _ in range(inert_block_count)
+    ]
+    return active_stack, deck_indicators
+
+def _chunk_hand_cards(hand_cards):
+    ordered_cards = list(hand_cards)
+    return [
+        ordered_cards[index:index + HAND_FAN_SIZE]
+        for index in range(0, len(ordered_cards), HAND_FAN_SIZE)
+    ] or [[]]
 
 def contextBoard(gameCards, user_id):
     userCards = [gameCard for gameCard in gameCards if gameCard.user_id == user_id]
@@ -747,15 +862,20 @@ def contextBoard(gameCards, user_id):
     visciousnessCards = [gameCard for gameCard in userCards if gameCard.state.lane == 3]
     resolveCards = [gameCard for gameCard in userCards if gameCard.state.lane == 4]
     deckCards = [gameCard for gameCard in userCards if gameCard.state.inDeck == True]
+    participant = BattleParticipant.objects.filter(pk=user_id).first()
+    next_deck_card = participant.getNextDeckCard() if participant is not None else None
+    deckStack, deckIndicators = _deck_presentation(deckCards, next_deck_card)
 
     board = {
         "handCards": handCards,
+        "handFans": _chunk_hand_cards(handCards),
         "handCount": len(handCards),
-        "laneRows": [{"name": "Intelligence", "value": len([revealedCard for revealedCard in intelligenceCards if not revealedCard.state.faceDown]), "cards": [card for card in intelligenceCards if card.state.trusted == False], "trustedCards": [card for card in intelligenceCards if card.state.trusted == True]},
-        {"name": "Speed", "value": len([revealedCard for revealedCard in speedCards if not revealedCard.state.faceDown]), "cards": [card for card in speedCards if card.state.trusted == False], "trustedCards": [card for card in speedCards if card.state.trusted == True]}, 
-        {"name": "Visciousness", "value": len([revealedCard for revealedCard in visciousnessCards if not revealedCard.state.faceDown]), "cards": [card for card in visciousnessCards if card.state.trusted == False], "trustedCards": [card for card in visciousnessCards if card.state.trusted == True]}, 
-        {"name": "Resolve", "value": len([revealedCard for revealedCard in resolveCards if not revealedCard.state.faceDown]), "cards": [card for card in resolveCards if card.state.trusted == False], "trustedCards": [card for card in resolveCards if card.state.trusted == True]}],
+        "laneRows": [{"name": "Intelligence", "value": len([revealedCard for revealedCard in intelligenceCards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in intelligenceCards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in intelligenceCards if card.state.trusted == True])},
+        {"name": "Speed", "value": len([revealedCard for revealedCard in speedCards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in speedCards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in speedCards if card.state.trusted == True])},
+        {"name": "Visciousness", "value": len([revealedCard for revealedCard in visciousnessCards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in visciousnessCards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in visciousnessCards if card.state.trusted == True])},
+        {"name": "Resolve", "value": len([revealedCard for revealedCard in resolveCards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in resolveCards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in resolveCards if card.state.trusted == True])}],
         "deckCount": len(deckCards),
-        "deckStack": deckCards,
+        "deckStack": deckStack,
+        "deckIndicators": deckIndicators,
     }
     return board

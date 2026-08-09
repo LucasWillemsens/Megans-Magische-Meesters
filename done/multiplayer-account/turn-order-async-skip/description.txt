@@ -1,0 +1,1 @@
+Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.

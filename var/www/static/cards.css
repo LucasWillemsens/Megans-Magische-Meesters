@@ -485,57 +485,80 @@
 .playingCards ul.hand li {
     bottom: 0;
 }
-.playingCards ul.hand li:nth-child(1 of :not(.cardContainer))  { left: 0; }
-.playingCards ul.hand li:nth-child(1 of .cardContainer)  { left: 0; }
-.playingCards ul.hand li:nth-child(2 of .cardContainer)  { left: 1.1em; }
-.playingCards ul.hand li:nth-child(3 of .cardContainer)  { left: 2.2em; }
-.playingCards ul.hand li:nth-child(4 of .cardContainer)  { left: 3.3em; }
-.playingCards ul.hand li:nth-child(5 of .cardContainer)  { left: 4.4em; }
-.playingCards ul.hand li:nth-child(6 of .cardContainer)  { left: 5.5em; }
-.playingCards ul.hand li:nth-child(7 of .cardContainer)  { left: 6.6em; }
-.playingCards ul.hand li:nth-child(8 of .cardContainer)  { left: 7.7em; }
-.playingCards ul.hand li:nth-child(9 of .cardContainer)  { left: 8.8em; }
-.playingCards ul.hand li:nth-child(10 of .cardContainer) { left: 9.9em; }
-.playingCards ul.hand li:nth-child(11 of .cardContainer) { left: 11em; }
-.playingCards ul.hand li:nth-child(12 of .cardContainer) { left: 12.1em; }
-.playingCards ul.hand li:nth-child(13 of .cardContainer) { left: 13.2em; }
-.playingCards ul.hand li:nth-child(14 of .cardContainer) { left: 14.3em; }
-.playingCards ul.hand li:nth-child(15 of .cardContainer) { left: 15.4em; }
-.playingCards ul.hand li:nth-child(16 of .cardContainer) { left: 16.5em; }
-.playingCards ul.hand li:nth-child(17 of .cardContainer) { left: 17.6em; }
-.playingCards ul.hand li:nth-child(18 of .cardContainer) { left: 18.7em; }
-.playingCards ul.hand li:nth-child(19 of .cardContainer) { left: 19.8em; }
-.playingCards ul.hand li:nth-child(20 of .cardContainer) { left: 20.9em; }
-.playingCards ul.hand li:nth-child(21 of .cardContainer) { left: 22em; }
-.playingCards ul.hand li:nth-child(22 of .cardContainer) { left: 23.1em; }
-.playingCards ul.hand li:nth-child(23 of .cardContainer) { left: 24.2em; }
-.playingCards ul.hand li:nth-child(24 of .cardContainer) { left: 25.3em; }
-.playingCards ul.hand li:nth-child(25 of .cardContainer) { left: 26.4em; }
-.playingCards ul.hand li:nth-child(26 of .cardContainer) { left: 27.5em; }
 
-/* rotate cards if rotateHand option is on */
-/* Per-position transforms stored in a custom property so ghost can overlay a lift */
-.playingCards.rotateHand ul.hand li:nth-child(1 of .cardContainer),
-.playingCards.rotateHand ul.hand li:nth-child(1 of :not(.cardContainer)) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
-.playingCards.rotateHand ul.hand li:nth-child(2 of .cardContainer) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
-.playingCards.rotateHand ul.hand li:nth-child(3 of .cardContainer) { --hand-tx: 1.1em; --hand-ty: .3em; --hand-rot: -24deg; }
-.playingCards.rotateHand ul.hand li:nth-child(4 of .cardContainer) { --hand-tx: .7em;  --hand-ty: .2em; --hand-rot: -15deg; }
-.playingCards.rotateHand ul.hand li:nth-child(5 of .cardContainer) { --hand-tx: .3em;  --hand-ty: .1em; --hand-rot: -6deg; }
-.playingCards.rotateHand ul.hand li:nth-child(6 of .cardContainer) { --hand-tx: -.1em; --hand-ty: .1em; --hand-rot: 3deg; }
-.playingCards.rotateHand ul.hand li:nth-child(7 of .cardContainer) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
-.playingCards.rotateHand ul.hand li:nth-child(8 of .cardContainer) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
-.playingCards.rotateHand ul.hand li:nth-child(9 of .cardContainer) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
-.playingCards.rotateHand ul.hand li:nth-child(10 of .cardContainer) { --hand-tx: -1.7em; --hand-ty: 1em; --hand-rot: 39deg; }
-.playingCards.rotateHand ul.hand li:nth-child(11 of .cardContainer) { --hand-tx: -2.2em; --hand-ty: 1.5em; --hand-rot: 48deg; }
-.playingCards.rotateHand ul.hand li:nth-child(12 of .cardContainer) { --hand-tx: -2.8em; --hand-ty: 2.1em; --hand-rot: 57deg; }
-.playingCards.rotateHand ul.hand li:nth-child(13 of .cardContainer) { --hand-tx: -3.5em; --hand-ty: 2.8em; --hand-rot: 66deg; }
+/* Each hand fan owns one 13-card footprint.  Additional fans sit beside it
+   and are revealed by the scroll wrapper instead of sharing its coordinates. */
+.playingCards .hand-scroll {
+    --hand-fan-width: calc(13.2em + 5.25rem);
+    display: flex;
+    flex: 1 1 60%;
+    align-items: flex-end;
+    gap: 1rem;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-gutter: stable;
+}
 
-.playingCards.rotateHand ul.hand li.cardContainer, .playingCards.rotateHand ul.hand li:not(.cardContainer) {
+.playingCards .hand-scroll .hand-fan {
+    flex: 0 0 var(--hand-fan-width);
+    width: var(--hand-fan-width);
+    min-width: var(--hand-fan-width);
+    height: var(--hand-row-height, 8em);
+    margin: 0;
+    clear: none;
+    overflow: visible;
+}
+
+.playingCards .hand-scroll .hand-fan > li.cardContainer {
+    left: 0;
+}
+
+.playingCards .hand-scroll .hand-fan > li:not(.cardContainer) {
+    left: 0;
+    bottom: 0;
+}
+
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(1)  { left: 0; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(2)  { left: 1.1em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(3)  { left: 2.2em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(4)  { left: 3.3em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(5)  { left: 4.4em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(6)  { left: 5.5em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(7)  { left: 6.6em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(8)  { left: 7.7em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(9)  { left: 8.8em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(10) { left: 9.9em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(11) { left: 11em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(12) { left: 12.1em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(13) { left: 13.2em; }
+
+/* Per-position transforms are scoped to each fan so every group repeats the
+   same readable rotation pattern. */
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(1),
+.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(2) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(3) { --hand-tx: 1.1em; --hand-ty: .3em; --hand-rot: -24deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(4) { --hand-tx: .7em;  --hand-ty: .2em; --hand-rot: -15deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(5) { --hand-tx: .3em;  --hand-ty: .1em; --hand-rot: -6deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(6) { --hand-tx: -.1em; --hand-ty: .1em; --hand-rot: 3deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(7) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(8) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(9) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(10) { --hand-tx: -1.7em; --hand-ty: 1em; --hand-rot: 39deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(11) { --hand-tx: -2.2em; --hand-ty: 1.5em; --hand-rot: 48deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(12) { --hand-tx: -2.8em; --hand-ty: 2.1em; --hand-rot: 57deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(13) { --hand-tx: -3.5em; --hand-ty: 2.8em; --hand-rot: 66deg; }
+
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer,
+.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) {
     transform: translate(var(--hand-tx), var(--hand-ty)) rotate(var(--hand-rot));
 }
 
 /* Ghost cards in hand sit slightly higher so the player sees the card below. Might need adjustment */
-.playingCards.rotateHand ul.hand li.cardContainer.ghost {
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
     transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2)) rotate(var(--hand-rot));
 }
 
@@ -572,6 +595,79 @@
 .playingCards ul.deck li:nth-child(30) { left: 58px; bottom: 29px; }
 .playingCards ul.deck li:nth-child(31) { left: 60px; bottom: 30px; }
 .playingCards ul.deck li:nth-child(32) { left: 62px; bottom: 31px; }
+
+.playingCards ul.deck-indicator {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    position: relative;
+    clear: both;
+    height: 8em;
+}
+
+.playingCards ul.deck-indicator li {
+    padding: 0;
+    list-style-type: none;
+    float: left;
+    position: absolute;
+}
+
+.playerScreen .deckHand,
+.playerScreen .enemyDeckHand {
+    position: relative;
+}
+
+.playerScreen .deck-stack {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    z-index: 2;
+    width: min(12rem, 100%);
+    height: var(--hand-row-height, 8em);
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.playerScreen .deck-stack > ul.deck {
+    position: absolute;
+    left: 2rem;
+    bottom: 0;
+    width: 10rem;
+    height: var(--hand-row-height, 8em);
+    margin: 0;
+    overflow: visible;
+    clear: none;
+    pointer-events: auto;
+}
+
+.playerScreen .deck-stack > ul.deck.active-deck {
+    z-index: 10;
+}
+
+.playerScreen .deck-stack > ul.deck-indicator {
+    left: var(--deck-indicator-offset, 0);
+    z-index: 1;
+    pointer-events: none;
+    user-select: none;
+    cursor: default;
+}
+
+.playerScreen .deck-stack > ul.deck-indicator li {
+    left: 0;
+    bottom: 0;
+    width: 5rem;
+    height: 3rem;
+}
+
+.deck-indicator-face {
+    display: block;
+    width: 4.5rem;
+    height: 2.5rem;
+    border: 2px solid #666;
+    border-radius: .3em;
+    background: repeating-linear-gradient(135deg, #1f326b 0, #1f326b 4px, #4c7190 4px, #4c7190 8px);
+    box-shadow: .15em .15em .2em rgba(0, 0, 0, .45);
+}
 
 div.playerScreen{
     width: 100%;
@@ -667,8 +763,10 @@ div.playerScreen{
                 margin-top: 5px;
             }
 
+    /* Keep player hand cards and the deck on one bottom edge. */
     .playerScreen .deckHand {
-        z-index: 1;    
+        --hand-row-height: 8em;
+        z-index: 1;
         position: relative;
         display: flex;
         width: 100%;
@@ -676,16 +774,50 @@ div.playerScreen{
         flex-direction: row;
         flex-wrap: nowrap;
         align-items: flex-end;
+        min-height: var(--hand-row-height);
         height: 25%;
     }
-    
-    .playerScreen .deckHand > .deck{
-        max-width:20%;
+
+    .playerScreen .deckHand > .deck,
+    .playerScreen .deckHand > .deck-stack,
+    .playerScreen .deckHand > .hand,
+    .playerScreen .deckHand > .hand-scroll,
+    .playerScreen .deckHand > .hand-fan {
+        align-self: flex-end;
+        height: var(--hand-row-height);
+        margin-bottom: 0;
+    }
+
+    .playerScreen .deckHand > .deck {
+        max-width: 20%;
         max-height: 100%;
     }
-    .playerScreen .deckHand> .hand{
+    .playerScreen .deckHand > .deck-stack {
+        max-width: none;
+        max-height: 100%;
+    }
+
+    .playerScreen .deckHand > .hand,
+    .playerScreen .deckHand > .hand-scroll,
+    .playerScreen .deckHand > .hand-fan {
         width: 60%;
         margin: 0 20%;
+    }
+
+    .playerScreen .deckHand > .hand-scroll {
+        height: calc(var(--hand-row-height, 8em) + 4em);
+        padding-bottom: 4em;
+    }
+
+    .playerScreen .deckHand,
+    .playerScreen .deckHand > .hand-scroll {
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .playerScreen .deckHand {
+        overflow-x: hidden;
     }
 
     ul.enemyBoards li.enemyBoard {
@@ -723,13 +855,39 @@ div.playerScreen{
     max-width: 20%;
     max-height: 100%;
 }
+.playerScreen .enemyDeckHand > .deck-stack {
+    max-width: none;
+    max-height: 100%;
+}
 .playerScreen .enemyDeckHand > .hand {
     width: 60%;
     margin: 0 20%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    box-sizing: border-box;
+    height: var(--hand-row-height, 8em);
+    margin-bottom: 0;
+    flex: 1 1 60%;
+}
+
+.playerScreen .enemyDeckHand > .hand > li.cardContainer {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto !important;
+    float: none;
+    flex: 0 0 calc(4.75rem + 6px);
 }
 
 .playerScreen .enemyDeckHand,
 .playerScreen .enemyDeckHand * {
+    pointer-events: none;
+    cursor: default;
+}
+
+.playerScreen .enemyDeckHand .deck-stack > ul.deck {
     pointer-events: none;
     cursor: default;
 }
@@ -739,6 +897,33 @@ div.playerScreen{
     filter: grayscale(0.9);
     pointer-events: none;
     transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
+}
+
+@media (max-width: 700px) {
+    .playerScreen .deckHand > .hand-scroll {
+        width: calc(100% - 6.5rem);
+        max-width: calc(100% - 6.5rem);
+        flex-basis: calc(100% - 6.5rem);
+        margin-right: 0;
+        margin-left: 6.5rem;
+    }
+
+    .playerScreen .deckHand > .deck-stack {
+        width: 6.5rem;
+    }
+
+    .playerScreen .deckHand .deck-stack > ul.deck {
+        left: .75rem;
+        width: 5.75rem;
+    }
+
+    .playerScreen .enemyDeckHand > .hand {
+        width: calc(100% - 6.5rem);
+        max-width: calc(100% - 6.5rem);
+        flex-basis: calc(100% - 6.5rem);
+        margin-right: 0;
+        margin-left: 6.5rem;
+    }
 }
 
 button.end-turn{
@@ -770,6 +955,15 @@ button.draw{
     text-shadow: unset;
     unicode-bidi: isolate;
     cursor: pointer;
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
+    transition: transform 0.15s ease-out;
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):hover,
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
+    transform: rotate(3deg);
 }
 
 
@@ -977,12 +1171,17 @@ ul.cardRow{
 }
     
     .smallCardInfo .cardType{
-        padding: 0;
-        margin-block-start: 0;
-        margin-bottom: 0.25rem;
-        font-size: .75rem;
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        padding: 0 0.1rem;
+        margin: 0;
+        font-size: 0.65rem;
+        line-height: 1.1;
         font-weight: 600;
         text-transform: uppercase;
+        white-space: nowrap;
+        color: #111;
     }
 
     .cardsText{
@@ -1137,17 +1336,6 @@ ul.cardRow{
 .smallCardInfo{
 
     font-size: 14px;
-}
-
-.smallCardInfo .cardType{
-    padding: 0;
-    margin-block-start: 0px;
-    margin-bottom: -2.75rem;
-    font-size: 7px;
-    font-weight: 800;
-    text-transform: uppercase;
-    align-self: center;
-    justify-self: flex-end;
 }
 
 .cardContainer:focus-within *{
@@ -1357,10 +1545,34 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     bottom: 0;
     left: 0;
     z-index: 1;
+    box-sizing: border-box;
     padding: 2px 0;
     background: rgba(255, 255, 255, 0.78);
     border-top: 1px solid rgba(0, 0, 0, 0.15);
     border-radius: 0 0 0.3em 0.3em;
+}
+
+.playingCards .card.smallCard.staticCard .suit::after {
+    position: absolute;
+    top: 1.25rem;
+    right: 0.25rem;
+    bottom: 1.25rem;
+    left: 0.25rem;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    font-size: 0.9em;
+    line-height: 0.85;
+    text-align: center;
+    word-spacing: normal;
+    letter-spacing: normal;
+}
+
+.playingCards .card.smallCard.staticCard.rank-j .suit::after,
+.playingCards .card.smallCard.staticCard.rank-q .suit::after,
+.playingCards .card.smallCard.staticCard.rank-k .suit::after,
+.playingCards .card.smallCard.staticCard.rank-a .suit::after {
+    font-size: 2.25em;
 }
 
 .cardOptions .card.smallCard[class*="rank-"] {
@@ -1406,12 +1618,6 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     height: auto;
     gap: 0;
     padding: 0.2rem 0;
-}
-
-.playingCards .card.staticCard .smallCardInfo .cardType {
-    margin: 0;
-    font-size: 0.65rem;
-    line-height: 1;
 }
 
 /* Keep the hand's submit control from changing the card face's dimensions or

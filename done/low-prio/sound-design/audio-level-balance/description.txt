@@ -1,0 +1,1 @@
+Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.

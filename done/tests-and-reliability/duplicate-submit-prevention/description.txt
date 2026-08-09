@@ -1,0 +1,1 @@
+Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
