@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/deck-page/create-new-deck",
+  "false_positive_keywords": [
+    "creating",
+    "experiment"
+  ],
+  "description_excerpt": "Support creating new decks from the deck page to let players experiment with multiple strategies.",
+  "notes": ""
+}

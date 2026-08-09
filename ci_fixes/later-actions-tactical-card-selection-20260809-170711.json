@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170711",
+  "roadmap_path": "later-actions/tactical-card-selection",
+  "false_positive_keywords": [
+    "random",
+    "tactical"
+  ],
+  "description_excerpt": "Replace random card selection in special actions with deliberate tactical choices so specials feel intelligent for bots ",
+  "notes": ""
+}

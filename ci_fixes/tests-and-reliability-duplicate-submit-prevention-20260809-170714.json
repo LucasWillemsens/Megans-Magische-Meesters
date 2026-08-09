@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170714",
+  "roadmap_path": "tests-and-reliability/duplicate-submit-prevention",
+  "false_positive_keywords": [
+    "double",
+    "duplicate"
+  ],
+  "description_excerpt": "Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.",
+  "notes": ""
+}

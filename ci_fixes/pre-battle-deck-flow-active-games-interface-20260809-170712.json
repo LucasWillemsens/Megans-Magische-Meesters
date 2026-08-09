@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "pre-battle-deck-flow/active-games-interface",
+  "false_positive_keywords": [
+    "active",
+    "discover"
+  ],
+  "description_excerpt": "Show active games in the UI instead of only pending challenges, making it easier to discover and resume live play.",
+  "notes": ""
+}

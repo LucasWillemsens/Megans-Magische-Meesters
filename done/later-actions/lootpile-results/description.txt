@@ -1,6 +1,0 @@
-Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.
-
-Code locations:
-- MMM/jinja2/MMM/battle/viewResult.jinja2 — add a lootpile overview block between the participants list and the "Play again" button.
-- MMM/models.py — `BattleParticipant.flee()`: update the game's lootpile to release all trusted cards on the fleeing participant's board.
-- MMM/models.py — `BattleHistory`: lootpile ownership/assignment for the winner likely belongs here, alongside the existing participants and result data.

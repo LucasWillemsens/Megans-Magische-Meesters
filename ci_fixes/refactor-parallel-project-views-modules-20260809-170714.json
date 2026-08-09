@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170714",
+  "roadmap_path": "refactor-parallel-project/views-modules",
+  "false_positive_keywords": [
+    "focused",
+    "modules"
+  ],
+  "description_excerpt": "Rebuild the view layer in the parallel app as a package of focused modules where thin views delegate to unit-testable ga",
+  "notes": ""
+}

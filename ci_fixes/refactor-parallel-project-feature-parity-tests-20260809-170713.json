@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "refactor-parallel-project/feature-parity-tests",
+  "false_positive_keywords": [
+    "functionality",
+    "porting"
+  ],
+  "description_excerpt": "Prove the parallel project has every existing functionality by porting the test suite and completing a feature-parity ch",
+  "notes": ""
+}

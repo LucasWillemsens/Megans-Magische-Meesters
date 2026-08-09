@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "low-prio/sound-design/record-sound-effects",
+  "false_positive_keywords": [
+    "effects",
+    "sound"
+  ],
+  "description_excerpt": "Record and integrate sound effects for draws, plays, challenges, holograms, wins, and losses.",
+  "notes": ""
+}

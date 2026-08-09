@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/deck-page/editable-meta",
+  "false_positive_keywords": [
+    "description",
+    "label"
+  ],
+  "description_excerpt": "Allow deck name and description editing so players can label their decks clearly.",
+  "notes": ""
+}

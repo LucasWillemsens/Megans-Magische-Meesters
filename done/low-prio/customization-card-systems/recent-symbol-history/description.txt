@@ -1,1 +1,0 @@
-Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.

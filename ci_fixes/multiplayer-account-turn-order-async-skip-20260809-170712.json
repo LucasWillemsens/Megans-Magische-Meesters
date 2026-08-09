@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "multiplayer-account/turn-order-async-skip",
+  "false_positive_keywords": [
+    "asynchronous",
+    "order"
+  ],
+  "description_excerpt": "Clarify turn order, allow asynchronous play, and define reset behavior when a player is not active.",
+  "notes": ""
+}

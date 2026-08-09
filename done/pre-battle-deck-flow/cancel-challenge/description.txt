@@ -1,1 +1,0 @@
-Support canceling a pending challenge cleanly in the UI.

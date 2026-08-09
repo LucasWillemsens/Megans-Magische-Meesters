@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "multiplayer-account/multi-opponent-specials",
+  "false_positive_keywords": [
+    "correctly",
+    "participants"
+  ],
+  "description_excerpt": "Resolve special actions correctly when more than two participants are in a game, checking every opponent's status before",
+  "notes": ""
+}

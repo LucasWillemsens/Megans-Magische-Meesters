@@ -1,0 +1,9 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "pre-battle-deck-flow/cancel-challenge",
+  "false_positive_keywords": [
+    "canceling"
+  ],
+  "description_excerpt": "Support canceling a pending challenge cleanly in the UI.",
+  "notes": ""
+}

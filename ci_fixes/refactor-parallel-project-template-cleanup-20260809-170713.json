@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "refactor-parallel-project/template-cleanup",
+  "false_positive_keywords": [
+    "includes",
+    "macros"
+  ],
+  "description_excerpt": "Rebuild the Jinja2 templates in the parallel app with shared macros and includes so no card or board markup is duplicate",
+  "notes": ""
+}

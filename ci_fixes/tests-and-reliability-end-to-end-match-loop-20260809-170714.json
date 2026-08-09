@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170714",
+  "roadmap_path": "tests-and-reliability/end-to-end-match-loop",
+  "false_positive_keywords": [
+    "loop",
+    "match"
+  ],
+  "description_excerpt": "Build and verify the full match loop so a game can be played from start to finish without breaking.",
+  "notes": ""
+}

@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170711",
+  "roadmap_path": "low-prio/customization-card-systems/recent-symbol-history",
+  "false_positive_keywords": [
+    "recent",
+    "symbol"
+  ],
+  "description_excerpt": "Remember recent symbol history instead of only the last symbol to support richer upgrade and action mechanics.",
+  "notes": ""
+}

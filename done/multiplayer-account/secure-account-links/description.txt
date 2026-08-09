@@ -1,1 +1,0 @@
-Implement login through secure account links or email key tokens for account-based play.

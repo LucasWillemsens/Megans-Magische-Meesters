@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170711",
+  "roadmap_path": "later-actions/click-drag-interactions",
+  "false_positive_keywords": [
+    "drag",
+    "interactions"
+  ],
+  "description_excerpt": "Improve click and drag interactions across hand, lanes, and board for more natural gameplay control.",
+  "notes": ""
+}
