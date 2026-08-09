@@ -89,7 +89,7 @@
                 {% endif %}
             </div>
 
-            <div class="cards">
+            <div class="cards playingCards">
                 <div class="cardsText">
                     <h3> Owned cards </h3>
                     <p>
@@ -103,17 +103,26 @@
                     <div class="smallCard">
                         <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
                             <label for="startingCard{{card.id}}">
+                                <div class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
+                                {% if card.artSource == "static" %}
+                                <span class="rank">{{ card|playing_card_rank_display }}</span>
+                                <span class="suit">{{ card|playing_card_suit_display }}</span>
+                                {% else %}
                                 {% if card.artSource == "" %}
                                 <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                                 {% else %}
                                 <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                                 {% endif %}
+                                {% endif %}
 
                                 <div class="smallCardInfo">
-                                        {{ card.title }}
+                                        {% if card.artSource != "static" %}
+                                        <p class="cardTitle">{{ card.title }}</p>
+                                        {% endif %}
                                     <p class="cardType">
                                         {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
                                     </p>
+                                </div>
                                 </div>
                             </label>
                         </input>

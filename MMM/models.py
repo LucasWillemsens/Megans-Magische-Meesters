@@ -319,7 +319,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             gameCard.state.play(lane)
             self.playedCardsAmount +=1
         gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
-        if flipFaceUp and (self.flippedCardsAmount < 2 + tactics -self.playedCardsAmount -self.drawnCardsAmount):
+        if flipFaceUp and (specialClause or self.flippedCardsAmount < 2 + tactics -self.playedCardsAmount -self.drawnCardsAmount):
             gameCard.state.reveal()
             self.flippedCardsAmount += 1
         gameCard.state.save(update_fields=["lane", "laneOrdinal", "faceDown"])

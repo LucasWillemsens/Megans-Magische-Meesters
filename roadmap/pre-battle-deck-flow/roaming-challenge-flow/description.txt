@@ -1,1 +1,5 @@
-Add roaming challenge flow so players can send and accept challenges while traveling, including trusted card and deck order adjustments.
+Add roaming challenge flow:
+
+Players select a deck and starting card and wait for challengers.
+Teachers (players using a trial card) can challenge roaming players, targeting specific decks. The trial card promises to upgrade the players trusted card, by turning into a copy of the player starting card with the symbol of the trial
+Other roaming players can send challenges or be challenged while roaming.

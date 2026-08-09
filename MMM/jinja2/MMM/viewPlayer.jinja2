@@ -81,7 +81,7 @@
     <div class="players">
     {% if cardOwner %}
         <h2> Collection </h2>
-        <div class="cards playingCards fourColours">
+        <div class="cards playingCards">
             <div class="cardsText">
                 <h3> Owned cards </h3>
                 <p>
@@ -92,22 +92,28 @@
             <ul class="basic-mat">
                 {% for card in cardOwner.card.all() %}
                 <li class="cardContainer">
-                    <div class="card smallCard">
+                    <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
+                        href="{{returnURL}}card/{{ card.id }}/">
+                        {% if card.artSource == "static" %}
+                        <span class="rank">{{ card|playing_card_rank_display }}</span>
+                        <span class="suit">{{ card|playing_card_suit_display }}</span>
+                        {% else %}
                         {% if card.artSource == "" %}
                         <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                         {% else %}
                         <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                         {% endif %}
+                        {% endif %}
                 
                         <div class="smallCardInfo">
-                            <a href="{{returnURL}}card/{{ card.id }}/">
-                                {{ card.title }}
-                            </a>
+                            {% if card.artSource != "static" %}
+                            <p class="cardTitle">{{ card.title }}</p>
+                            {% endif %}
                             <p class="cardType">
                                 {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
                             </p>
                         </div>
-                    </div>
+                    </a>
                 </li>
                 {% endfor %}
             </ul>
