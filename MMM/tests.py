@@ -1583,22 +1583,24 @@ class BattleFlowTests(TestCase):
         self.assertIn('transform: rotate(', cards_css)
 
     def test_hand_card_visibility_css_keeps_footer_and_body_separated(self):
-        """Hand cards keep readable type labels and leave static symbols above the footer."""
+        """Card-type footers keep the original bottom-anchored look on every card."""
         import os
 
         css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')
         with open(css_path) as css_file:
             cards_css = css_file.read()
 
-        self.assertNotIn('font-size: 7px', cards_css)
-        self.assertNotIn('margin-bottom: -2.75rem', cards_css)
+        # The normal small-card footer keeps its original bottom-anchored style.
+        self.assertIn('font-size: 7px', cards_css)
+        self.assertIn('margin-bottom: -2.75rem', cards_css)
+        self.assertIn('.smallCardInfo .cardType', cards_css)
+        # Static cards reuse the same footer look as normal cards.
+        self.assertIn('.playingCards .card.staticCard .smallCardInfo .cardType', cards_css)
         self.assertIn('font-size: 0.65rem', cards_css)
-        self.assertIn('line-height: 1.1', cards_css)
-        self.assertIn('white-space: nowrap', cards_css)
+        # No centered suit overlay was introduced on static small cards.
+        self.assertNotIn('.playingCards .card.smallCard.staticCard .suit::after', cards_css)
         self.assertIn('height: var(--hand-row-height)', cards_css)
         self.assertIn('margin-bottom: 0', cards_css)
-        self.assertIn('.playingCards .card.smallCard.staticCard .suit::after', cards_css)
-        self.assertIn('bottom: 1.25rem', cards_css)
 
     def test_large_hand_layout_and_animation_hooks_are_fan_aware(self):
         import os

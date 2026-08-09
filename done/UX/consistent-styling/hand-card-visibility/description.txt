@@ -1,24 +1,23 @@
-Fix hand-card vertical alignment and make card-type/footer content readable on every card.
+Fix hand-card vertical alignment and keep card-type/footer content anchored at the bottom of every card, exactly as before the UX rework.
 
 Implementation:
-1. Inspect the cascade in `var/www/static/cards.css`, especially the early `.smallCardInfo .cardType` rule around the card-row styles and the later rule that currently sets `font-size: 7px` and `margin-bottom: -2.75rem`. Remove or replace the later conflicting rule instead of adding a rule that is still overridden.
-2. Give the player hand a single, documented vertical alignment. Scope the margin/height changes to the player deck-hand (`.playerScreen .deckHand` and its eventual `.hand-scroll`/`.hand-fan` wrappers), keep the cards aligned with the deck/lane layout, and remove negative offsets that make the row overlap the lanes. Leave enemy display sizing and the future 13-card fan structure compatible.
-3. Keep `.smallCardInfo .cardType` inside the card footer with at least a readable `0.6rem` font, a normal non-negative margin, a usable line-height, and enough contrast/width for “Visciousness”. Ensure image cards with a title and static cards with type-only footers both fit.
-4. Scope static-card suit and face adjustments to the hand/card-small-card context. Move face symbols and non-face suit stacks into the visible card body above the footer, retaining the completed static-card footer overlay and not changing the 14rem detail-card treatment or image artwork sizing.
+1. Preserve the original `.smallCardInfo .cardType` cascade in `var/www/static/cards.css`: the base rule with `font-size: 7px`, `font-weight: 800`, and `margin-bottom: -2.75rem` that anchors the type to the card bottom, plus the narrow-viewport rule with `font-size: .75rem`. Do not replace these with inline, non-anchored styles.
+2. Give the player hand a single, documented vertical alignment. Scope the margin/height changes to the player deck-hand (`.playerScreen .deckHand` and its `.hand-scroll`/`.hand-fan` wrappers), keep the cards aligned with the deck/lane layout, and remove negative offsets that make the row overlap the lanes. Leave enemy display sizing and the 13-card fan structure compatible.
+3. Keep the static-card footer identical in spirit to the normal-card footer: static cards show only their type in the bottom footer via `.playingCards .card.staticCard .smallCardInfo .cardType` (margin 0, `0.65rem`, line-height 1) inside the existing white footer overlay. No absolutely-positioned centered suit overlay is applied to static small cards.
+4. Keep the enemy hand display-only and readable: its cards form a horizontal, horizontally scrollable row (`.playerScreen .enemyDeckHand > .hand` is a flex row) so face-down cards are never stacked into a clipped vertical column.
 5. Compare a static rank-j/q/k card, a static rank-2–10/ace card, an image card with a long title, and a face-down card at normal and narrow widths. Add/extend rendered-markup tests only for stable class/content contracts; the exact visual spacing needs a browser check.
 
 Files to create/modify:
-- `var/www/static/cards.css` — hand row margin/alignment, card-type footer cascade, and scoped static suit/face positioning.
+- `var/www/static/cards.css` — hand row margin/alignment, restored card-type footer cascade, and static footer override.
 - `MMM/jinja2/MMM/battle/viewBoard.jinja2` — only if a stable wrapper/class is needed for the hand selector; preserve existing card content and hidden counter hooks.
 - `MMM/tests.py` — optional static/image hand rendering regression checks.
 
 Acceptance criteria:
 - [ ] Hand cards have one consistent top/bottom alignment and no lane overlap caused by a negative margin.
-- [ ] Every hand card's card type is visible at a readable size (at least `0.6rem`) and is not clipped by a negative footer margin.
-- [ ] Static face cards are vertically centered above the footer rather than sunken into it.
-- [ ] Static non-face suit stacks remain centered and do not collide with the footer.
+- [ ] Every card's card type is displayed at the bottom exactly as before the rework (the `7px`/`-2.75rem` base rule for normal cards; the `0.65rem` footer override for static cards).
+- [ ] Static cards look like the normal cards: type-only footer, no centered suit overlay, footer inside the card.
+- [ ] The enemy hand renders as a horizontal scrollable row of face-down cards, never a clipped vertical stack.
 - [ ] Image cards, face-down backs, lane cards, and the completed static detail/card-option layouts do not regress.
-- [ ] The final CSS leaves no later rule that reintroduces the 7px/negative-margin behavior.
 
 Dependencies:
 - `done/client-side-asset-generation/` — current rank/suit markup and static footer baseline.

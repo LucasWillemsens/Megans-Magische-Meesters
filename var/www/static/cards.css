@@ -860,6 +860,10 @@ div.playerScreen{
     max-height: 100%;
 }
 .playerScreen .enemyDeckHand > .hand {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
     width: 60%;
     margin: 0 20%;
     min-width: 0;
@@ -1171,17 +1175,12 @@ ul.cardRow{
 }
     
     .smallCardInfo .cardType{
-        box-sizing: border-box;
-        width: 100%;
-        min-width: 0;
-        padding: 0 0.1rem;
-        margin: 0;
-        font-size: 0.65rem;
-        line-height: 1.1;
+        padding: 0;
+        margin-block-start: 0;
+        margin-bottom: 0.25rem;
+        font-size: .75rem;
         font-weight: 600;
         text-transform: uppercase;
-        white-space: nowrap;
-        color: #111;
     }
 
     .cardsText{
@@ -1336,6 +1335,17 @@ ul.cardRow{
 .smallCardInfo{
 
     font-size: 14px;
+}
+
+.smallCardInfo .cardType{
+    padding: 0;
+    margin-block-start: 0px;
+    margin-bottom: -2.75rem;
+    font-size: 7px;
+    font-weight: 800;
+    text-transform: uppercase;
+    align-self: center;
+    justify-self: flex-end;
 }
 
 .cardContainer:focus-within *{
@@ -1545,34 +1555,10 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     bottom: 0;
     left: 0;
     z-index: 1;
-    box-sizing: border-box;
     padding: 2px 0;
     background: rgba(255, 255, 255, 0.78);
     border-top: 1px solid rgba(0, 0, 0, 0.15);
     border-radius: 0 0 0.3em 0.3em;
-}
-
-.playingCards .card.smallCard.staticCard .suit::after {
-    position: absolute;
-    top: 1.25rem;
-    right: 0.25rem;
-    bottom: 1.25rem;
-    left: 0.25rem;
-    display: grid;
-    place-items: center;
-    margin: 0;
-    font-size: 0.9em;
-    line-height: 0.85;
-    text-align: center;
-    word-spacing: normal;
-    letter-spacing: normal;
-}
-
-.playingCards .card.smallCard.staticCard.rank-j .suit::after,
-.playingCards .card.smallCard.staticCard.rank-q .suit::after,
-.playingCards .card.smallCard.staticCard.rank-k .suit::after,
-.playingCards .card.smallCard.staticCard.rank-a .suit::after {
-    font-size: 2.25em;
 }
 
 .cardOptions .card.smallCard[class*="rank-"] {
@@ -1618,6 +1604,12 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     height: auto;
     gap: 0;
     padding: 0.2rem 0;
+}
+
+.playingCards .card.staticCard .smallCardInfo .cardType {
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1;
 }
 
 /* Keep the hand's submit control from changing the card face's dimensions or
