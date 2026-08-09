@@ -1,0 +1,30 @@
+Fix Various inconsistent stlying issues:
+
+Static cards should have their art be more consistent with normal cards.
+Ingame:
+	card backs that can be clicked to flip the card face up should receive the click action cursor, to signal their clickablillity.
+	The top deck card should rotate slightly when hovered to indicate drawabillity, when it's hovered and the user may draw that turn.
+	margin top for handcards should be fixed.
+		every handcards cardtype is unreadable.
+		face cards are really low
+		other static cards are also to low
+	Decks larger than 32 cards are broken. Fix the styling issue.
+		When a deck has more than 32 cards, render only the remainder of mod 32 as the actual deck and add new inert decks to the left of the deck for every 32 cards in the whole deck. These may overlap slightly, so that the bottom cards of each deck render is laying close to each other, but not exactly touching. The extra inert decks go off the screen to the left without effecting the viewport if there are many.
+	Hands larger than 26 are also broken and need to be fixed.
+		13 cards rotate nicely, the fourtheenth is added to a new hand at the moment, but this does not rotate. It would be nice to also have this rotate.
+		When more than 26 cards are in hand, or when the viewport cannot contain the cards properly, the hand container element should receive a horizontal scroll bar that the user can use to scroll to further hands. These should incremently appear as new rotated hands with every 13 cards.
+	when playing a card to a lane, the laneordinal of the new card should be changed to the highest laneOrdinal in the lane.
+On the player page:
+	Lucas's page typo. When the users name ends in s, don't add an s after the '.
+	Challenges: 
+		Title and subtitle text is overlapping.
+		The whole game card should be clickable to link the user to the game.
+		Owned cards
+			Should be sortable
+				sort by name
+				sort by card type
+				sort by date achieved
+On challenge page:
+	card selection is fucked up
+	pick the first option as default value
+		
