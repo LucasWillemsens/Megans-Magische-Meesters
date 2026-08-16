@@ -1,7 +1,3 @@
-/**
- * Card Drag and Drop System
- * Handles dragging cards to drop zones in each lane
- */
 class ShortcutHoldAction {
     constructor({duration = 1000, loadingClass = 'shortcut-hold-loading'} = {}) {
         this.duration = duration;
@@ -16,7 +12,7 @@ class ShortcutHoldAction {
     }
 
     start(target, onComplete) {
-        const targets = Array.isArray(target) ? target : [target];
+        const targets = Array.isArray(target) ? [target.at(0)] : [target];
         const validTargets = [...new Set(targets)].filter((element) => {
             return element && typeof element.classList?.add === 'function';
         });
@@ -671,7 +667,7 @@ class CardDragDropSystem {
             this.endTurnHold.isProtected()
         ) return;
 
-        const control = this._findDrawControl();
+        let control = this._findDrawControl();
         if (!this._drawActionAllowed(event, control)) return;
         if (this.drawHold.start([control.deck, control.button], () => this._submitHeldDraw())) {
             event.preventDefault();

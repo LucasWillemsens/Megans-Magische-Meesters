@@ -37,12 +37,105 @@
 .playingCards a.card {
     text-decoration: none;
 }
-/* selected and hover state */
-.playingCards a.card:hover, .playingCards a.card:active, .playingCards a.card:focus,
-.playingCards label.card:hover,
-.playingCards strong .card {
-    bottom: 1em;
+
+.playingCards li.cardContainer{
+    user-select: none;
 }
+
+.playingCards li.cardContainer:hover, .playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,
+.playingCards label.cardContainer:hover,
+.playingCards strong .cardContainer {
+    margin-top: -30px;
+}
+    .playingCards li.cardContainer:focus-within:active
+    {
+        margin-top: -25px;
+    }
+    .playingCards li.cardContainer:focus-within{
+        outline-offset: 4px;
+        outline: 3px solid;
+    }
+    .playingCards li.cardContainer:focus-within:active{
+        outline-offset: -1px;
+        outline-width: 1px;
+    }
+
+    .playerScreen li.cardContainer.ghost{
+        box-shadow: none;
+        filter: none;
+    }   
+    li.cardContainer:not(.blocked):hover {
+        z-index: 1000;
+        box-shadow: none;
+        filter: drop-shadow(0.1em 0.1em 0.15em #333);
+    }
+    li.cardContainer:not(.blocked):focus-within:hover {
+        z-index: 1000;
+        box-shadow: .1em .1em 0.15em #333;
+        filter: none;
+    }
+    .playingCards ul.cardRow li.cardContainer:not(.blocked):hover {
+        z-index: 1000;
+        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+        filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
+        transition: transform 0.15s ease-out, filter 0.15s ease-out;
+    }
+    .playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {
+        z-index: 999;
+        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+    }
+    .playingCards ul.cardRow li.cardContainer.ghost:hover {
+        z-index: 999;
+        transform: none;
+        filter: none;
+    }
+     li.cardContainer:not(.blocked):hover:active {
+        box-shadow: unset;
+        filter: none;
+    }
+
+    li.cardContainer:active{
+        /* box-shadow: unset;
+        transform: translate(2.5px,2.5px);
+        padding:23px;
+        margin-top:-10px;
+        margin-left:-10px; */
+    }
+
+    .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
+    .playerScreen .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
+       { 
+        opacity: 0.6;
+        filter:none;
+    }
+        ul.hand li.cardContainer.blocked::after{
+        cursor: not-allowed !important;
+    }
+    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):hover{
+        opacity: 1 !important;
+    } 
+    
+    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
+        opacity: 1 !important;
+        z-index: 2;
+    }
+
+    .playerScreen .deckHand .hand li.cardContainer.blocked:hover {
+        opacity: 0.55 !important;
+    }
+    li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
+        background: var(--card-background-highlight);
+    }
+    li.cardContainer:not(.blocked):not(.faceDown):hover:active > .smallCard{
+        background: var(--card-background-highlight);
+    }
+    li.cardContainer:not(.blocked):focus-within
+    {
+        & .smallCard{
+            background: var(--card-background-highlight);
+        }
+    }
+
 .playingCards label.card {
     cursor: pointer;
 }
@@ -97,16 +190,17 @@
 /* inner bits
 ********************************************************************/
 
-/* top left main info (rank and suit) */
-
 .playingCards .card .rank,
 .playingCards .card .suit {
     display: block;
     line-height: 1;
     text-align: left;
+    align-self: start;
+    justify-self: start;
 }
 .playingCards .card .suit {
     line-height: .7;
+    width: 100%;
 }
 
 /* checkbox */
@@ -486,8 +580,6 @@
     bottom: 0;
 }
 
-/* Each hand fan owns one 13-card footprint.  Additional fans sit beside it
-   and are revealed by the scroll wrapper instead of sharing its coordinates. */
 .playingCards .hand-scroll {
     --hand-fan-width: calc(13.2em + 5.25rem);
     display: flex;
@@ -497,7 +589,6 @@
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
-    overflow-y: hidden;
     overscroll-behavior-inline: contain;
     scrollbar-gutter: stable;
 }
@@ -624,7 +715,6 @@
     z-index: 2;
     width: min(12rem, 100%);
     height: var(--hand-row-height, 8em);
-    overflow: hidden;
     pointer-events: none;
 }
 
@@ -659,6 +749,7 @@
     height: 3rem;
 }
 
+/* this is broken */
 .deck-indicator-face {
     display: block;
     width: 4.5rem;
@@ -807,6 +898,7 @@ div.playerScreen{
     .playerScreen .deckHand > .hand-scroll {
         height: calc(var(--hand-row-height, 8em) + 4em);
         padding-bottom: 4em;
+        overflow: visible;
     }
 
     .playerScreen .deckHand,
@@ -817,7 +909,7 @@ div.playerScreen{
     }
 
     .playerScreen .deckHand {
-        overflow-x: hidden;
+        /* overflow-x: hidden; */
     }
 
     ul.enemyBoards li.enemyBoard {
@@ -867,8 +959,6 @@ div.playerScreen{
     width: 60%;
     margin: 0 20%;
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
     box-sizing: border-box;
     height: var(--hand-row-height, 8em);
     margin-bottom: 0;
@@ -1092,7 +1182,7 @@ ul.cardRow{
     margin: 0;
     min-width: 5rem;
     min-height: 7.5rem;
-    overflow: visible;
+    /* overflow: visible; */
 }
 
 .playingCards ul.cardRow li.cardContainer {
@@ -1105,7 +1195,7 @@ ul.cardRow{
     transform: rotate(var(--card-rotation, 0deg));
 }
 
-/* Overlap offsets and z-index for lane card stacking */
+/* TODO fix */
 .playingCards ul.cardRow li.cardContainer:nth-child(1) { left: 0; z-index: 1; }
 .playingCards ul.cardRow li.cardContainer:nth-child(2) { left: 3.2em; z-index: 2; }
 .playingCards ul.cardRow li.cardContainer:nth-child(3) { left: 4.6em; z-index: 3; }
@@ -1172,6 +1262,7 @@ ul.cardRow{
     justify-self: center;
     text-align: center;
     gap: 0.2rem;
+    cursor:inherit;
 }
     
     .smallCardInfo .cardType{
@@ -1181,6 +1272,7 @@ ul.cardRow{
         font-size: .75rem;
         font-weight: 600;
         text-transform: uppercase;
+        cursor:inherit;
     }
 
     .cardsText{
@@ -1191,42 +1283,16 @@ ul.cardRow{
         justify-content: flex-start;
         align-items: flex-start;
         padding-top: 1rem;
+        cursor:inherit;
     }
     .cardsText h3{
         margin:0;
     }
-    .playerScreen li.cardContainer.ghost{
-        box-shadow: none;
-        filter: none;
-    }   
-    li.cardContainer:not(.blocked):hover {
-        z-index: 3;
-        box-shadow: none !important;
-        filter: drop-shadow(0.1em 0.1em 0.15em #333);
+    ul.hand li.cardContainer{
+        &::after{
+            cursor: grab;
+        }
     }
-    /* Lane card hover — override z-index for stacked layout */
-    .playingCards ul.cardRow li.cardContainer:not(.blocked):hover {
-        z-index: 100;
-        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
-        filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
-        transition: transform 0.15s ease-out, filter 0.15s ease-out;
-    }
-    /* Focus-within parity for keyboard accessibility */
-    .playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {
-        z-index: 100;
-        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
-    }
-    /* Ghost cards should not respond to hover */
-    .playingCards ul.cardRow li.cardContainer.ghost:hover {
-        z-index: auto;
-        transform: none;
-        filter: none;
-    }
-     li.cardContainer:not(.blocked):hover:active {
-        box-shadow: unset;
-        filter: none;
-    }
-
     li.cardContainer > .smallCard{
         background: var(--card-background);
         position: relative;
@@ -1248,81 +1314,6 @@ ul.cardRow{
         border-radius: 0.5rem;
     }
 
-        li.cardContainer:active{
-            box-shadow: unset;
-            transform: translate(2.5px,2.5px);
-            padding:23px;
-            margin-top:-10px;
-            margin-left:-10px;
-        }
-
-    li.cardContainer:focus-within{
-        outline: auto;
-        outline-offset: 6px;
-    }
-
-    li.cardContainer:focus-within:active{
-        outline: auto;
-        outline-width: 2px;
-        outline-offset: 0.2rem;
-    }
-
-    .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
-    .playerScreen .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
-       { 
-        opacity: 0.6;
-        filter:none;
-    }
-    ul.hand li.cardContainer{
-        &::after{
-            cursor: grab;
-        }
-    }
-    ul.hand li.cardContainer.blocked::after{
-        cursor: not-allowed !important;
-    }
-    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):hover{
-        opacity: 1 !important;
-    } 
-    
-    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
-        opacity: 1 !important;
-        z-index: 2;
-    }
-
-    .playerScreen .deckHand .hand li.cardContainer.blocked:hover {
-        opacity: 0.55 !important;
-    }
-    li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
-        background: var(--card-background-highlight);
-    }
-    li.cardContainer:not(.blocked):hover:active > .smallCard{
-        background: var(--card-background-highlight);
-    }
-    li.cardContainer:not(.blocked):focus-within 
-    {
-        outline:auto;
-        outline-offset: 6px; 
-        
-        & .smallCard{
-            background: var(--card-background-highlight);
-        }
-    }
-
-    li.cardContainer.blocked:focus-within {
-        outline:auto;
-        outline-offset: 6px;
-    }
-    li.cardContainer:not(.blocked):focus-within:active{
-        outline-style: solid;
-        outline-width: 2px;
-        outline-offset: 0.2rem;
-    }
-
-    li.cardContainer > .smallCard a:focus{
-        outline:0;
-    }
-
 .playingCards li.cardContainer > .card.smallCard {
     border-radius: 0.5rem;
     border: 3px solid black;
@@ -1331,9 +1322,11 @@ ul.cardRow{
 .playingCards ul.cardRow li.cardContainer > .card.smallCard {
     border: 3px solid black;
 }
+    li.cardContainer > .smallCard a:focus{
+        outline:0;
+    }
 
 .smallCardInfo{
-
     font-size: 14px;
 }
 
@@ -1346,6 +1339,7 @@ ul.cardRow{
     text-transform: uppercase;
     align-self: center;
     justify-self: flex-end;
+    cursor:inherit;
 }
 
 .cardContainer:focus-within *{
@@ -1379,13 +1373,19 @@ li.cardContainer{
     position: absolute;
 }
 
- li.cardContainer > .smallCard button{
-    border:none;
+li.cardContainer > .smallCard button {
+    border: none;
     padding-block: 0;
     padding-inline: 0;
-    width: 4rem;
-    height: 4rem;
+    width: 100%;
+    /* height: 4rem; */
     justify-self: center;
+    background: transparent;
+    font-size: inherit;
+    justify-content: start;
+    display: flex;
+    flex-direction: column;
+    color:inherit;
 }
 
 li.cardContainer > .smallCard a, li.cardContainer > .smallCard p:is(:not(.cardType)){
@@ -1442,7 +1442,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     visibility: hidden;
 }
 
-/* Blocked state for exhausted action budgets */
 .playerScreen li.cardContainer.blocked {
     filter: grayscale(0.85) !important;
     box-shadow: none;
@@ -1460,7 +1459,7 @@ ul.hand li.cardContainer > .card.smallCard::after{
 }
 
 .playerScreen li.cardContainer.blocked:hover {
-    z-index: 3;
+    z-index: 999;
     cursor: not-allowed !important;
     box-shadow: none;
 }
@@ -1475,21 +1474,18 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
    Special draw sequence — timeline animations
    ============================================= */
 
-/* Lane highlight — glow effect for the winning stat */
 .lane-highlight {
     box-shadow: inset 0 0 20px rgba(255, 215, 0, 0.5);
     border-color: gold;
     transition: box-shadow 0.3s ease;
 }
 
-/* Individual card highlight in triggered lane */
 .card-highlight {
     box-shadow: 0 0 10px rgba(255, 215, 0, 0.7);
     filter: brightness(1.2);
     transition: all 0.3s ease;
 }
 
-/* Trust glow — pulsing gold for trusted cards */
 .trust-glow {
     animation: trustPulse 1.5s ease-in-out 3;
     border-color: gold !important;
@@ -1501,7 +1497,6 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     50% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.9); }
 }
 
-/* Board dim for defeat/flee */
 .board-dimmed {
     opacity: 0.5;
     filter: grayscale(0.6);
@@ -1509,7 +1504,6 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     transition: all 0.5s ease;
 }
 
-/* Board flash on vis attack */
 .board-flash {
     animation: attackFlash 0.5s ease-out;
 }
@@ -1519,7 +1513,6 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     100% { background-color: transparent; }
 }
 
-/* Deck shuffle wiggle animation */
 .deck-shuffle {
     animation: deckWiggle 0.5s ease-in-out;
 }
@@ -1532,18 +1525,15 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     100% { transform: translateX(0) rotate(0deg); }
 }
 
-/* Shuffle-flying cards (going to deck) */
 .shuffle-flying {
     z-index: 1000;
     pointer-events: none;
 }
 
-/* Timeline banner variant styles */
 .timeline-banner {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* CSS playing-card fallback */
 .playingCards .card.smallCard[class*="rank-"] {
     background-color: var(--card-background);
     overflow: hidden;
@@ -1555,10 +1545,7 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     bottom: 0;
     left: 0;
     z-index: 1;
-    padding: 2px 0;
-    background: rgba(255, 255, 255, 0.78);
-    border-top: 1px solid rgba(0, 0, 0, 0.15);
-    border-radius: 0 0 0.3em 0.3em;
+    background: transparent;
 }
 
 .cardOptions .card.smallCard[class*="rank-"] {
@@ -1567,9 +1554,8 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     height: 6rem;
 }
 
-/* The detail page uses a larger CSS playing card instead of an image. */
 .playingCards .spotlight.playing-card-spotlight.card {
-    position: relative;
+    /* position: relative;
     display: flex;
     width: 14rem;
     height: 14rem;
@@ -1579,7 +1565,7 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     border: 3px solid black;
     border-radius: 0.5rem;
     box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
-    font-size: 2.5em;
+    font-size: 2.5em; */
 }
 
 .spotlight.playing-card-spotlight .rank,
@@ -1597,43 +1583,29 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     top: 2rem;
 }
 
-/* Static CSS cards show only their type in the footer.  Keep that footer
-   inside the card instead of inheriting the old title/card-type spacing. */
-.playingCards .card.staticCard .smallCardInfo {
-    min-height: 1.1rem;
-    height: auto;
-    gap: 0;
-    padding: 0.2rem 0;
-}
-
 .playingCards .card.staticCard .smallCardInfo .cardType {
-    margin: 0;
-    font-size: 0.65rem;
-    line-height: 1;
+    margin-bottom: -1px;
+    background: transparent;
 }
 
-/* Keep the hand's submit control from changing the card face's dimensions or
-   colors.  Its markup otherwise matches the cards rendered on the board. */
-.playerScreen .hand .cardActionForm {
-    display: contents;
+.playerScreen .cardActionForm {    
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: transparent;
 }
 
 .playerScreen .hand .cardActionButton {
-    display: block;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
     background: transparent;
     color: inherit;
     font: inherit;
     text-align: inherit;
-    cursor: pointer;
 }
 
-/* CSS card content remains in the DOM so click-to-flip can reveal it, but it
-   must not leak through the patterned back while the card is face down. */
+.playerScreen .hand .card.staticCard .cardActionButton {
+    height:auto;
+}
+
 .playingCards .card.back .rank,
 .playingCards .card.back .suit,
 .playingCards .card.back .smallCardInfo,

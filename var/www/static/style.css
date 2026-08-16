@@ -211,7 +211,7 @@ a:hover {
 }
 
 .collection-sort-control:focus-visible {
-    outline: 3px solid #174c8c;
+    outline: 3px solid;
     outline-offset: 2px;
 }
 
