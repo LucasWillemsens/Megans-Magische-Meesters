@@ -1,32 +1,44 @@
-Make the active challenges list on the player page take less space, show the result when a game is over, and link own active games straight to the board.
+Make the active challenges list on the player page take less vertical space, show the
+result when a game is over, and link own games straight to the board (the board redirects
+to the result page when finished).
 
-Current state:
-- `MMM/views.py` `viewPlayer()` builds `challenges` from `BattleParticipant.player.challenges.all()` (BattleHistory objects) and passes them to `MMM/jinja2/MMM/viewPlayer.jinja2`.
-- `viewPlayer.jinja2` renders each challenge as a big `.challenge-card` with heading, lootPile line, started timestamp, and a participants list; the whole card links to `{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}` (the game page, not the board).
-- `MMM/models.py`: `BattleHistory` has `challenger`, `participants` (BattleParticipant M2M), `game` reverse relation (`Game.history` FK); `Game.over()` and `MMM/views.py _game_result(game)` can compute finished/winner state.
+Subgoals (land in this order):
+1. `view-challenge-enrichment/` — replace the plain BattleHistory list in
+   `viewPlayer()` with enriched dicts `{history, game, participants, isParticipant,
+   finished, won, boardUrl, gameUrl, started}` using one prefetched queryset.
+2. `compact-template-board-links/` — compact single-link rows in `viewPlayer.jinja2`;
+   result badge for finished games; boardUrl for own games, gameUrl otherwise.
+3. `compact-styles-and-tests/` — compact `.challenge-list`/`.challenge-card` styles +
+   result badge styles in `style.css`; update the three affected test cases.
 
-Implementation:
-1. `MMM/views.py` `viewPlayer()`:
-   - Replace the plain `challenges` list with a list of enriched dicts (one per challenge): `{history, game, participants, isParticipant, finished, won, boardUrl, gameUrl, started}` where:
-     - `game` = the challenge's `Game` (via `challenge.game.first()`), may be None — handle gracefully.
-     - `isParticipant` = the viewing player is in `history.participants`.
-     - `finished`/`won` via `_game_result(game)` (won from the viewing player's perspective: player in the surviving participants; if not finished, `won` is None).
-     - `boardUrl` = `f"/game/{game.id}/board/{player.id}/"` when the player partakes in an active (not finished) game; otherwise fall back to `gameUrl` (`f"/game/{game.id}/{player.id}/"`). Keep the old URL for non-participant/pending challenges and finished games (or link finished own games to board — board redirects to result; choose board for finished own games too and document).
-   - Keep query counts reasonable (prefetch participants).
-2. `MMM/jinja2/MMM/viewPlayer.jinja2`:
-   - Compact challenge rows: single-line-ish layout (title, opponents inline, loot, status) with much less vertical padding; finished games get a small result badge ("Won"/"Lost"/"Fled") in the preview.
-   - Use `boardUrl` for own active/finished games so clicking loads the board immediately (board already redirects to result when finished).
-   - Keep the whole row a single keyboard-navigable link (tests depend on `challenge-card-link`).
-3. `var/www/static/style.css`:
-   - Compact `.challenge-list`/`.challenge-card` styles: horizontal/inline participants, smaller padding, `gap` reduced; add `.challenge-card--over`/result badge styles.
-4. `MMM/tests.py`:
-   - Update `test_challenge_card_is_one_keyboard_link_with_valid_metadata_markup` and related challenge-page tests for the new URLs (own active game links to board URL) and result badge; keep "No participants" and pending-challenge behavior.
+Key codebase facts (verified):
+- `MMM/views.py viewPlayer()` builds `challenges` by looping
+  `BattleParticipant.objects.filter(player_id=...)` then `battle.player.challenges.all()`
+  (BattleHistory where challenger == viewing player) — N+1 heavy, deduped with
+  `list(set(...))`.
+- `viewPlayer.jinja2` renders each challenge as a large `.challenge-card`; the single link
+  goes to `{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}` (game page).
+- `Game.history` reverse relation is named `game` (a related manager → use
+  `.first()`/`.all()`), `BattleHistory.participants` is a M2M to BattleParticipant,
+  `_game_result(game)` returns `(finished, win, active_participants)` where
+  active_participants are the non-defeated/non-fled participants when finished.
+- Board URL pattern: `game/<int:game_id>/board/<int:player_id>/` (`urls.py`);
+  `viewBoard` redirects to `/game/<id>/result/<player_id>/` when finished (non-sequence
+  requests), so linking straight to the board is safe for active AND finished own games.
+- Tests to touch live in `PlayerPageTests`:
+  `test_challenge_card_is_one_keyboard_link_with_valid_metadata_markup`,
+  `test_player_page_keeps_empty_challenge_participant_state`,
+  `test_challenge_card_styles_cover_stacking_hover_and_focus`.
 
-Acceptance criteria:
-- [ ] Challenge list takes visibly less vertical space.
-- [ ] Finished games show their result (won/lost) in the preview row.
-- [ ] Clicking an active challenge the user partakes in goes straight to the board (not the game page).
-- [ ] Pending challenges (no participants) still link to the game page and show "No participants".
-- [ ] Rows remain single links with valid focus/hover styles.
+Acceptance criteria (leaf-level, detailed per subgoal):
+- [ ] Challenge list takes visibly less vertical space per row.
+- [ ] Finished games show Won/Lost/Fled in the row preview.
+- [ ] Clicking an own challenge loads the board directly (result redirect for finished).
+- [ ] Pending/no-participant challenges still show "No participants" and link to the game
+      page.
+- [ ] Rows remain ONE keyboard-navigable link each with valid hover/focus styles.
+- [ ] Query count drops vs the current N+1 loop (prefetch participants/game/loot).
 
-Dependencies: independent of the board leaves; can land anytime, but do it last to avoid test churn.
+Dependencies:
+- independent of the board leaves; planned last in this goal to avoid test churn on
+  shared suites.

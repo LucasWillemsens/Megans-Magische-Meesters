@@ -1,0 +1,60 @@
+Unify the orange keyboard-selection styling with regular focus styling so a selected card
+looks exactly like a focused one. Subgoal 3 of 3 of `handcard-action-merge/`; land last —
+it depends on the focus wiring of `selection-focus-click-to-select/` (a selected card now
+receives DOM focus, so `:focus-within` styles already apply and the extra orange layer is
+redundant).
+
+Current state:
+- `var/www/static/cardDragDrop.css li.cardContainer.keyboard-selected` (~lines 46–51):
+  dimmed opacity, grayscale filter, orange drop-shadow glow rgba(255,204,0,.8), and an
+  orange 0.2rem outline — visually unrelated to regular focus.
+- Regular focus styling lives in `var/www/static/cards.css`:
+  `li.cardContainer:focus-within { outline-offset: 4px; outline: 3px solid; }` plus lift/
+  highlight rules (~45–137); lane/hologram focus lifts exist as well.
+- The `.keyboard-preview` hologram also uses an orange accent
+  (`ul.hologramRow .hologram.keyboard-preview { filter: drop-shadow(...255,204,0...) }`,
+  ~lines 99–113).
+- Static contract tests pin selector names: `li.cardContainer.keyboard-selected` and
+  `.hologram.keyboard-preview` must remain present in cardDragDrop.css
+  (`test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks`) — keep the
+  selectors, change only their declarations.
+
+Implementation:
+1. `var/www/static/cardDragDrop.css`:
+   - Restyle `li.cardContainer.keyboard-selected` to match regular focus: same
+     `outline: 3px solid; outline-offset: 4px;` treatment (currentColor like cards.css),
+     NO orange glow/shadow. Keep at most a subtle background tint ONLY if it matches what
+     `:focus-within` already does (`--card-background-highlight`) — otherwise drop the
+     extra declarations entirely and keep the rule as a documented state marker with
+     minimal/no visual delta.
+   - Align `.keyboard-preview`: swap the gold drop-shadow for the neutral focus color
+     (or plain opacity lift) so preview and selection read consistently.
+   - Do not remove either selector (tests + JS state queries depend on them).
+2. Verify combined rendering: selected+focused card must not show double outlines or
+   conflicting transforms — if `.keyboard-selected` ends up empty of declarations, add a
+   short comment explaining it marks selection state for JS/tests.
+3. Manual QA: select via number key AND via click; confirm the visible ring matches
+   Tab-focused cards; confirm the hologram preview reads clearly against all four lanes;
+   confirm staged (`keyboard-staged`, post-confirm) holograms still look distinct from
+   previews.
+4. `MMM/tests.py`: optionally extend
+   `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks` to assert the
+   absence of `rgba(255, 204, 0` within the `.keyboard-selected` rule block (guards
+   against regression to orange).
+
+Files to modify:
+- var/www/static/cardDragDrop.css (.keyboard-selected, .keyboard-preview)
+- MMM/tests.py (optional guard assertion)
+
+Acceptance criteria:
+- [ ] Selected card's visible styling matches regular focus (same outline width/offset,
+      no orange glow).
+- [ ] `.keyboard-selected` and `.hologram.keyboard-preview` selectors still exist in
+      cardDragDrop.css (contract test keeps passing).
+- [ ] No double-outline artifacts when a card is both selected and focused.
+- [ ] Preview/staged holograms remain clearly distinguishable from real lane cards.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: requires `selection-focus-click-to-select/` (focus moves make this
+  restyle coherent). Completes `handcard-action-merge/`.

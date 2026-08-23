@@ -1,0 +1,68 @@
+Wire DOM focus into keyboard card selection and add click-to-select so clicking a playable
+hand card behaves exactly like typing its number. Subgoal 2 of 3 of
+`handcard-action-merge/`; requires `hand-markup-form-removal/` (tabindex="-1", bare hidden
+card_id/lane inputs).
+
+Current state:
+- `var/www/static/cardDragDrop.js selectKeyboardCard()` adds `.keyboard-selected`,
+  sets `aria-selected`, builds the face-up `.keyboard-preview` hologram — but never moves
+  DOM focus, so `:focus-within` styles never apply to the selected card.
+- `clearKeyboardSelection()` removes classes/state but never blurs a focused card.
+- There is no click handler on hand cards anymore once the form is gone (subgoal 1);
+  without this subgoal hand cards become click-inert.
+
+Implementation:
+1. Focus on selection — `selectKeyboardCard(card, digitBuffer)` in
+   `var/www/static/cardDragDrop.js`: after adding `.keyboard-selected` /
+   `data-keyboard-selected` / `aria-selected="true"`, call
+   `card.focus({ preventScroll: true })`. Guard with `typeof card.focus === 'function'`.
+2. Blur on clear — `clearKeyboardSelection({removePreview} = {})`: when removing state for
+   `selection.selectedCard`, if that card (or a descendant) is `document.activeElement`,
+   call `activeElement.blur()`. Keep the function side-effect-free otherwise; both cancel
+   paths (Escape/0 via `_cancelKeyboardSelectionFromEvent`, mutation observer auto-clear,
+   destroy) go through it, so focus cleanup is covered everywhere.
+3. Click-to-select:
+   - Bind a single delegated `click` listener (e.g. in `setupKeyboardSelection()` or a new
+     `setupHandClickSelection()` called from `init()`) scoped to
+     `.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer` (reuse
+     `playerHandCards()` filtering).
+   - Ignore the event when: `event.button !== 0`; `_isTextControlTarget(event.target)`;
+     `_keyboardTransitionActive()`; a drag just occurred (`this.draggedCard !== null` or
+     the dragend happened within the last tick — simplest robust guard: skip if
+     `this.draggedCard` was set for this element; HTML5 DnD normally suppresses click
+     anyway); `!this._keyboardActionAllowed(event)` (covers modifiers, disabled/blocked
+     targets, plays allowance, enemy phase — it also auto-clears stale selections).
+   - Compute ordinal: `const eligible = this.playableKeyboardCards(); const index =
+     eligible.indexOf(card);` ignore clicks on non-eligible cards (blocked/ghost/staged
+     fail `_isPlayableKeyboardCard` inside `playableKeyboardCards()` already).
+   - Select with `this.selectKeyboardCard(card, String(index + 1))` — digitBuffer mirrors
+     what typing the card's number would produce, keeping later +/- stepping (leaf 4)
+     consistent.
+   - Clicking an already-selected card re-focuses it and keeps the selection; it must NOT
+     confirm (confirmation stays on Space/Enter and drop-zone click). Clicking a different
+     playable card switches the selection (selectKeyboardCard already clears the previous
+     hologram internally).
+4. Manual checks: click-selection does not trigger `dragstart`; dragging a card does not
+   leave a selection behind; screen-reader announcement unchanged (aria-selected already
+   managed).
+
+Files to modify:
+- var/www/static/cardDragDrop.js (focus/blur in selection lifecycle + click-to-select)
+
+Acceptance criteria:
+- [ ] Typing a card's number focuses that card; `:focus-within` outline/lift visible.
+- [ ] Escape / 0 / Backspace (once leaf 4 lands) / auto-clear remove focus from the card.
+- [ ] Clicking a playable hand card selects it exactly like typing its number: same
+      `.keyboard-selected` state, same preview hologram in the card's lane row, same
+      digitBuffer value, card receives focus.
+- [ ] Clicking a non-playable (blocked/ghost/staged/enemy) card does nothing.
+- [ ] Clicking a selected card again never confirms/plays; Space/Enter and drop-zone
+      click remain the only confirmation paths.
+- [ ] Drag-and-drop from hand cards still works; no selection residue after a drag.
+- [ ] No cookie is written during selection (cookie only on confirm via `_stagePlay`).
+- [ ] Full test suite passes (static contract tests unaffected; extend
+      `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks` with
+      `focus({ preventScroll: true })` and click-handler assertions if convenient).
+
+Dependencies:
+- within leaf: requires `hand-markup-form-removal/`; before `unified-selection-styling/`.

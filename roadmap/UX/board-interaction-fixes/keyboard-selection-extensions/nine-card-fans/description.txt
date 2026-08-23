@@ -1,0 +1,53 @@
+Switch hand fans from 13 to 9 cards across backend, animation JS, and fan geometry CSS.
+Subgoal 1 of 3 of `keyboard-selection-extensions/`; land first so the +/- stepping of the
+next subgoal operates on 1–9 ordinals only.
+
+Current state (verified):
+- `MMM/views.py` line 26: `HAND_FAN_SIZE = 13` (drives `_chunk_hand_cards()` for own and
+  enemy boards via `_addLoadingAnimations`).
+- `var/www/static/loadingAnimations.js` line 639: `HAND_FAN_SIZE = 13`
+  (`handSourceForOrdinal()` fan indexing for flight animations).
+- `var/www/static/cards.css`: `--hand-fan-width: calc(13.2em + 5.25rem)` (line 584) sizes
+  the scroll slot for 13 cards; nth-child left offsets exist 1–13; rotateHand
+  translation/rotation table rows 1–13.
+- Enemy boards render a single flex `ul.hand.enemyHand` (fans are chunked server-side but
+  the enemy template loops `handCards` directly), so only fan width/table rows matter
+  there.
+
+Implementation:
+1. `MMM/views.py`: `HAND_FAN_SIZE = 9`.
+2. `var/www/static/loadingAnimations.js`: `const HAND_FAN_SIZE = 9;`.
+3. `var/www/static/cards.css`:
+   - `--hand-fan-width: calc(8.8em + 5.25rem)` (9th offset 8.8em + card width — mirrors
+     the current 13.2em + 5.25rem formula). Check the <=700px media query still fits
+     (`.hand-scroll` reserves 6.5rem for the deck stack; 8.8em + 5.25rem must fit
+     `calc(100% - 6.5rem)` or scroll horizontally as designed).
+   - Keep left offsets 1–9 as-is; optionally prune rows 10–13 and rotation table rows
+     10–13 (unused at size 9) — pruning is preferred to avoid dead rules, but keep rows
+     1–9 byte-identical.
+4. `MMM/tests.py` updates:
+   - Rename/update `test_hand_fans_preserve_order_and_repeat_every_thirteen_cards` →
+     nine-card expectations: `(9, [9]), (10, [9, 1]), (18, [9, 9]), (19, [9, 9, 1])`.
+   - `test_play_budget_blocks_cards_in_every_hand_fan` (~line 279): with
+     `_replace_hand_with_count(14)` expectations become `[9, 5]`.
+   - `test_large_hand_layout_and_animation_hooks_are_fan_aware` (~line 1623): string
+     assertion `'HAND_FAN_SIZE = 13'` → `'HAND_FAN_SIZE = 9'`.
+   - Grep for any other "thirteen"/fan-size assumptions before finishing.
+
+Files to modify:
+- MMM/views.py (constant)
+- var/www/static/loadingAnimations.js (constant)
+- var/www/static/cards.css (fan width variable; optional dead-row prune)
+- MMM/tests.py (three tests above)
+
+Acceptance criteria:
+- [ ] A 10-card hand renders two fans (9 + 1); a 27-card hand renders 9/9/9; empty hand
+      keeps exactly one placeholder fan (`test_empty_hand_has_one_fan_placeholder`).
+- [ ] Draw-flight animations still land on the correct fan/slot after draws
+      (`handSourceForOrdinal` uses the new constant).
+- [ ] Fan width matches 9 visible cards without extra trailing gap; mobile layout intact.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: first subgoal; `stepping-and-buffer-keys/` follows.
+- leaf-level: after `handcard-action-merge/`.

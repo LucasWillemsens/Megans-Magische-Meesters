@@ -1,19 +1,66 @@
-The deck stack must not visually move when the top card is drawn.
+Stop the deck stack from visually jumping when a draw animation runs: the draw clone must
+not be inserted into the active deck `<ul>`.
 
-Current state: `var/www/static/loadingAnimations.js` `duplicateCard()` for negative source lanes (`sourceLane < 0`, i.e. deck origin) inserts the clone into the active deck `<ul class="deck">` at `insertIndex = min(max(0, ordinal - 1), children.length)` — ordinal for deck cards is 0 or low, so the clone is inserted as the first child, shifting all absolutely-positioned `nth-child` deck card `li` elements by one slot (CSS `ul.deck li:nth-child(n) { left/bottom }` offsets change). This makes the whole deck stack jump when a draw animation runs.
+Current state (verified, `var/www/static/loadingAnimations.js`):
+- `duplicateCard(element, lane, ordinal)` for deck-origin plays (`sourceLane < 0`) sets
+  `laneElement = activeDeckForBoard(...)` — player branch (~line 723, adds `.faceDown` +
+  strips the inner card) and enemy branch (~line 710) alike — then the shared insert block
+  (~lines 762–786) does
+  `insertIndex = Math.min(Math.max(0, ordinal - 1), laneElement.children.length)` and
+  `insertBefore`/`appendChild`s the clone INTO the deck `<ul>`.
+- Deck cards are absolutely positioned via `nth-child(n) { left/bottom }` offsets
+  (`cards.css` ~657–688), so inserting a child shifts every subsequent li one slot: the
+  whole pile jumps for the duration of the animation.
+- The flight itself works via `.duplicate.to-original`
+  (`transform: translate(var(--move-x), var(--move-y))`, transitionend → reveal); the
+  clone's rect is measured AFTER insertion so --move-x/y compensate for the shifted slot.
+- `_flyCardToDeck()` already demonstrates the layout-neutral pattern to copy: measure a
+  rect, set `position: fixed` + left/top/width/height inline, append to `document.body`,
+  animate, remove.
 
 Implementation:
-1. `var/www/static/loadingAnimations.js` `duplicateCard()`:
-   - For `sourceLane < 0` (both player and enemy), do NOT insert the clone into the deck ul. Instead position the clone absolutely at the deck's top-card location (compute from the deck element's bounding rect / last card li) using the same fixed/absolute translate technique used elsewhere (`--move-x`/`--move-y` to the original element's rect, `position: fixed` or absolute within a positioned ancestor, `.duplicate` class with `to-original` transition).
-   - Ensure the clone is appended to a neutral container (e.g. `document.body` with fixed coords, or the `.deckHand`) so inserting it does not change the deck's `nth-child` layout.
-   - Keep the face-down back styling for the draw clone.
-2. Verify `_flyCardToDeck()` and `_wiggleDeck()` remain consistent (they already use `activeDeckForBoard()` and rect math — reuse the pattern).
-3. `MMM/tests.py`: add/adjust a static contract test asserting the draw (negative source lane) path does not `insertBefore`/`appendChild` into the deck ul and uses rect-based positioning.
+1. `var/www/static/loadingAnimations.js duplicateCard()`:
+   - For `sourceLane < 0` (player AND enemy), do NOT insert into the deck ul. Instead:
+     a. Grab the top-card rect: prefer the last card li of the deck
+        (`deck.querySelector('li:last-of-type')` falling back to
+        `deck.getBoundingClientRect()`; note the visual "top" of the stack is the LAST
+        nth-child per the CSS offsets).
+     b. Position the clone with `position: fixed`, left/top/width/height from that rect,
+        `zIndex` above the board (`.duplicate` already sets pointer-events:none,
+        z-index:999), and append it to `document.body` — never into the deck-stack/ul, so
+        no `nth-child` layout changes.
+     c. Keep the face-down back styling exactly as today (player branch already forces
+        `.faceDown` + empty `.card.back`; enemy clones are faceDown deck cards already).
+     d. Compute `--move-x`/`--move-y` as
+        `element.getBoundingClientRect() - clone.getBoundingClientRect()` deltas (same
+        math as the current code, just measured after fixed positioning) so the existing
+        `.to-original` transition + transitionend reveal flow in `Animate()` /
+        `_animateCardEffect()` keeps working unchanged.
+   - Leave `sourceLane === 0` (hand) and `sourceLane > 0` (lanes) paths untouched — those
+     insertions are intended.
+2. Consistency check: `_flyCardToDeck()` / `_wiggleDeck()` / `activeDeckForBoard()` remain
+   as-is; reuse their rect-math style. Confirm the special-draw shuffle timeline (cards
+   flying INTO the deck) still reads correctly against a stationary pile.
+3. `MMM/tests.py`: add a static contract test (sibling of
+   `test_lane_overflow_splits_rows_without_merging_back`, e.g.
+   `test_deck_draw_animation_does_not_insert_into_deck`) asserting that within the
+   negative-lane branch range of `duplicateCard` there is no
+   `laneElement.insertBefore`/`appendChild`, and that the branch uses
+   `getBoundingClientRect` + `position = 'fixed'`.
+
+Files to modify:
+- var/www/static/loadingAnimations.js (duplicateCard negative-lane branches)
+- MMM/tests.py (new static contract test)
 
 Acceptance criteria:
-- [ ] During a draw animation, the deck stack's position/size does not change; only the flying card clone moves.
-- [ ] The draw clone still starts at the deck's top card and lands on the drawn hand card.
-- [ ] Enemy deck draw animations behave the same.
-- [ ] No layout shift of the deck on draw.
+- [ ] During a player draw animation the deck pile does not shift by even 1px (compare
+      deck bounding rect before/during animation).
+- [ ] The clone still starts at the deck's top-card position and lands on the drawn hand
+      card; reveal timing unchanged (transitionend + timeout fallback both fire).
+- [ ] Enemy deck draws behave identically (multi-enemy boards included).
+- [ ] Shuffle-back flights INTO the deck still look right against the now-stationary pile.
+- [ ] New contract test passes; full suite green.
 
-Dependencies: after `deck-indicator-restyle/` (deck geometry changes) and `keyboard-selection-extensions/` (animation sequence stability).
+Dependencies:
+- after `deck-indicator-restyle/` close-out (deck geometry settled — done) and ideally
+  after `keyboard-selection-extensions/` lands (draw/animation sequence stability).
