@@ -2469,18 +2469,26 @@ class PlayerPageTests(TestCase):
         response = self.client.get(reverse("MMM:viewPlayer", args=[challenger.id]))
         content = response.content.decode()
 
-        expected_url = f"http://127.0.0.1:8000/game/{game.id}/{challenger.id}"
+        expected_url = f"http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/"
         self.assertContains(
             response,
             f'<a class="challenge-card-link" href="{expected_url}" draggable="false">',
         )
         self.assertContains(response, '<li class="challenge-card">')
         self.assertContains(response, '<h3 class="challenge-card-title">Game 1</h3>')
-        self.assertContains(response, "lootPile: Loot card")
+        self.assertContains(
+            response,
+            'class="challenge-card-subtitle challenge-card-meta"',
+        )
+        self.assertContains(
+            response,
+            'challenge-card-loot">lootPile: Loot card</p>',
+        )
         self.assertContains(response, "(Started ")
         self.assertContains(response, "Meg")
         self.assertContains(response, "versus")
         self.assertContains(response, "Opponent")
+        self.assertNotContains(response, "challenge-result-badge")
 
         challenge_link = re.search(
             r'<a class="challenge-card-link"[^>]*>(.*?)</a>',
@@ -2502,6 +2510,51 @@ class PlayerPageTests(TestCase):
             history.participants.count() + 1,
         )
 
+    def test_finished_challenge_shows_result_badge_and_links_to_board(self):
+        winner, winner_history, winner_game = self._create_challenge(
+            challenger_name="Winnie"
+        )
+        loser, loser_history, loser_game = self._create_challenge(
+            challenger_name="Loes"
+        )
+        fleer, fleer_history, fleer_game = self._create_challenge(
+            challenger_name="Vlinder"
+        )
+
+        winner_opponent = winner_history.participants.exclude(
+            player_id=winner.id
+        ).get()
+        winner_opponent.defeated = True
+        winner_opponent.save()
+
+        loser_own_participant = loser_history.participants.get(player_id=loser.id)
+        loser_own_participant.defeated = True
+        loser_own_participant.save()
+
+        fleer_own_participant = fleer_history.participants.get(player_id=fleer.id)
+        fleer_own_participant.fled = True
+        fleer_own_participant.save()
+
+        for challenger, game, result_class, result_label in (
+            (winner, winner_game, "won", "Won"),
+            (loser, loser_game, "lost", "Lost"),
+            (fleer, fleer_game, "fled", "Fled"),
+        ):
+            response = self.client.get(reverse("MMM:viewPlayer", args=[challenger.id]))
+            self.assertContains(
+                response,
+                '<a class="challenge-card-link" '
+                f'href="http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/" '
+                'draggable="false">',
+            )
+            self.assertContains(
+                response,
+                'class="challenge-result-badge '
+                f'challenge-result--{result_class}">{result_label}</span>',
+            )
+            for absent_class in {"won", "lost", "fled"} - {result_class}:
+                self.assertNotContains(response, f"challenge-result--{absent_class}")
+
     def test_player_page_keeps_empty_challenge_participant_state(self):
         challenger, _, _ = self._create_challenge(include_opponent=False)
         empty_history = BattleHistory.objects.create(challenger=challenger)
@@ -2519,13 +2572,27 @@ class PlayerPageTests(TestCase):
         with open(os.path.join(static_dir, "style.css")) as css_file:
             style_css = css_file.read()
 
-        self.assertIn(".challenge-card-link {", style_css)
-        self.assertIn("display: block;", style_css)
-        self.assertIn(".challenge-card-link:hover", style_css)
-        self.assertIn(".challenge-card-link:focus-visible", style_css)
-        self.assertIn(".challenge-card-subtitle", style_css)
-        self.assertIn("flex-direction: column;", style_css)
-        self.assertIn(".challenge-participants", style_css)
+        challenge_block = style_css[
+            style_css.index(".players .challenge-list"):
+            style_css.index(".playerOptions")
+        ]
+
+        self.assertIn(".challenge-card-link {", challenge_block)
+        self.assertIn("display: block;", challenge_block)
+        self.assertIn(".challenge-card-link:hover", challenge_block)
+        self.assertIn(".challenge-card-link:focus-visible", challenge_block)
+        self.assertIn("padding: 0.5rem 0.75rem;", challenge_block)
+        self.assertIn("gap: 0.4rem;", challenge_block)
+        self.assertIn("flex-direction: row;", challenge_block)
+        self.assertIn("flex-wrap: wrap;", challenge_block)
+        self.assertIn("line-height: 1.2;", challenge_block)
+        self.assertIn("overflow-wrap: anywhere;", challenge_block)
+        self.assertIn(".challenge-participants", challenge_block)
+        self.assertIn(".challenge-result-badge {", challenge_block)
+        self.assertIn("font-weight: 700;", challenge_block)
+        self.assertIn(".challenge-result--won", challenge_block)
+        self.assertIn(".challenge-result--lost", challenge_block)
+        self.assertIn(".challenge-result--fled", challenge_block)
 
     def test_owned_cards_sort_by_case_insensitive_name_with_static_titles(self):
         player = Player.objects.create(name="Collector")
@@ -2661,7 +2728,7 @@ class PlayerPageTests(TestCase):
         )
         self.assertContains(
             invalid_response,
-            f"game/{game.id}/{player.id}",
+            f"game/{game.id}/board/{player.id}",
         )
         self.assertContains(
             invalid_response,

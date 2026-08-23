@@ -43,24 +43,81 @@ def viewPlayer(request, player_id):
         requested_sort if requested_sort in OWNED_CARD_SORT_KEYS else "default"
     )
     owned_cards = _get_owned_cards(player, active_sort)
-    battles = BattleParticipant.objects.filter(player_id=player.id)
 
-    challenges = []
-    for battle in battles:
-        for challenge in battle.player.challenges.all():
-            challenges.append(challenge)
+    histories = (
+        BattleHistory.objects.filter(challenger=player)
+        .prefetch_related(
+            "participants__player",
+            "lootPile",
+            "game",
+        )
+        .order_by("-id")
+    )
+    challenges = [_enrich_challenge(history, player.id) for history in histories]
 
     context = {
         "player": player,
         "cardOwner": card_owner,
         "ownedCards": owned_cards,
         "activeSort": active_sort,
-        "challenges": list(set(challenges)),
+        "challenges": challenges,
         "assestsDir": "MMM/",
         "returnURL": BASE_URL,
         "error_message": "",
     }
     return _render(request, "MMM/viewPlayer.jinja2", context)
+
+
+def _enrich_challenge(history, player_id):
+    participants = list(history.participants.all())
+    game = history.game.first()
+    is_participant = any(p.player_id == player_id for p in participants)
+    finished = False
+    survivors = []
+    if game is not None:
+        finished, _, survivors = _game_result(game)
+        survivors = survivors or []
+
+    return {
+        "history": history,
+        "participants": participants,
+        "lootPileText": history.printLootPile(),
+        "game": game,
+        "isParticipant": is_participant,
+        "started": min(
+            (participant.joinedBattle for participant in participants), default=None
+        ),
+        "finished": finished,
+        "survivors": survivors,
+        "won": _challenge_result_for_player(
+            participants, player_id, finished, survivors
+        ),
+        # Own games always link straight to the board (viewBoard redirects to the
+        # result page when finished); non-participant/pending rows fall back to
+        # the game page because viewBoard requires a matching participant row.
+        "boardUrl": (
+            f"{BASE_URL}game/{game.id}/board/{player_id}/"
+            if game is not None and is_participant
+            else None
+        ),
+        "gameUrl": (
+            f"{BASE_URL}game/{game.id}/{player_id}/" if game is not None else None
+        ),
+    }
+
+
+def _challenge_result_for_player(participants, player_id, finished, survivors):
+    if not finished:
+        return None
+    own_participant = next(
+        (p for p in participants if p.player_id == player_id), None
+    )
+    if own_participant is None:
+        return False
+    if own_participant.fled:
+        return "fled"
+    survivor_ids = {survivor.id for survivor in survivors or []}
+    return own_participant.id in survivor_ids
 
 
 def _get_owned_cards(player, sort_key="default"):

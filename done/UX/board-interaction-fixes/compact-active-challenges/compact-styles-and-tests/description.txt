@@ -1,0 +1,58 @@
+Compact the challenge list styles and update the challenge-page tests for the new board
+URLs, result badge, and tighter layout. Subgoal 3 of 3 of `compact-active-challenges/`;
+land last in the leaf (and last in the whole goal).
+
+Current state:
+- `var/www/static/style.css` (~lines 225–310): `.challenge-list` is a column flex with
+  `gap: 1rem`; `.challenge-card-link` has `padding: 1rem` + 2px border;
+  `.challenge-card-heading`/`.challenge-card-subtitle` are column-flex; participants are
+  a vertical list. Hover/focus styles exist on the link.
+- `MMM/tests.py PlayerPageTests`:
+  - `test_challenge_card_is_one_keyboard_link_with_valid_metadata_markup` asserts exact
+    href `http://127.0.0.1:8000/game/{game.id}/{challenger.id}` plus heading/loot/started/
+    participants markup.
+  - `test_player_page_keeps_empty_challenge_participant_state` asserts "No participants"
+    and game-page URL for an empty history.
+  - `test_challenge_card_styles_cover_stacking_hover_and_focus` asserts style.css
+    contains specific selectors/declarations.
+
+Implementation:
+1. `var/www/static/style.css`:
+   - Compact: `.challenge-list` gap ~0.4–0.5rem; `.challenge-card-link` padding
+     ~0.5rem 0.75rem; meta/participants horizontal (`flex-direction: row`,
+     `flex-wrap: wrap`, small gaps); smaller line-heights; keep `overflow-wrap: anywhere`
+     on text bits.
+   - Add `.challenge-result-badge` base style + variants `--won` (green), `--lost` (red),
+     `--fled` (grey): small inline pill (padding .1em .5em, border-radius, bold).
+   - Keep selectors asserted by tests working or update those assertions in step 2:
+     preserve `.challenge-card-link {`, `display: block;`, `:hover`, `:focus-visible`,
+     `.challenge-participants` names.
+2. `MMM/tests.py` updates:
+   - `test_challenge_card_is_one_keyboard_link_with_valid_metadata_markup`: challenger is
+     a participant → expect board URL
+     `http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}`; keep single-link +
+     no-nested-`<a>` assertions; adjust metadata assertions to the compact markup (loot,
+     started, names still present); add badge-absence assertion for active games.
+   - Add a finished-game case (defeat one participant via model flags) asserting the
+     Won/Lost/Fled badge renders and the link still targets the board URL (board redirects
+     to result — no template-side special-casing needed).
+   - `test_player_page_keeps_empty_challenge_participant_state`: unchanged expectations
+     ("No participants", game page URL) — verify it still passes with dict context.
+   - `test_challenge_card_styles_cover_stacking_hover_and_focus`: refresh asserted strings
+     to the compacted declarations and add badge variant checks.
+
+Files to modify:
+- var/www/static/style.css (challenge block)
+- MMM/tests.py (PlayerPageTests challenge cases)
+
+Acceptance criteria:
+- [ ] Challenge rows take visibly less vertical space than before (side-by-side compare).
+- [ ] Finished games show the correct Won/Lost/Fled pill; active/pending show none.
+- [ ] Own challenge links target `/game/<id>/board/<player>/`; empty histories keep the
+      game page link and "No participants".
+- [ ] Rows remain single keyboard links with hover + focus-visible styling intact.
+- [ ] Full test suite green, including updated/new challenge tests.
+
+Dependencies:
+- within leaf: requires `compact-template-board-links/`.
+- goal-level: this completes `UX/board-interaction-fixes`.

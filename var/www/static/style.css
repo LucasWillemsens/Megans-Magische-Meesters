@@ -226,7 +226,7 @@ a:hover {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 1rem;
+    gap: 0.4rem;
     width: min(100%, 48rem);
 }
 
@@ -241,10 +241,11 @@ a:hover {
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
-    padding: 1rem;
+    padding: 0.5rem 0.75rem;
     border: 2px solid #777;
     border-radius: 0.5rem;
     background: #fff;
+    line-height: 1.25;
     overflow-wrap: anywhere;
     text-decoration: none;
 }
@@ -262,21 +263,48 @@ a:hover {
 
 .challenge-card-heading {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.1rem 0.5rem;
     min-width: 0;
 }
 
 .challenge-card-title {
     margin: 0;
-    line-height: 1.2;
+    line-height: 1.15;
     overflow-wrap: anywhere;
+}
+
+.challenge-result-badge {
+    display: inline-block;
+    padding: 0.1em 0.5em;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.challenge-result--won {
+    background: #d9f2d9;
+    color: #14532d;
+}
+
+.challenge-result--lost {
+    background: #f8d7da;
+    color: #7f1d1d;
+}
+
+.challenge-result--fled {
+    background: #e5e7eb;
+    color: #333;
 }
 
 .challenge-card-subtitle {
     display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.75rem;
     margin: 0;
     min-width: 0;
 }
@@ -284,24 +312,25 @@ a:hover {
 .challenge-card-subtitle p {
     margin: 0;
     padding: 0;
-    line-height: 1.35;
+    line-height: 1.2;
     overflow-wrap: anywhere;
 }
 
 .challenge-participants {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.25rem;
-    margin: 1rem 0 0;
-    padding: 0.75rem 0 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.1rem 0.6rem;
+    margin: 0.35rem 0 0;
+    padding: 0.3rem 0 0;
     border-top: 1px solid #bbb;
     list-style: none;
 }
 
 .challenge-participants > li {
     padding: 0;
-    line-height: 1.35;
+    line-height: 1.2;
     overflow-wrap: anywhere;
 }
 
@@ -310,18 +339,15 @@ a:hover {
 }
 
 .challenge-no-participants {
-    margin: 1rem 0 0;
-    padding: 0.75rem 0 0;
+    margin: 0.35rem 0 0;
+    padding: 0.3rem 0 0;
     border-top: 1px solid #bbb;
+    line-height: 1.2;
 }
 
 @media (max-width: 40rem) {
     .challenge-card-link {
-        padding: 0.8rem;
-    }
-
-    .challenge-card-subtitle {
-        gap: 0.4rem;
+        padding: 0.4rem 0.5rem;
     }
 }
 

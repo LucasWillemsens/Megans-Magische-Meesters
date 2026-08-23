@@ -28,29 +28,41 @@
         <ul class="basic-mat challenge-list">
             {% for challenge in challenges %}
             <li class="challenge-card">
-                <a class="challenge-card-link" href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}" draggable="false">
+                <a class="challenge-card-link" href="{{ challenge.boardUrl or challenge.gameUrl or returnURL }}" draggable="false">
                     <div class="challenge-card-heading">
                         <h3 class="challenge-card-title">Game {{loop.index}}</h3>
-                        <div class="challenge-card-subtitle challenge-card-meta">
-                            <p class="challenge-card-loot">lootPile: {{challenge.printLootPile()}}</p>
-                            {% if challenge.participants.count() > 0 %}
-                            <p class="challenge-card-start">(Started {{printLocalTime(challenge.participants.all()[0].joinedBattle)}})</p>
+                        {% if challenge.finished %}
+                            {% if challenge.won is sameas true %}
+                                {% set resultClass, resultLabel = "won", "Won" %}
+                            {% elif challenge.won == "fled" %}
+                                {% set resultClass, resultLabel = "fled", "Fled" %}
+                            {% else %}
+                                {% set resultClass, resultLabel = "lost", "Lost" %}
                             {% endif %}
-                        </div>
+                            <span class="challenge-result-badge challenge-result--{{resultClass}}">{{resultLabel}}</span>
+                        {% endif %}
+                    </div>
+                    <div class="challenge-card-subtitle challenge-card-meta">
+                        <p class="challenge-card-loot">lootPile: {{challenge.lootPileText}}</p>
+                        {% if challenge.started %}
+                        <p class="challenge-card-start">(Started {{printLocalTime(challenge.started)}})</p>
+                        {% endif %}
                     </div>
 
-                {% if challenge.participants.exclude(pk__isnull=True) %}
+                {% if challenge.participants %}
                     <ul class="challenge-participants">
                         <li>
                             <b>
-                                {{challenge.challenger.name|e}}
+                                {{challenge.history.challenger.name|e}}
                             </b>
                         </li>
                         <li class="challenge-card-versus">versus</li>
-                        {% for battler in challenge.participants.exclude(player__name=challenge.challenger.name).all() %}
+                        {% for battler in challenge.participants %}
+                            {% if battler.player_id != challenge.history.challenger.id %}
                             <li>
                                 {{battler.player.name|e}}
                             </li>
+                            {% endif %}
                         {% endfor %}
                     </ul>
                 {% else %}
