@@ -2099,6 +2099,31 @@ class BattleFlowTests(TestCase):
             "MAX_CARDS_PER_ROW exceeds highest nth-child offset in cards.css"
         )
 
+    def test_lane_heights_stretch_equal_across_board(self):
+        """All four lanes render at equal height: flex stretch, not per-lane content sizing."""
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        lanes_rule = re.search(r'ul\.lanes\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(lanes_rule, "ul.lanes rule missing from cards.css")
+        lanes_body = lanes_rule.group(0)
+        self.assertIn('display: flex', lanes_body)
+        self.assertIn('flex-direction: row', lanes_body)
+        self.assertIn('align-items: stretch', lanes_body)
+
+        # A height declaration on li.lane would disable stretching and
+        # reintroduce unequal lane heights when a lane overflows.
+        lane_rule = re.search(r'ul\.lanes li\.lane\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(lane_rule, "ul.lanes li.lane rule missing from cards.css")
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', lane_rule.group(0)),
+            "li.lane must not declare a fixed/percentage height; lanes equalize via stretch"
+        )
+
     def test_deck_draw_animation_does_not_insert_into_deck(self):
         """Deck draws overlay the pile via fixed positioning instead of shifting it."""
         import os

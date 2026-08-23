@@ -827,6 +827,9 @@ div.playerScreen{
         pointer-events:none;
     }
 
+    /* Lanes share one flex line: stretch keeps all four equally tall even
+       when laneStacking.js splits an overflowing lane into extra rows.
+       li.lane must keep height auto or stretch is disabled. */
     ul.lanes {
         align-self: center;
         justify-self: center;
@@ -834,6 +837,7 @@ div.playerScreen{
         display: flex;
         flex-wrap: nowrap;
         flex-direction: row;
+        align-items: stretch;
         padding: 0 14%;
         width: 56%;
         gap: 2%;
@@ -843,7 +847,6 @@ div.playerScreen{
         ul.lanes li.lane {
             width: 22%;
             min-width: 8rem;
-            height: 100%;
             position: relative;
         }
         ul.lanes li.lane.Intelligence {
