@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170714",
+  "roadmap_path": "tests-and-reliability/challenge-lifecycle",
+  "false_positive_keywords": [
+    "resolution",
+    "setup"
+  ],
+  "description_excerpt": "Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.",
+  "notes": ""
+}

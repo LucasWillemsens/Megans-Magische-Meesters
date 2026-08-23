@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "multiplayer-account/cookie-state-safety",
+  "false_positive_keywords": [
+    "consuming",
+    "cookies"
+  ],
+  "description_excerpt": "Prevent cookies from consuming state incorrectly when the opponent is not active.",
+  "notes": ""
+}

@@ -230,6 +230,8 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
                 startCard.save()
                 startCard.state.draw()
                 startCard.state.play(startCard.card.cardType + 1)
+                # The trusted starting card bypasses playCard, so assign its lane position here.
+                startCard.state.updateOrdinal(1)
                 startCard.state.reveal()
                 startCard.state.trust()
                 startCard.state.save()
@@ -315,10 +317,11 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         elif not specialClause and self.playedCardsAmount >= 2 + tactics -self.drawnCardsAmount -self.flippedCardsAmount:
             raise Exception(f"{self.player.name} cannot play more cards this turn")
 
+        newLaneOrdinal = self.getNewMaxCardInLaneOrdinal(lane)
         if gameCard.state.lane == 0:
             gameCard.state.play(lane)
             self.playedCardsAmount +=1
-        gameCard.state.updateOrdinal(self.getNewMaxCardInLaneOrdinal(lane))
+        gameCard.state.updateOrdinal(newLaneOrdinal)
         if flipFaceUp and (specialClause or self.flippedCardsAmount < 2 + tactics -self.playedCardsAmount -self.drawnCardsAmount):
             gameCard.state.reveal()
             self.flippedCardsAmount += 1

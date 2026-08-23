@@ -1,0 +1,38 @@
+Remove the old "handcard action" (the per-card play form whose submit button plays a hand
+card to its own type lane on click) and merge hand-card interaction with number-key
+selection: selecting a card (via number keys or by clicking it) focuses it, and the orange
+selection styling is unified with regular focus styling.
+
+Subgoals (land in this order):
+1. `hand-markup-form-removal/` — strip `cardActionForm`/`cardActionButton` from own-hand
+   fan cards; keep bare hidden `card_id` AND `lane` inputs (both are JS contracts);
+   add `tabindex="-1"` to playable cards; update the three affected tests.
+2. `selection-focus-click-to-select/` — focus the card on keyboard selection, blur on
+   clear; click-to-select with correct ordinal + digit buffer, drag-safe.
+3. `unified-selection-styling/` — replace the orange `.keyboard-selected` treatment with
+   styling matching regular focus; align preview hologram accent.
+
+Key codebase facts (verified):
+- Forms live at `MMM/jinja2/MMM/battle/viewBoard.jinja2` lines ~322–348 (own hand only);
+  draw (~294) and end-turn (~368) forms stay.
+- Selection state machine lives in `var/www/static/cardDragDrop.js`
+  (`selectKeyboardCard`, `onKeyboardKeyDown`, `confirmKeyboardSelection`,
+  `clearKeyboardSelection`, `_isPlayableKeyboardCard`, `playableKeyboardCards`).
+- Regular focus styling is `var/www/static/cards.css`
+  `li.cardContainer:focus-within { outline-offset: 4px; outline: 3px solid; }` plus lift
+  rules; current orange selection is `var/www/static/cardDragDrop.css`
+  `li.cardContainer.keyboard-selected` (rgba(255,204,0) outline + glow).
+
+Acceptance criteria (leaf-level, detailed per subgoal):
+- [ ] No play form/button in hand markup; clicking a playable card selects (not plays).
+- [ ] Number-key and click selection both focus the card; `:focus-within` styling shows.
+- [ ] Escape/0/Backspace clears selection and focus appropriately.
+- [ ] Selection visual matches regular focus (no orange glow).
+- [ ] Blocked/ghost/staged cards are neither clickable-selectable nor focusable.
+- [ ] Drag-and-drop, drop-zone-click confirm, Space/Enter confirm all still work.
+- [ ] Full test suite passes.
+
+Dependencies:
+- after `cardrow-overflow-fix/` and `deck-indicator-restyle/` close-outs (shared files;
+  both already implemented).
+- gate for `keyboard-selection-extensions/`.

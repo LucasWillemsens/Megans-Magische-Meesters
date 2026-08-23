@@ -1,0 +1,48 @@
+Close-out of the deck indicator restyle: verify the already-implemented inert deck chip
+design and do a visual QA pass. The original problem (indicators rendered as broken-looking
+5rem x 3rem faces pushed outside the deck stack by negative offsets, "this is broken"
+comment in cards.css) is FIXED in the current codebase.
+
+Verification of current state (already landed, do not redo):
+- `MMM/views.py` `_deck_presentation()` returns one `deckIndicators` entry per 32-card
+  inert block (unchanged contract).
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2`: both `.deck-stack` containers set
+  `--deck-indicator-count: {{ ...|length }}`; each indicator is an `aria-hidden`+`inert`
+  `<ul class="deck-indicator">` with a single `<li><span class="deck-indicator-face">`
+  and a positive `--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem`.
+- `var/www/static/cards.css`: chips are 1.7rem x 1.15rem (1.3rem x .95rem under 700px)
+  card-back gradient faces with border/shadow; active deck shifts right per chip via
+  `left: calc(2rem + var(--deck-indicator-count, 0) * 0.55rem)` (and width shrinks to
+  match), so nothing leaves the stack; mobile media query mirrors this with .45rem steps;
+  indicators have `pointer-events: none`, `user-select: none`, `cursor: default`;
+  the "broken" comment was replaced by a factual description.
+- Test coverage exists: `MMM/tests.py` deck tests assert indicator counts per 32-card
+  block, `aria-hidden`/`inert`, absence of forms/buttons/data-card-id in indicators, and
+  that empty decks render no indicators and no draw button.
+- JS consumers unaffected: `activeDeckForBoard()` / `_findDrawControl()` target
+  `.active-deck`, which still resolves; draw animations already originate from the active
+  deck ul.
+
+Implementation:
+1. Manual QA pass at desktop and <=700px widths: with 0/1/2+ inert blocks confirm the
+   chip pile sits inside the deck stack bottom-left, grows leftward, never overflows the
+   stack or the screen, and the active deck remains clearly the top/interactive element.
+2. Confirm player and enemy stacks look identical apart from position (enemy stack is
+   pointer-events:none entirely).
+3. Trigger a draw ("d" hold or button) and confirm the draw flight still starts at the
+   active deck's top card (indicator geometry changes must not have shifted the origin).
+4. If any visual defect is found, fix within cards.css only (chip size/offset math);
+   template structure and view-model contract stay as-is.
+
+Files to modify:
+- var/www/static/cards.css (only if QA finds a defect)
+
+Acceptance criteria:
+- [ ] QA checklist above passes at both breakpoints; no off-stack or clipped chips.
+- [ ] Indicators remain inert/aria-hidden/non-focusable/non-draggable (existing tests
+      keep passing unchanged).
+- [ ] Draw animation origin is still the active deck top card.
+- [ ] No code changes were needed beyond (at most) CSS polish.
+
+Dependencies:
+- none (second leaf; gate for handcard-action-merge and deck-stable-draw).

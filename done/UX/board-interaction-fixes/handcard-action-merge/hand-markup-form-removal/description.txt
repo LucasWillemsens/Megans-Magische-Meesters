@@ -1,0 +1,66 @@
+Remove the per-handcard play form/button from the board template and keep the data hooks
+the JS needs as bare hidden inputs. This is subgoal 1 of 3 of `handcard-action-merge/`;
+land it before `selection-focus-click-to-select/`.
+
+Current state:
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (~lines 314–359): each own-hand fan card is an
+  `<li class="cardContainer ...">` containing `<div class="card smallCard">` wrapping a
+  `<form method="post" class="cardActionForm">` with hidden `action=play`, `card_id`,
+  `lane` inputs and a `<button type="submit" class="cardActionButton ...">` holding the
+  face markup. Clicking the button submits play-to-own-lane immediately.
+- JS contracts that MUST keep working:
+  - `cardDragDrop.js _isPlayableKeyboardCard()` requires a hidden
+    `input[name="card_id"]` with a value inside the li (`_cardIdInput()`).
+  - `_cardLaneValue()` prefers hidden `input[name="lane"]` (falls back to
+    data attributes then `.cardType` text) — removing the lane input would silently
+    degrade lane resolution for keyboard selection and click-to-select.
+  - `_buildPlayHologram()` / `onFaceDownCardClick()` clone cards and strip forms/buttons;
+    after this change those strips become no-ops (harmless, leave them).
+
+Implementation:
+1. `MMM/jinja2/MMM/battle/viewBoard.jinja2` (own-hand fans only):
+   - Replace the `<form class="cardActionForm">…</form>` + `<button class="cardActionButton">`
+     wrapper with the face content directly inside `<div class="card smallCard">`.
+   - Keep two BARE hidden inputs directly in the `<li>` (not inside any form):
+     `<input type="hidden" name="card_id" value="{{ card.id }}">` and
+     `<input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">`.
+     Drop the old `action=play` input entirely (plays go through the cookie flow).
+   - Add `tabindex="-1"` to playable cardContainers (when
+     `turnAllowances.plays_left > 0`) so JS can move focus programmatically in subgoal 2;
+     blocked cards (plays_left <= 0) get NO tabindex attribute.
+   - Preserve existing `data-card-id`, `data-source-lane`, `data-source-ordinal`,
+     `draggable`, `blocked`, title behavior byte-for-byte.
+2. Do NOT touch the deck draw form (~line 294) or end-turn form (~line 368): the
+   "d"/"e" hold shortcuts submit those real forms
+   (`_findDrawControl()`/`_findEndTurnControl()`), and tests assert their presence.
+3. `MMM/tests.py` updates:
+   - `test_hand_fan_cards_keep_action_and_source_attributes`: keep the counts of
+     `name="card_id"` / `data-source-*` / `draggable="true"`; ADD assertions that hand-fan
+     HTML contains no `cardActionForm` and no `cardActionButton`, and that playable fans
+     contain `tabindex="-1"`.
+   - `test_draw_renders_drawn_card_loading_from_deck` (~line 658) and
+     `test_static_hand_card_uses_the_same_css_face_as_field_cards` (~line 693) assert
+     `class="cardActionButton` in drawn-card markup — replace with assertions on the
+     cardContainer/card face markup (e.g. `class="cardContainer loading` plus rank/suit
+     or image markers already asserted nearby).
+   - Leave `test_end_turn_hold_keeps_existing_form_hook` and
+     `test_draw_hold_keeps_existing_draw_form_hook` untouched (draw/end-turn forms stay).
+
+Files to modify:
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (own-hand fan block only)
+- MMM/tests.py (three tests listed above)
+
+Acceptance criteria:
+- [ ] Hand fan markup has no `cardActionForm`/`cardActionButton`; each card li keeps
+      hidden `name="card_id"` AND `name="lane"` inputs outside any form.
+- [ ] Playable hand cards carry `tabindex="-1"`; blocked ones carry none.
+- [ ] Clicking a hand card no longer submits anything; page has no stray forms in the hand.
+- [ ] Draw and end-turn forms still render exactly as before.
+- [ ] Keyboard selection still resolves card id + lane for every hand card (manual check:
+      type a card number, preview appears in the correct lane hologram row).
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: first subgoal; `selection-focus-click-to-select/` builds directly on the
+  tabindex/-inputs introduced here.
+- leaf-level: after `cardrow-overflow-fix/` + `deck-indicator-restyle/` close-outs.

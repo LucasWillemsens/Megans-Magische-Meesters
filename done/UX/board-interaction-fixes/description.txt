@@ -1,0 +1,46 @@
+Fixes for board interaction regressions and polish, ordered so earlier leaves land first.
+
+Status note (planning pass 2026-08-23): leaves 1 and 2 were found already implemented in
+the codebase (including their contract tests), so they are now verification/close-out
+tasks. Leaves 3–7 are still open and have been decomposed into ordered subgoals.
+
+Order:
+1. `cardrow-overflow-fix/` — VERIFICATION ONLY: the multi-row overflow merge-back bug is
+   already fixed (`laneStacking.js` marker-class rows, `MAX_CARDS_PER_ROW = 15`, CSS
+   offsets to nth-child(20)) and covered by
+   `test_lane_overflow_splits_rows_without_merging_back`. Remaining: cleanup + QA.
+2. `deck-indicator-restyle/` — VERIFICATION ONLY: inert deck chips are already restyled
+   (template sets `--deck-indicator-count`, chips stay inside `.deck-stack`, active deck
+   shifts per chip) and covered by existing deck-indicator tests. Remaining: QA.
+3. `handcard-action-merge/` — remove the old per-handcard play form action; merge with
+   number-key selection (selection focuses the card); unify orange selection styling with
+   regular focus. Subgoals (in order):
+   - `hand-markup-form-removal/`
+   - `selection-focus-click-to-select/`
+   - `unified-selection-styling/`
+4. `keyboard-selection-extensions/` — 9-card hand fans, +/- selection stepping, backspace
+   reset, last-digit fallback, faceDown lane play for keyboard selection. Subgoals (in order):
+   - `nine-card-fans/`
+   - `stepping-and-buffer-keys/`
+   - `facedown-confirm-staging/`
+5. `focus-and-hover-fixes/` — focus behavior for unplayable handcards/draw and cardRow
+   cards; 0.5s hover cooldown driven by mouse movement. Subgoals (in order):
+   - `blocked-and-draw-focus-hygiene/`
+   - `lane-card-focus-flip-keys/`
+   - `hover-cooldown-manager/`
+6. `deck-stable-draw/` — deck stack must not visually move when the top card is drawn
+   (`duplicateCard()` currently inserts the draw clone into the deck `<ul>`, shifting all
+   nth-child offsets). Single task, no decomposition.
+7. `compact-active-challenges/` — smaller challenge list, result preview, direct board
+   link for own active games. Subgoals (in order):
+   - `view-challenge-enrichment/`
+   - `compact-template-board-links/`
+   - `compact-styles-and-tests/`
+
+Cross-leaf dependencies:
+- Leaf 3 depends on leaves 1–2 only insofar as they touch shared files; both are done, so
+  leaf 3 can start immediately after its verification passes.
+- Leaf 4 depends on leaf 3 (shared `cardDragDrop.js` + hand markup).
+- Leaf 5 depends on leaves 3–4 (tabindex introduced by leaf 3; selection keys of leaf 4).
+- Leaf 6 depends on leaf 2 (deck geometry) and leaf 4 (animation sequence stability).
+- Leaf 7 is independent of the board leaves; keep it last to avoid test churn.

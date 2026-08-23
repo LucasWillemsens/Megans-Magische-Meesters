@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "low-prio/customization-card-systems/upgrade-requirements",
+  "false_positive_keywords": [
+    "history",
+    "upgrade"
+  ],
+  "description_excerpt": "Define upgrade requirements based on symbol history, card art, or card name to make special upgrades feel earned.",
+  "notes": ""
+}

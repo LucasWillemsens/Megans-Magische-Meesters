@@ -1,0 +1,63 @@
+Make own lane cardRow cards keyboard-focusable with a visible focus ring/lift, and support
+Enter/Space to flip a focused face-down card (lane cards and staged holograms). Subgoal 2
+of 3 of `focus-and-hover-fixes/`; requires `blocked-and-draw-focus-hygiene/`.
+
+Current state:
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2`: own-board lane cardContainers — faceDown
+  variant (~lines 180–207) and revealed variant (~209–236) plus the trustedCards row
+  (~240–270) — carry no tabindex, so they are unreachable by keyboard.
+- Face-down flipping is click-only: `setupFaceDownCardClickListeners()` attaches one-shot
+  `click` handlers (`onFaceDownCardClick`); no key handling exists.
+- Focus styling already exists and will apply once focus is possible: `cards.css`
+  `li.cardContainer:focus-within` outline (~54–57) and lane lift (~83–86).
+
+Implementation:
+1. `MMM/jinja2/MMM/battle/viewBoard.jinja2` — own board only (`.playerBoard`, NOT
+   `.enemyBoard`, NOT hand/deck):
+   - Add `tabindex="0"` to lane cardContainers in both the `title="cards"` row and the
+     `trustedCards` row (faceDown AND revealed variants).
+   - Keep enemy lane/hand/deck cards non-focusable.
+2. `var/www/static/cardDragDrop.js` — Enter/Space flip:
+   - Extend `onKeyboardKeyDown()` with a branch BEFORE selection handling: when
+     `event.target`/`document.activeElement` is an own lane cardContainer
+     (`.playerBoard ul.cardRow li.cardContainer.faceDown`) or a staged faceDown hologram
+     container (`.hologram .cardContainer.faceDown.keyboard-staged`), and key is
+     `'Enter'` or `' '`, invoke the same flip path as clicking: guard
+     `remainingAllowances().flips > 0` and `.blocked` (mirror `onFaceDownCardClick`'s
+     early return), then call `this.onFaceDownCardClick(event, laneValue)` deriving
+     laneValue from `card.closest('li.lane').classList[1]` exactly like
+     `setupFaceDownCardClickListeners()` does. Prevent default on handled events.
+   - Note: `onFaceDownCardClick(e, laneValue)` reads `e.currentTarget ?? e.target.closest`
+     — passing the synthetic KeyboardEvent works since the focused card is
+     `e.target.closest('.cardContainer')`.
+   - Do not let this branch swallow Enter/Space when a keyboard CARD SELECTION is active
+     (selection confirm must keep priority): order the branches so selection-confirm runs
+     first.
+3. CSS verification/polish in `var/www/static/cards.css`: confirm the existing
+   `:focus-within` outline + lane lift read clearly against the board background for
+   faceDown cards too; add a `:focus-visible`-scoped tweak only if the ring proves
+   invisible during QA.
+4. `MMM/tests.py`: extend a board-markup test to assert own lane cardContainers render
+   `tabindex="0"` while enemy ones do not; extend the keyboard contract test with the new
+   Enter/Space flip branch strings.
+
+Files to modify:
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (own lane card containers)
+- var/www/static/cardDragDrop.js (keyboard flip branch)
+- var/www/static/cards.css (only if QA shows invisible focus ring)
+- MMM/tests.py (markup + contract assertions)
+
+Acceptance criteria:
+- [ ] Own lane cards (cards row + trustedCards, faceDown + revealed) are Tab-reachable in
+      DOM order and show a visible focus ring + lift.
+- [ ] Enter/Space on a focused faceDown lane card flips it (ghost + face-up hologram +
+      arrow), consuming flips allowance; blocked/exhausted flips do nothing.
+- [ ] Enter/Space on a focused staged keyboard-play hologram flips it face up while
+      flips remain (completes the facedown-confirm-staging forward dependency).
+- [ ] With an active card selection, Enter/Space still confirms the selection first.
+- [ ] Enemy boards remain fully unfocusable.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: requires `blocked-and-draw-focus-hygiene/`; before
+  `hover-cooldown-manager/`.

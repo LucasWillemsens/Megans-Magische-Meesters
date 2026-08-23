@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170711",
+  "roadmap_path": "later-actions/lootpile-results",
+  "false_positive_keywords": [
+    "lootpile",
+    "victory"
+  ],
+  "description_excerpt": "Finish win rules and show the lootpile on the results screen so victory feels complete and transparent.",
+  "notes": ""
+}

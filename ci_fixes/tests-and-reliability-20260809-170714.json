@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170714",
+  "roadmap_path": "tests-and-reliability",
+  "false_positive_keywords": [
+    "automate",
+    "reliability"
+  ],
+  "description_excerpt": "Add tests and reliability work to make the prototype stable before sharing. Create more cards for testing and automate c",
+  "notes": ""
+}

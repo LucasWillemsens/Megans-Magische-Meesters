@@ -349,7 +349,7 @@ class loadingAnimationsSystem {
      */
     _makeCardClone() {
         const li = document.createElement('li');
-        li.className = 'cardContainer faceDown';
+        li.className = 'cardContainer faceDown duplicate-deck-flight';
         const div = document.createElement('div');
         div.className = 'card back smallCard';
         li.appendChild(div);
@@ -359,7 +359,7 @@ class loadingAnimationsSystem {
     /**
      * Insert a temporary card element at the source lane/hand position
      * (determined by cardInfo.sourceLane / cardInfo.sourceOrdinal) and return it.
-     * The clone is NOT inserted into the DOM; this function only builds it.
+     * The clone is temporarily inserted into the source container for layout.
      * Returns {element, sourceRect} where sourceRect is the bounding box of
      * the source position, or null if the source container can't be found.
      */
@@ -367,19 +367,17 @@ class loadingAnimationsSystem {
         const board = this._boardForParticipant(participantId);
         if (!board) return null;
 
-        const isPlayer = board.classList.contains('playerBoard');
-        const lane = cardInfo.sourceLane;
-        const ordinal = cardInfo.sourceOrdinal || 0;
+        const lane = Number.parseInt(cardInfo.sourceLane, 10);
+        const ordinal = Number.parseInt(cardInfo.sourceOrdinal, 10) || 0;
 
         // Find the source container (hand or lane cardRow)
         let sourceContainer = null;
+        let handSource = null;
         const laneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
 
         if (lane === 0) {
-            // Hand
-            sourceContainer = isPlayer
-                ? document.querySelector('.playerScreen .deckHand .hand')
-                : board.querySelector('.enemyDeckHand .hand');
+            handSource = handSourceForOrdinal(board, ordinal);
+            sourceContainer = handSource?.container ?? null;
         } else if (lane > 0 && lane <= 4) {
             // A lane — find the correct cardRow by ordinal
             const laneEl = board.querySelector(`.lane.${laneNames[lane]}`);
@@ -393,12 +391,16 @@ class loadingAnimationsSystem {
         // Create a card clone and add it at the ordinal position in the container
         const clone = this._makeCardClone();
         clone.classList.add('duplicate', 'shuffle-flying');
-        const insertIndex = Math.min(Math.max(0, ordinal - 1), sourceContainer.children.length);
-        const beforeEl = sourceContainer.children[insertIndex] ?? null;
-        if (beforeEl) {
-            sourceContainer.insertBefore(clone, beforeEl);
+        if (lane === 0) {
+            insertHandClone(handSource, clone);
         } else {
-            sourceContainer.appendChild(clone);
+            const insertIndex = Math.min(Math.max(0, ordinal - 1), sourceContainer.children.length);
+            const beforeEl = sourceContainer.children[insertIndex] ?? null;
+            if (beforeEl) {
+                sourceContainer.insertBefore(clone, beforeEl);
+            } else {
+                sourceContainer.appendChild(clone);
+            }
         }
 
         const sourceRect = clone.getBoundingClientRect();
@@ -412,10 +414,7 @@ class loadingAnimationsSystem {
             return;
         }
 
-        const isPlayer = board.classList.contains('playerBoard');
-        const deck = isPlayer
-            ? document.querySelector('.playerScreen .deckHand .deck')
-            : board.querySelector('.enemyDeckHand .deck');
+        const deck = activeDeckForBoard(board);
         if (!deck) {
             if (onComplete) onComplete();
             return;
@@ -480,10 +479,7 @@ class loadingAnimationsSystem {
     _wiggleDeck(participantId) {
         const board = this._boardForParticipant(participantId);
         if (!board) return;
-        const isPlayer = board.classList.contains('playerBoard');
-        const deck = isPlayer
-            ? document.querySelector('.playerScreen .deckHand .deck')
-            : board.querySelector('.enemyDeckHand .deck');
+        const deck = activeDeckForBoard(board);
         if (!deck) return;
         deck.classList.add('deck-shuffle');
         setTimeout(() => {
@@ -615,51 +611,144 @@ function focusEnemySide() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function activeDeckForBoard(board) {
+    if (!board) return null;
+    if (board.classList.contains('playerBoard')) {
+        return document.querySelector('.playerScreen .deckHand .active-deck');
+    }
+    return board.querySelector('.enemyDeckHand .active-deck');
+}
+
 /**
  * Find the correct .cardRow within a lane for a given ordinal.
- * When a lane has multiple rows (overflow), this calculates which row
- * the ordinal falls into based on cards-per-row.
+ * Only the main cards row group counts: overflow rows created by
+ * LaneCardStacking keep title="cards", the trustedCards row does not.
  */
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
-    const rows = laneElement.querySelectorAll(':scope > ul.cardRow');
-    if (rows.length <= 1) return rows[0] || null;
-    const cpr = cardsPerRow || 5; // fallback default
+    const rows = laneElement.querySelectorAll(':scope > ul.cardRow[title="cards"]');
+    if (rows.length === 0) return null;
+    if (rows.length === 1) return rows[0];
+    const storedCardsPerRow = parseInt(rows[0].dataset.cardsPerRow, 10);
+    const cpr = (Number.isFinite(storedCardsPerRow) && storedCardsPerRow > 0)
+        ? storedCardsPerRow
+        : (cardsPerRow || 5);
     const rowIndex = Math.min(Math.max(0, Math.floor((ordinal - 1) / cpr)), rows.length - 1);
     return rows[rowIndex];
+}
+
+const HAND_FAN_SIZE = 9;
+
+function handContainersForBoard(board) {
+    if (!board) return [];
+
+    const isPlayerBoard = board.classList.contains('playerBoard');
+    const root = isPlayerBoard ? document : board;
+    const selector = isPlayerBoard
+        ? '.playerScreen .deckHand .hand-fan'
+        : '.enemyDeckHand .hand-fan';
+    const fans = Array.from(root.querySelectorAll(selector));
+    if (fans.length > 0) {
+        return fans.sort(
+            (left, right) => (parseInt(left.dataset.fanIndex, 10) || 0)
+                - (parseInt(right.dataset.fanIndex, 10) || 0)
+        );
+    }
+
+    const fallbackSelector = isPlayerBoard
+        ? '.playerScreen .deckHand .hand'
+        : '.enemyDeckHand .hand';
+    return Array.from(root.querySelectorAll(fallbackSelector));
+}
+
+function handSourceForOrdinal(board, ordinal) {
+    const containers = handContainersForBoard(board);
+    if (containers.length === 0) return null;
+
+    const numericOrdinal = parseInt(ordinal, 10);
+    const normalizedOrdinal = Number.isFinite(numericOrdinal) && numericOrdinal > 0
+        ? numericOrdinal
+        : 1;
+    const requestedFanIndex = Math.floor((normalizedOrdinal - 1) / HAND_FAN_SIZE);
+    const hasRequestedFan = requestedFanIndex < containers.length;
+    const container = containers[Math.min(requestedFanIndex, containers.length - 1)];
+    const cardCount = container.querySelectorAll(':scope > li.cardContainer').length;
+    const cardIndex = hasRequestedFan
+        ? (normalizedOrdinal - 1) % HAND_FAN_SIZE
+        : cardCount;
+
+    return {container, cardIndex};
+}
+
+function insertHandClone(source, clone) {
+    if (!source?.container || !clone) return;
+
+    const cards = Array.from(
+        source.container.querySelectorAll(':scope > li.cardContainer')
+    );
+    const beforeCard = cards[source.cardIndex] || null;
+    const placeholder = Array.from(source.container.children)
+        .find(child => !child.matches('.cardContainer')) || null;
+    const beforeElement = beforeCard || placeholder;
+    if (beforeElement) {
+        source.container.insertBefore(clone, beforeElement);
+    } else {
+        source.container.appendChild(clone);
+    }
 }
 
 function duplicateCard(element, lane, ordinal)
 {
     let laneElement  = null;
-    const cardsPerRow = 5; // Default, will be recalculated by LaneCardStacking
+    const enemyBoard = element.closest('.enemyBoard');
+    const sourceLane = Number.parseInt(lane, 10);
+    const cardsPerRow = 5; // Fallback when LaneCardStacking has not stored cards-per-row
     const duplicate = element.cloneNode(true);
     duplicate.classList.add('duplicate');
-    const enemyBoard = element.closest('.enemyBoard');
-    if (enemyBoard) {
-        const enemyLaneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
-        if (lane < 0) {
-            laneElement = enemyBoard.querySelector('.enemyDeckHand .deck');
-        } else if (lane === 0) {
-            laneElement = enemyBoard.querySelector('.enemyDeckHand .hand');
-        } else if (enemyLaneNames[lane]) {
-            const enemyLane = enemyBoard.querySelector(`.lane.${enemyLaneNames[lane]}`);
-            if (enemyLane) {
-                laneElement = findCardRowForOrdinal(enemyLane, ordinal, cardsPerRow);
-            }
-        }
-    } else {
-        if (lane < 0) {
-            laneElement = document.querySelector('.playerScreen .deckHand .deck');
+    if (sourceLane < 0) {
+        const deckElement = activeDeckForBoard(enemyBoard ?? document.querySelector('.playerBoard'));
+        if (!deckElement) return null;
+        duplicate.classList.add('duplicate-deck-flight');
+        if (!enemyBoard) {
             duplicate.classList.add('faceDown');
             const innerCard = duplicate.querySelector('.card');
             if (innerCard) {
                 innerCard.classList.add('back');
                 innerCard.replaceChildren();
             }
-        } else switch (lane) {
-            case 0:
-                laneElement = document.querySelector('.playerScreen .deckHand .hand');
+        }
+        const topStackCard = deckElement.querySelector('li:last-of-type');
+        const stackRect = (topStackCard?.querySelector('.card') ?? topStackCard ?? deckElement).getBoundingClientRect();
+        duplicate.style.position = 'fixed';
+        duplicate.style.left = `${stackRect.left}px`;
+        duplicate.style.top = `${stackRect.top}px`;
+        duplicate.style.width = `${stackRect.width}px`;
+        duplicate.style.height = `${stackRect.height}px`;
+        document.body.appendChild(duplicate);
+        const originalRect = element.getBoundingClientRect();
+        const duplicateRect = duplicate.getBoundingClientRect();
+        duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
+        duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);
+        return duplicate;
+    }
+    if (enemyBoard) {
+        const enemyLaneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
+        if (sourceLane === 0) {
+            const handSource = handSourceForOrdinal(enemyBoard, ordinal);
+            if (handSource) insertHandClone(handSource, duplicate);
+        } else if (enemyLaneNames[sourceLane]) {
+            const enemyLane = enemyBoard.querySelector(`.lane.${enemyLaneNames[sourceLane]}`);
+            if (enemyLane) {
+                laneElement = findCardRowForOrdinal(enemyLane, ordinal, cardsPerRow);
+            }
+        }
+    } else {
+        const playerBoard = document.querySelector('.playerBoard');
+        switch (sourceLane) {
+            case 0: {
+                const handSource = handSourceForOrdinal(playerBoard, ordinal);
+                if (handSource) insertHandClone(handSource, duplicate);
                 break;
+            }
             case 1:
                 laneElement = findCardRowForOrdinal(
                     document.querySelector('.playerScreen .playerBoard .lane.Intelligence'), ordinal, cardsPerRow);
@@ -678,8 +767,16 @@ function duplicateCard(element, lane, ordinal)
                 break;
         }
     }
+    if (sourceLane === 0) {
+        if (!duplicate.parentNode) return null;
+        const originalRect = element.getBoundingClientRect();
+        const duplicateRect = duplicate.getBoundingClientRect();
+        duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
+        duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);
+        return duplicate;
+    }
     if (laneElement) {
-        const insertIndex = Math.min(ordinal - 1, laneElement.children.length);
+        const insertIndex = Math.min(Math.max(0, ordinal - 1), laneElement.children.length);
         const beforeElement = laneElement.children[insertIndex] ?? null;
 
         if (beforeElement) {
@@ -687,19 +784,12 @@ function duplicateCard(element, lane, ordinal)
         } else {
             laneElement.appendChild(duplicate);
         }
-        const originalRect = element.getBoundingClientRect();
-        const duplicateRect = duplicate.getBoundingClientRect();
-        if (lane > 0){
-            duplicate.classList.add('flipFaceUp');
-            duplicate.classList.add('faceDown');
-            const innerCard = duplicate.querySelector('.card');
-            if (innerCard) {
-                innerCard.classList.add('back');
-                innerCard.replaceChildren();
-            }
-        } else{
-            duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
-            duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);
+        duplicate.classList.add('flipFaceUp');
+        duplicate.classList.add('faceDown');
+        const innerCard = duplicate.querySelector('.card');
+        if (innerCard) {
+            innerCard.classList.add('back');
+            innerCard.replaceChildren();
         }
         return duplicate;
     }

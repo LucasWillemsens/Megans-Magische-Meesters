@@ -1,0 +1,38 @@
+Fix focus behavior for unplayable handcards and the draw button, make own lane cardRow
+cards keyboard-focusable with Enter/Space flipping, and replace instant CSS-only hover
+with a mousemove-driven hover manager that enforces a 0.5s cooldown between hovered-card
+switches.
+
+Subgoals (land in this order):
+1. `blocked-and-draw-focus-hygiene/` — blocked hand cards lose tabindex; disabled draw
+   button stays unfocusable; deck stack never receives focus.
+2. `lane-card-focus-flip-keys/` — own lane cardContainers get tabindex="0", visible focus
+   ring/lift, and Enter/Space triggers face-down flips (lane cards + staged holograms).
+3. `hover-cooldown-manager/` — JS hover manager applying `.card-hover` with a 500ms
+   switch cooldown; CSS gains `.card-hover` equivalents of card `:hover` rules.
+
+Key codebase facts (verified):
+- After `handcard-action-merge/`, playable hand cards carry `tabindex="-1"`;
+  `applyTurnAffordances()` (`var/www/static/cardDragDrop.js`) adds `.blocked` +
+  `draggable="false"` + title but does not manage tabindex today. No element on the board
+  sets tabindex at all right now.
+- The draw button is a real submit button inside the deck form, disabled when draws are
+  exhausted (template + `applyTurnAffordances()`); deck ul/li have no tabindex.
+- Lane cards (`.cardRow li.cardContainer`, trustedCards row, holograms) have no tabindex.
+- All hover visuals are pure CSS: `cards.css` lines ~45–137 (lift/margin/z-index/shadow/
+  smallCard highlight/hand dimming) and `cardDragDrop.css` hologram lift (~139–144) + hand
+  morph animation (~196–198). Fast pointer movement makes these flicker.
+
+Acceptance criteria (leaf-level, detailed per subgoal):
+- [ ] Blocked hand cards are not Tab-reachable, not click/number selectable.
+- [ ] Disabled draw button not focusable; deck stack itself never receives focus.
+- [ ] Own lane cards (incl. trustedCards) Tab-reachable with visible focus ring/lift;
+      Enter/Space flips a focused faceDown lane card while flips remain.
+- [ ] Hovered card changes only on mouse movement, with 0.5s cooldown between switches;
+      leaving cards clears immediately; no flicker during fast sweeps.
+- [ ] Drag/drop, click-to-select, keyboard selection, flip clicks unaffected by the
+      hover manager.
+
+Dependencies:
+- after `handcard-action-merge/` (tabindex exists to manage) and
+  `keyboard-selection-extensions/` (selection keys stable).

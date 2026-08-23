@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/deck-page/drag-drop-ordering",
+  "false_positive_keywords": [
+    "ordering",
+    "reordering"
+  ],
+  "description_excerpt": "Add drag-and-drop deck ordering to make reordering cards intuitive and efficient.",
+  "notes": ""
+}

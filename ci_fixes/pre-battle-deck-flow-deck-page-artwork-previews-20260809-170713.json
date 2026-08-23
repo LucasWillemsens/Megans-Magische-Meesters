@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/deck-page/artwork-previews",
+  "false_positive_keywords": [
+    "artwork",
+    "previews"
+  ],
+  "description_excerpt": "Show card artwork previews on the deck page to make each deck easier to scan and personalize.",
+  "notes": ""
+}

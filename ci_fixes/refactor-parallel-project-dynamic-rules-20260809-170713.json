@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "refactor-parallel-project/dynamic-rules",
+  "false_positive_keywords": [
+    "loaded",
+    "mostly"
+  ],
+  "description_excerpt": "The rules of the game should become mostly dynamicly loaded. For example: the amount of starting draw / play / flip a pl",
+  "notes": ""
+}

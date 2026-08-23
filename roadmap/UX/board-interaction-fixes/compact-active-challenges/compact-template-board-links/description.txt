@@ -1,0 +1,49 @@
+Compact the challenge rows in the player page template, add a result badge for finished
+games, and point own games straight at the board URL. Subgoal 2 of 3 of
+`compact-active-challenges/`; consumes the dicts built by `view-challenge-enrichment/`.
+
+Current state (`MMM/jinja2/MMM/viewPlayer.jinja2`, lines ~25–67):
+- Each challenge renders as a tall `.challenge-card`: heading block, lootPile line,
+  started timestamp line, then a vertical `.challenge-participants` list (challenger /
+  versus / opponents).
+- The whole card is one link `<a class="challenge-card-link"
+  href="{{returnURL}}game/{{challenge.game.get().id}}/{{player.id}}">` — game page, not
+  board; `challenge.game.get()` crashes if no Game exists.
+- Empty state prints "No participants" inside the card.
+
+Implementation:
+1. Rewrite the loop body against enriched dicts (`challenge.game`, `challenge.boardUrl`,
+   `challenge.gameUrl`, `challenge.finished`, `challenge.won`, `challenge.started`,
+   `challenge.lootPileText`, `challenge.participants`):
+   - href: `challenge.boardUrl or challenge.gameUrl or {{returnURL}}` — never call
+     `.get()` on the reverse manager; pending/no-game rows fall back to gameUrl.
+   - Keep EXACTLY ONE `<a class="challenge-card-link" draggable="false">` per row
+     wrapping all content (tests assert single keyboard-navigable link and no nested `<a>`).
+   - Compact layout: title + meta on shared lines — e.g. row = `[Game N] Name vs Name ·
+     loot: X, Y · Started <time> [badge]`; participants inline within the link instead of
+     the vertical list. Keep classes `challenge-card-title`,
+     `challenge-card-meta`/`-loot`, `challenge-participants` (tests/style reference them)
+     but restyle to horizontal in subgoal 3.
+   - Result badge when `challenge.finished`: `<span class="challenge-result-badge
+     challenge-result--{won|lost|fled}">Won|Lost|Fled</span>` driven by `challenge.won`
+     (True → Won, "fled" → Fled, False → Lost); omit badge entirely for unfinished rows.
+   - "No participants" paragraph stays for empty histories.
+2. Accessibility: keep link text meaningful (include opponent names + result), keep
+   `draggable="false"`; no new interactive elements inside the link.
+3. Manual QA: click an active own challenge → lands on `/board/`; finished own challenge →
+   board redirects to result page; pending challenge → game page.
+
+Files to modify:
+- MMM/jinja2/MMM/viewPlayer.jinja2 (challenge list block only)
+
+Acceptance criteria:
+- [ ] Each challenge is a visibly shorter row; participants render inline.
+- [ ] Finished games show Won/Lost/Fled badge; active games show none.
+- [ ] Own games link to `/game/<id>/board/<player>/`; pending/no-game rows fall back to
+      the game page URL; no template crash without Game/participants.
+- [ ] Single `<a>` per row, no nested links, focusable with visible focus style.
+- [ ] Full test suite passes except the intentionally-updated challenge tests handled in
+      `compact-styles-and-tests/`.
+
+Dependencies:
+- within leaf: requires `view-challenge-enrichment/`; before `compact-styles-and-tests/`.

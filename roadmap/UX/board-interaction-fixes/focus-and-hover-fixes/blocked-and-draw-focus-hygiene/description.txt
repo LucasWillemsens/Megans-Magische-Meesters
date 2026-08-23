@@ -1,0 +1,51 @@
+Keep blocked/unplayable hand cards and the exhausted draw control out of the tab order and
+immune to hover/select affordances. Subgoal 1 of 3 of `focus-and-hover-fixes/`; requires
+`handcard-action-merge` (playable cards now carry `tabindex="-1"`).
+
+Current state:
+- `var/www/static/cardDragDrop.js applyTurnAffordances()`: when plays are exhausted it
+  adds `.blocked`, sets `draggable="false"` and the blocked-play title on every player
+  hand card — but leaves the `tabindex="-1"` (added by hand-markup-form-removal) in
+  place, so blocked cards remain programmatically focusable.
+- `_isPlayableKeyboardCard()` already excludes `.blocked`/ghost/staged/loading cards and
+  requires `draggable="true"`; click-to-select routes through `playableKeyboardCards()` so
+  blocked cards are excluded there too (verify, don't rewrite).
+- Draw: the draw `<button>` is disabled when draws run out (server template renders
+  `disabled title=...`; `applyTurnAffordances()` re-disables + titles). Disabled buttons
+  are natively unfocusable. Deck `ul`/`li` have no tabindex anywhere.
+
+Implementation:
+1. `var/www/static/cardDragDrop.js applyTurnAffordances()`:
+   - In the plays-exhausted branch, for each newly blocked hand card call
+     `card.removeAttribute('tabindex')` in addition to the existing class/draggable/title
+     updates.
+   - Mirror-safe inverse: when this method runs while plays ARE available (e.g. after
+     `refresh()`/`init()` re-runs on an unblocked board), ensure playable hand cards have
+     `tabindex="-1"` restored ONLY if they don't already have it (idempotent set), so a
+     client-side refresh doesn't leave cards permanently unfocusable or double-attributed.
+   - Do NOT add tabindex to deck elements; add a comment noting the deck must stay
+     focus-inert (the disabled draw button is the visible indication).
+2. Verify (no change expected unless a gap appears): `_isPlayableKeyboardCard`,
+   `playableKeyboardCards`, click-to-select, and `onKeyboardKeyDown` digit handling all
+   ignore blocked cards; `setupFaceDownCardClickListeners` skips `.blocked`.
+3. `MMM/tests.py`: extend the turn-affordance static contract (or add a focused test)
+   asserting `applyTurnAffordances()`'s blocked branch contains
+   `removeAttribute('tabindex')`.
+
+Files to modify:
+- var/www/static/cardDragDrop.js (applyTurnAffordances only)
+- MMM/tests.py (one contract assertion)
+
+Acceptance criteria:
+- [ ] With plays exhausted: Tab never lands on any hand card; clicking/number keys do
+      nothing on them; blocked styling/title unchanged.
+- [ ] After a client-side `refresh()` with plays available, playable cards regain
+      programmatic focus support exactly once (single tabindex attribute).
+- [ ] With draws exhausted the draw button is disabled and unreachable via Tab; deck
+      stack/ul/li receive focus never.
+- [ ] Drag-and-drop and selection behavior for playable cards unchanged.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: first subgoal; `lane-card-focus-flip-keys/` follows.
+- leaf-level: after `handcard-action-merge/` + `keyboard-selection-extensions/`.

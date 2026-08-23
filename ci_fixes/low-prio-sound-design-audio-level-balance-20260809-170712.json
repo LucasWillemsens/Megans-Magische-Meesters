@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "low-prio/sound-design/audio-level-balance",
+  "false_positive_keywords": [
+    "audio",
+    "overpowering"
+  ],
+  "description_excerpt": "Balance audio levels and playback triggers so sound effects are satisfying without overpowering the gameplay.",
+  "notes": ""
+}

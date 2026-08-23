@@ -1,0 +1,48 @@
+Close-out of the lane cardRow overflow fix: verify the already-implemented multi-row
+splitting behavior and remove the leftover stale comment. The original bug (rows merging
+back into one, cards overlapping at left:0 beyond nth-child(15), trustedCards row being
+consumed) is FIXED in the current codebase.
+
+Verification of current state (already landed, do not redo):
+- `var/www/static/laneStacking.js`: `splitIntoRows()` no longer calls
+  `ensureSingleRow()` at the end; split rows carry `OVERFLOW_ROW_CLASS = 'overflow-row'`;
+  `ensureSingleRow()` only consumes marker-classed siblings of the same tag, so the
+  separate trustedCards cardRow is never merged; `reflowRowGroup()` collapses previous
+  overflow rows before re-splitting (resize rebalancing); detached-row guards via
+  `isConnected`; `MAX_CARDS_PER_ROW = 15` cap.
+- `var/www/static/cards.css`: `.playingCards ul.cardRow li.cardContainer:nth-child(n)`
+  offsets defined through nth-child(20) (lines ~1206–1225);
+  `ul.cardRow + ul.cardRow.overflow-row { margin-top: 0.5rem; }` and the hologramRow
+  equivalent scope the vertical gap to genuine overflow rows only.
+- Regression coverage exists: `MMM/tests.py`
+  `test_lane_overflow_splits_rows_without_merging_back` asserts the marker class, the
+  15-cap, that `splitIntoRows()` never calls `ensureSingleRow`, nth-child(20) offsets,
+  and the overflow-row margins; `findCardRowForOrdinal()` in loadingAnimations.js only
+  counts `[title="cards"]` row groups.
+
+Implementation:
+1. `var/www/static/cards.css`: remove the stale `/* TODO fix */` comment directly above
+   the cardRow nth-child offset table (~line 1205) and replace it with a short factual
+   comment (offsets must extend past MAX_CARDS_PER_ROW as defense against JS cap changes).
+2. Optional hardening (only if trivially cheap): extend
+   `test_lane_overflow_splits_rows_without_merging_back` with a static assertion that
+   `MAX_CARDS_PER_ROW` (15) is <= the highest defined nth-child offset (20).
+3. Manual QA pass (no code): render a board with >15 cards in one lane, confirm cards
+   wrap into multiple `.cardRow`s without overlap, the trustedCards row stays separate
+   and independently overflowable, debounced window resize rebalances without losing or
+   duplicating cards, no horizontal page overflow, and drag/drop + hologram flights still
+   target the correct row (`findCardRowForOrdinal` uses stored `data-cards-per-row`).
+
+Files to modify:
+- var/www/static/cards.css (comment-only change)
+- MMM/tests.py (optional one-line assertion)
+
+Acceptance criteria:
+- [ ] No stale "TODO fix" comment above the cardRow offset table.
+- [ ] Existing test suite passes unchanged (`manage.py test MMM`) including
+      `test_lane_overflow_splits_rows_without_merging_back`.
+- [ ] Manual QA: >15-card lane renders across rows without overlap; trustedCards row
+      untouched; resize rebalances cleanly; hologram flights land on the right row.
+
+Dependencies:
+- none (first leaf; gate for handcard-action-merge which edits the same files).

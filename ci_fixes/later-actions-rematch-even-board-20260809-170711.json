@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170711",
+  "roadmap_path": "later-actions/rematch-even-board",
+  "false_positive_keywords": [
+    "matches",
+    "rematch"
+  ],
+  "description_excerpt": "Offer a rematch when games are even and all cards are on the board, making tied matches feel satisfying.",
+  "notes": ""
+}

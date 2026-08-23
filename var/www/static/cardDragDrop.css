@@ -43,7 +43,51 @@ li.cardContainer.ghost {
     filter: grayscale(0.3);
 }
 
-/* Hologram row above lane cards — stacked layout matching cardRow */
+/* Selection marker for JS/tests; selected cards also receive DOM focus, so this
+   mirrors li.cardContainer:focus-within (cards.css) rather than restyling. Identical
+   values mean both selectors matching at once cannot paint a second outline. */
+li.cardContainer.keyboard-selected {
+    outline: 3px solid;
+    outline-offset: 4px;
+}
+
+.shortcut-hold-loading {
+    --shortcut-hold-duration: 1s;
+    position: relative;
+    isolation: isolate;
+}
+
+.shortcut-hold-loading::before {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    content: "";
+    pointer-events: none;
+    transform: scaleX(0.01);
+    transform-origin: left center;
+    background: linear-gradient(90deg, rgba(255, 204, 0, 0.25), rgba(255, 204, 0, 0.85));
+    animation-name: shortcutHoldProgress;
+    animation-duration: var(--shortcut-hold-duration);
+}
+
+.shortcut-hold-loading > * {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes shortcutHoldProgress {
+    from { transform: scaleX(0.01); }
+    to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shortcut-hold-loading::before {
+        transform: scaleX(1);
+        animation: none;
+    }
+}
+
 ul.hologramRow {
     position: relative;
     padding: 0;
@@ -59,11 +103,29 @@ ul.hologramRow .hologram .card {
     opacity: 0.7;
     filter: grayscale(0.2);
 }
-ul.hologramRow .hologram .cardContainer.faceDown:hover {
+
+ul.hologramRow .hologram.keyboard-preview {
+    pointer-events: none;
+    opacity: 1;
+    outline: 3px solid;
+    outline-offset: 4px;
+}
+
+ul.hologramRow .hologram.keyboard-preview .cardContainer {
+    pointer-events: none;
+    cursor: default;
+}
+
+ul.hologramRow .hologram.keyboard-preview .card {
+    opacity: 1;
+    filter: none;
+}
+
+.playerScreen .playerBoard ul.cardRow > li.cardContainer.faceDown:not(.blocked),
+.playerScreen .playerBoard ul.hologramRow .hologram li.cardContainer.faceDown:not(.blocked) {
     cursor: pointer;
 }
 
-/* Overlap offsets and z-index for hologram stacking */
 ul.hologramRow .hologram:nth-child(1) { left: 0; z-index: 1; }
 ul.hologramRow .hologram:nth-child(2) { left: 3.2em; z-index: 2; }
 ul.hologramRow .hologram:nth-child(3) { left: 4.6em; z-index: 3; }
@@ -74,12 +136,23 @@ ul.hologramRow .hologram:nth-child(7) { left: 10.2em; z-index: 7; }
 ul.hologramRow .hologram:nth-child(8) { left: 11.6em; z-index: 8; }
 ul.hologramRow .hologram:nth-child(9) { left: 13.0em; z-index: 9; }
 ul.hologramRow .hologram:nth-child(10) { left: 14.4em; z-index: 10; }
+ul.hologramRow .hologram:nth-child(11) { left: 15.8em; z-index: 11; }
+ul.hologramRow .hologram:nth-child(12) { left: 17.2em; z-index: 12; }
+ul.hologramRow .hologram:nth-child(13) { left: 18.6em; z-index: 13; }
+ul.hologramRow .hologram:nth-child(14) { left: 20.0em; z-index: 14; }
+ul.hologramRow .hologram:nth-child(15) { left: 21.4em; z-index: 15; }
 
-/* Hologram rotation and hover */
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));
 }
 ul.hologramRow .hologram:hover {
+    z-index: 100;
+    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+    opacity: 1;
+    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+}
+/* .card-hover mirror driven by hoverCooldown.js; :hover stays for no-JS. */
+ul.hologramRow .hologram.card-hover {
     z-index: 100;
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
     opacity: 1;
@@ -137,5 +210,8 @@ div.drop-zone-active {
 }
 
 ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
+    animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
+}
+ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }

@@ -1,0 +1,82 @@
+Playable hand cards must be Tab-reachable: change the hand cardContainer from
+`tabindex="-1"` to `tabindex="0"` when plays remain, and teach `applyTurnAffordances()`
+to restore `"0"` instead of `"-1"`. Blocked hand cards (plays_left <= 0) stay
+non-focusable per the earlier blocked-and-draw-focus-hygiene rule. Keyboard number
+selection keeps working; Tab focus is an additional, equivalent entry point.
+
+Current state (verified 2026-08-23):
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` line 318: playable hand cards render
+  `draggable="true" tabindex="-1"`; blocked ones render `draggable="false"` with no
+  tabindex (correct — keep).
+- `var/www/static/cardDragDrop.js` line 240 (`applyTurnAffordances()` restore branch,
+  lines 237-243): after a blocked period it re-adds `card.setAttribute('tabindex', '-1')`
+  for playable cards — this would silently undo a template-only fix the first time the
+  affordances refresh (every staged play/drag calls `applyTurnAffordances()` at
+  `_stagePlay` ~line 1080). BOTH sites must change together.
+- Focus visuals already exist: `li.cardContainer:focus-within` outline/lift in
+  `cards.css` (~lines 45-88) and hand-specific raise at ~line 148 — Tab-focusing a hand
+  card automatically looks like click/selection focus. No CSS work needed.
+- No JS treats hand tabindex="-1" as meaningful: selection flows use
+  `playableKeyboardCards()` / `_isPlayableKeyboardCard()` (~lines 217-224, 519-531),
+  which filter on draggable/blocked/ghost state, not on tabindex.
+- Tests pinning current behavior:
+  - `MMM/tests.py` line 265 (`test_hand_fan_cards_keep_action_and_source_attributes`):
+    `self.assertEqual(hand_html.count('tabindex="-1"'), 14)`.
+  - `MMM/tests.py` line 1873
+    (`test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently`):
+    asserts the restore branch contains `card.setAttribute('tabindex', '-1');`.
+  - Line 290 (`test_play_budget_blocks_cards_in_every_hand_fan`) asserts blocked fans
+    have no tabindex — stays valid as-is.
+
+Implementation:
+1. `MMM/jinja2/MMM/battle/viewBoard.jinja2` line 318: in the playable branch render
+   `draggable="true" tabindex="0"` (blocked branch untouched: no tabindex).
+2. `var/www/static/cardDragDrop.js` line 240: restore `'0'` instead of `'-1'`.
+3. Keep staged ghosts out of the tab order (required companion — see interaction note):
+   in `_stagePlay()` (~lines 1066-1082), after adding the `ghost` class to the source
+   hand card, call `card.removeAttribute('tabindex')`. Without this, the template change
+   makes every played-card ghost left in the fan a permanent dead Tab stop (today they
+   carry `-1`, which is not Tab-reachable). Ghosts also fail `_isPlayableKeyboardCard()`,
+   so the restore branch will never re-add tabindex to them.
+4. Update tests:
+   - `MMM/tests.py` line 265: expect 14 occurrences of `tabindex="0"`.
+   - `MMM/tests.py` restore-branch assertion (~line 1873): expect
+     `card.setAttribute('tabindex', '0');`.
+   - Add an assertion to the staging contract test
+     (`test_keyboard_confirmation_contract_preserves_staging_and_guards`, ~1810-1817
+     `_stagePlay` slice): `card.removeAttribute('tabindex')` must appear in the
+     `_stagePlay` body.
+
+Interaction notes (cross-leaf):
+- The staged hologram clone inherits the source card's tabindex via `cloneNode(true)`
+  in `_buildPlayHologram()` (~line 1088). With hand cards now rendering `tabindex="0"`,
+  every staged ghost would inherit a live tab stop BEFORE the conditional override at
+  `confirmKeyboardSelection()` lines 950-953 (which sets `tabindex="0"` only when flips
+  remain). Fix belongs to `../ghost-focus-mirroring/`: normalize the clone there
+  (`copycard.removeAttribute('tabindex')` in the non-preview branch), keeping lines
+  950-953 as the single source of truth for ghost focusability. If that leaf has not
+  landed yet, add the one-line normalization inside THIS leaf's step 3 scope instead —
+  do not ship step 1 alone.
+
+Files to create/modify:
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (line 318: tabindex="-1" -> "0")
+- var/www/static/cardDragDrop.js (applyTurnAffordances restore '0'; _stagePlay strips
+  tabindex from the staged hand ghost)
+- MMM/tests.py (hand fan count assertion; affordances restore assertion; _stagePlay
+  contract assertion)
+
+Acceptance criteria:
+- [ ] With plays remaining, every playable hand card is reachable with Tab and shows the
+      standard :focus-within ring/lift; Enter/Space on it does nothing harmful and digit
+      selection still works while focused.
+- [ ] Blocked hand cards (plays exhausted, server-rendered or mid-turn via
+      applyTurnAffordances) have no tabindex and are not Tab-reachable.
+- [ ] After plays are blocked then unblocked mid-turn, playable cards regain
+      tabindex="0"; staged ghosts never reappear in the tab order.
+- [ ] Drag/drop, click-to-select, +/- stepping and confirm flows unchanged.
+- [ ] Updated tests pass; full suite green.
+
+Dependencies:
+- none hard; recommended order `../trusted-cards-unfocusable/` -> this ->
+  `../ghost-focus-mirroring/` (shares cardDragDrop.js edit surface; see interaction note
+  above — coordinate the `_buildPlayHologram` clone normalization).

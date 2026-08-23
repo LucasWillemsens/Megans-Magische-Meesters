@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "refactor-parallel-project/project-scaffold",
+  "false_positive_keywords": [
+    "refactored",
+    "skeleton"
+  ],
+  "description_excerpt": "Create the parallel Django app skeleton that hosts the refactored codebase alongside the existing MMM app.",
+  "notes": ""
+}

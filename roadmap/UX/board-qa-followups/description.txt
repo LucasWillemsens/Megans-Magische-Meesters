@@ -1,0 +1,72 @@
+Post-QA follow-up fixes found while testing the board-interaction-fixes work
+(PR #24 branch). Four bugs, reported by the user on 2026-08-23:
+
+1. Trusted cards should not be able to receive focus.
+   - Regression source: `lane-card-focus-flip-keys` added `tabindex="0"` to ALL own
+     lane cardContainers including the `trustedCards` row
+     (`MMM/jinja2/MMM/battle/viewBoard.jinja2` line 243). Trusted cards are settled;
+     remove keyboard focusability there (the flippable `title="cards"` row keeps it).
+
+2. Cards in hand should be able to receive focus by tabbing, in addition to inputting
+   numbers for selection.
+   - Hand cardContainers currently render `tabindex="-1"` when playable
+     (`viewBoard.jinja2` line 318) — programmatically focusable but NOT Tab-reachable.
+     Make playable hand cards `tabindex="0"`. Blocked hand cards (plays_left <= 0) stay
+     non-focusable per the earlier blocked-and-draw-focus-hygiene rule.
+
+3. Played ghost card should not display focus styling when it is unfocused, unless its
+   hand counterpart is focused.
+   - Root cause: `confirmKeyboardSelection()` clones the hand card into the staged
+     hologram (cardDragDrop.js line 943) BEFORE `clearKeyboardSelection()` strips
+     `.keyboard-selected` / `aria-selected` / `data-keyboard-selected`
+     (line 948 -> _stagePlay -> clearKeyboardSelection at ~1073). The staged ghost
+     therefore permanently carries `li.cardContainer.keyboard-selected`
+     (orange outline, cardDragDrop.css ~49) even though nothing is focused. The ghost's
+     focus styling must mirror its hand counterpart's focus state instead of being a
+     frozen snapshot.
+
+4. Drawn-card-to-hand flight animation is broken.
+   - Suspected regression from `deck-stable-draw`: duplicateCard() negative-lane branch
+     now positions the clone `position: fixed` at the deck top-card rect and appends to
+     document.body. Investigate what visually broke about the deck->hand flight
+     (geometry, sizing, transform conflicts, transition/reveal timing) and fix it while
+     keeping the deck pile stationary — that constraint must NOT regress.
+
+Subgoals (land in this order; no hard dependencies between leaves):
+1. `trusted-cards-unfocusable/` — template one-liner: drop tabindex="0" from the own
+   trustedCards row (line 243); narrow the blanket tabindex test assertion.
+2. `hand-tab-focus/` — playable hand cards render tabindex="0"; applyTurnAffordances()
+   restores "0" not "-1"; _stagePlay keeps staged ghosts out of the tab order.
+3. `ghost-focus-mirroring/` — _buildPlayHologram non-preview branch strips the selection
+   snapshot + normalizes clone tabindex; confirm flow wires live hand-focus mirroring on
+   the staged ghost.
+4. `draw-hand-animation-fix/` — diagnose + repair the deck->hand flight (styling-context
+   loss from body-append is the primary suspect) without regressing the stationary pile;
+   loadingAnimations.js/cards.css scope only.
+
+Order rationale: 1 and 2 are independent template-level fixes with test updates; 3 must
+coordinate with 2 (the tabindex normalization in _buildPlayHologram is what makes hand
+tabindex="0" safe for staged ghosts); 4 is animation-scoped and needs browser diagnosis
+first but touches neither template nor cardDragDrop.js.
+
+Key codebase facts (verified 2026-08-23):
+- viewBoard.jinja2: trustedCards li tabindex="0" at line 243; playable hand cards
+  tabindex="-1" at line 318 (blocked ones carry none); flippable cards-row tabindex="0"
+  at lines 180/209 stays.
+- cardDragDrop.js: selectKeyboardCard ~836-869 sets the three selection markers +
+  focus; confirmKeyboardSelection ~907-955 clones at 943 (non-preview branch of
+  _buildPlayHologram ~1084-1127 does NOT strip markers), stages via _stagePlay ~1066,
+  which calls clearKeyboardSelection({removePreview:false}) ~1073; ghost tabindex set
+  conditionally at 950-953 when flips remain.
+- cardDragDrop.css ~49: li.cardContainer.keyboard-selected outline mirrors :focus-within.
+- loadingAnimations.js duplicateCard() negative-lane branch ~707-731 appends the clone
+  to document.body with fixed positioning measured from the deck's li:last-of-type (the
+  li that wraps the Draw-button form); all `.playingCards`-scoped card/back styling is
+  lost on body — primary breakage suspect for bug 4.
+- Tests pinning current behavior (all in MMM/tests.py): hand fan asserts 14x
+  tabindex="-1" (~265); blocked fans assert no tabindex (~290); enemy section no
+  tabindex + EVERY own-board cardContainer has tabindex="0" (~1181-1199); affordances
+  restore branch asserts setAttribute('tabindex','-1') (~1873); confirmation contract
+  pins the _buildPlayHologram call shape and conditional ghost tabindex (~1789-1847);
+  deck-draw contract pins no-insert + body append + fixed positioning (~2127-2145);
+  draw renders loading card with negative source lane (~652-685).

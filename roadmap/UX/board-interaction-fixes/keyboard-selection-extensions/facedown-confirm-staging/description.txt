@@ -1,0 +1,64 @@
+Make confirming a keyboard selection stage the same faceDown hologram as drag-and-drop
+plays, focusable and click-to-flip while flips remain. Subgoal 3 of 3 of
+`keyboard-selection-extensions/`; land last in the leaf.
+
+Current state (`var/www/static/cardDragDrop.js`):
+- `confirmKeyboardSelection()` keeps the face-up `.keyboard-preview` hologram, marks it
+  `keyboard-staged`, then calls `_stagePlay(card, lane, hologram,
+  preserveKeyboardPreview=true, selection)`.
+- Drag plays (`onDropZoneDrop`) instead build a faceDown hologram via
+  `_buildPlayHologram(card, laneValue)` whose non-preview branch adds `.faceDown` +
+  `.back`, sets `inert` on any buttons found, and attaches a one-shot
+  `onFaceDownCardClick(event, laneValue)` listener so clicking flips it face up.
+
+Implementation:
+1. `confirmKeyboardSelection()`: after all existing guards and the optional
+   `moveKeyboardSelection(requestedLane)` re-anchor:
+   - Remove the face-up preview hologram (`selection.hologram.remove()`).
+   - Build the staged hologram with
+     `this._buildPlayHologram(card, requestedLane, false, selection.rotation)`
+     (face-down path; pass `selection.rotation` to keep rotation continuity) and append
+     it to `this._keyboardHologramRow(requestedLane)`.
+   - Mark it staged: `hologram.classList.add('keyboard-staged')` +
+     `hologram.dataset.keyboardStaged = 'true'`.
+   - Call `_stagePlay(card, requestedLane, hologram, true, selection)` unchanged — cookie
+     semantics stay identical (single `createupdateCookie` call inside `_stagePlay`).
+2. Focusability + flip affordance of the staged faceDown hologram card:
+   - Set `tabindex="0"` on the hologram's `.cardContainer.faceDown` ONLY when
+     `this.remainingAllowances().flips > 0`; otherwise leave it unfocusable — the
+     `applyTurnAffordances()` call inside `_stagePlay` already adds `.blocked` + blocked-
+     flip title when flips are exhausted.
+   - Click-to-flip comes free from `_buildPlayHologram`'s one-shot listener. Enter/Space
+     flipping for FOCUSED face-down holograms is forward-scoped to
+     `focus-and-hover-fixes/lane-card-focus-flip-keys/` — note only.
+3. `MMM/tests.py`: rework `test_keyboard_confirmation_contract_preserves_staging_and_guards`
+   - Keep: drop-zone click binding, confirm/move functions, arrow map, `_stagePlay` body
+     contract (`ghost`, draggable=false, `staged.plays++`, `applyTurnAffordances`),
+     `clearKeyboardSelection({removePreview: false})`.
+   - Update: `hologram.classList.add('keyboard-preview')` remains valid (preview during
+     selection); the `keyboard-staged` assertion must now target the confirm flow rather
+     than the preview branch.
+   - Add: an assertion that confirm's code range removes the preview and calls
+     `_buildPlayHologram(` with the non-preview (face-down) path; keep the existing "no
+     onFaceDownCardClick inside the preview branch" slice assertion intact.
+4. Manual check: select via digits → Enter produces a faceDown hologram in the lane row;
+   clicking flips it face up while flips remain; after flips hit 0 the staged hologram is
+   blocked/greyed and not focusable.
+
+Files to modify:
+- var/www/static/cardDragDrop.js (confirmKeyboardSelection + tabindex at staging site)
+- MMM/tests.py (keyboard confirmation contract test)
+
+Acceptance criteria:
+- [ ] Confirmed keyboard plays produce a faceDown hologram visually/behaviorally
+      identical to drag-and-drop plays (back styling, one-shot flip listener, rotation).
+- [ ] Staged hologram is click-to-flip while `remainingAllowances().flips > 0`; blocked
+      and without tabindex once flips are exhausted.
+- [ ] Exactly one cookie write per confirmed play; none during selection.
+- [ ] Preview shows during selection and disappears on confirm.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: requires `nine-card-fans/` + `stepping-and-buffer-keys/`.
+- leaf-level: completes `keyboard-selection-extensions/`; gate for
+  `focus-and-hover-fixes/`.

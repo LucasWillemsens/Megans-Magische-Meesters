@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "multiplayer-account/win-loot-draft-rules",
+  "false_positive_keywords": [
+    "behavior",
+    "lootpile"
+  ],
+  "description_excerpt": "Define win and loot rules, including split loot, card returns, lootpile drafting, and passing behavior.",
+  "notes": ""
+}

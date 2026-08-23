@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/game-page-metadata/bot-rematch-fresh-deck",
+  "false_positive_keywords": [
+    "automatically",
+    "rematches"
+  ],
+  "description_excerpt": "Ensure bot rematches shuffle the board and use a fresh deck automatically.",
+  "notes": ""
+}

@@ -1,0 +1,99 @@
+Staged played-ghost holograms must not show stale focus/selection styling: strip the
+selection snapshot at clone time and let the ghost's highlight mirror its hand
+counterpart's LIVE focus state instead of being a frozen one.
+
+Current state / root cause (verified 2026-08-23, `var/www/static/cardDragDrop.js`):
+- `selectKeyboardCard()` (~836-869) marks the hand card with `.keyboard-selected`,
+  `data-keyboard-selected="true"`, `aria-selected="true"` and focuses it (~852-855).
+- `confirmKeyboardSelection()` (~907-955):
+  - line 942 removes the live preview hologram;
+  - line 943 builds the STAGED ghost via
+    `_buildPlayHologram(card, requestedLane, false, selection.rotation)` — at this moment
+    the hand card STILL carries all three selection markers;
+  - the non-preview branch of `_buildPlayHologram()` (~1099-1105) does NOT strip them
+    (it only drops `dragging`, adds `faceDown`/`.back`, inert buttons) — unlike the
+    keyboardPreview branch (~1092-1098) which explicitly cleans
+    `keyboard-selected`/`aria-selected`/`data-keyboard-selected`;
+  - line 948 calls `_stagePlay(..., preserveKeyboardPreview=true, selection)` which runs
+    `clearKeyboardSelection({removePreview:false})` (~1073) — this strips the markers
+    from the HAND card and blurs it (~957-973), but the CLONE keeps its copies forever.
+- Visual result: the staged ghost permanently carries
+  `li.cardContainer.keyboard-selected` -> orange outline
+  (`var/www/static/cardDragDrop.css` ~49-52, mirrors `:focus-within` styling) even
+  though nothing is focused, until the next board render. It also advertises
+  `aria-selected="true"` for a decorative element.
+- Related hazard: the clone inherits the source card's `tabindex` via `cloneNode(true)`
+  (~1088). Today hand cards carry `tabindex="-1"` so ghosts inherit `-1` and the
+  conditional override at `confirmKeyboardSelection()` lines 950-953
+  (`setAttribute('tabindex','0')` when staged && flips remain) is the effective gate.
+  Once `../hand-tab-focus/` makes playable hand cards `tabindex="0"`, EVERY ghost would
+  inherit a permanent tab stop regardless of flips — the non-preview branch must
+  normalize tabindex so lines 950-953 stay the single source of truth.
+- Live focus styling already exists where the ghost itself is focused:
+  `.playingCards li.cardContainer:focus-within` (cards.css ~60-63) rings any focused
+  container, including staged ghosts in the hologramRow. Only the CROSS-element
+  mirroring (hand counterpart focus -> ghost highlight) needs JS.
+- No `focusin`/`focusout` wiring exists anywhere in cardDragDrop.js yet (grep verified).
+
+Implementation:
+1. Clean the snapshot in `_buildPlayHologram()` non-preview branch (~1099-1105): after
+   `copycard.classList.remove('dragging')` also
+   `copycard.classList.remove('keyboard-selected')`,
+   `copycard.removeAttribute('aria-selected')`,
+   `delete copycard.dataset.keyboardSelected`, and
+   `copycard.removeAttribute('tabindex')`. This fixes the stale outline AND the
+   tabindex-inheritance hazard in one place; drag-drop staging passes through the same
+   branch and carries no selection state, so it is unaffected.
+2. Mirror live focus instead of freezing it: in `confirmKeyboardSelection()` after
+   successful `_stagePlay` (~after line 948), wire a pair of listeners between the hand
+   source card and the staged hologram, e.g. a small helper
+   `_mirrorStagedFocus(card, hologram)`:
+   - on the card's `focusin` add `keyboard-selected` to the hologram's inner
+     `li.cardContainer` (reusing the existing outline rule — identical values, no new
+     CSS needed) or add/remove a dedicated `mirror-focus` class styled the same;
+   - on `focusout` remove it again;
+   - store `hologram.dataset.stagedForCardId = selection.cardId` for debuggability/test
+     addressing.
+   Note the hand counterpart is a `.ghost` after staging and `_isPlayableKeyboardCard()`
+   (~519-531) excludes ghosts from re-selection, so today nothing refocuses it via Tab —
+   the mirror is future-proofing that guarantees the QA rule "no focus styling unless
+   the counterpart is focused" holds whatever focuses the counterpart.
+3. Keep lines 950-953 (conditional `tabindex="0"` on the staged faceDown card when flips
+   remain) byte-compatible — tests pin them
+   (`test_keyboard_confirmation_contract_preserves_staging_and_guards`, MMM/tests.py
+   ~1826-1847 asserts the confirm_code slice still contains
+   `_buildPlayHologram(card, requestedLane, false, selection.rotation)`,
+   `setAttribute('tabindex', '0')` and the flips guard).
+4. Tests (MMM/tests.py):
+   - Extend `test_keyboard_confirmation_contract_preserves_staging_and_guards`: assert
+     the non-preview (`else`) branch of `_buildPlayHologram` removes
+     `keyboard-selected`/`aria-selected`/`data-keyboard-selected` and
+     `removeAttribute('tabindex')`; assert the confirm flow wires focus mirroring
+     (presence of the helper + `focusin`/`focusout` handling).
+   - The existing CSS assertion that `li.cardContainer.keyboard-selected` keeps its
+     outline values (~1767-1777) must stay green without CSS edits.
+
+Files to create/modify:
+- var/www/static/cardDragDrop.js (_buildPlayHologram non-preview cleanup; focus-mirror
+  helper wired from confirmKeyboardSelection)
+- MMM/tests.py (extend keyboard confirmation/staging contract tests)
+
+Acceptance criteria:
+- [ ] Keyboard-confirming a play produces a staged ghost with NO `keyboard-selected`
+      class, NO `aria-selected`, NO `data-keyboard-selected`, and no orange outline when
+      nothing is focused.
+- [ ] If the hand counterpart gains DOM focus, the ghost shows the exact selection
+      outline and loses it on blur (live mirror, verified via the helper's listeners).
+- [ ] Staged ghost focusability is governed solely by remaining flips (lines 950-953);
+      ghosts do not become unconditional Tab stops even after hand cards render
+      `tabindex="0"` (see ../hand-tab-focus interaction note).
+- [ ] Enter-to-flip on a focused staged ghost still works (flip target selector
+      `.hologram.keyboard-staged .cardContainer.faceDown` unchanged).
+- [ ] Existing keyboard contract tests pass unchanged except the intended extensions;
+      full suite green.
+
+Dependencies:
+- coordinate with `../hand-tab-focus/` (same file; the tabindex normalization here is
+  what makes the template change safe). Recommended order:
+  trusted-cards-unfocusable -> hand-tab-focus -> this. No dependency on
+  ../draw-hand-animation-fix/.

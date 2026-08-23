@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "low-prio/customization-card-systems/symbol-behavior",
+  "false_positive_keywords": [
+    "evolve",
+    "modify"
+  ],
+  "description_excerpt": "Design how symbols modify special actions and gate upgrades, so cards evolve meaningfully over time.",
+  "notes": ""
+}

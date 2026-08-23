@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170712",
+  "roadmap_path": "pre-battle-deck-flow/custom-deck-order",
+  "false_positive_keywords": [
+    "custom",
+    "ordering"
+  ],
+  "description_excerpt": "Allow the player to set a custom deck order before battle begins.",
+  "notes": ""
+}

@@ -1,0 +1,65 @@
+Replace the N+1 plain challenge list in `viewPlayer()` with enriched, prefetched challenge
+dicts carrying result and URL data. Subgoal 1 of 3 of `compact-active-challenges/`; land
+before the template/styles subgoals.
+
+Current state (`MMM/views.py viewPlayer()`, lines ~38–63):
+- Builds `challenges` by looping the player's BattleParticipants and then
+  `battle.player.challenges.all()` (BattleHistory rows where challenger == viewing
+  player), deduplicating with `list(set(challenges))` — multiple queries per challenge
+  (participants, lootPile, game reverse relation all evaluated later in the template).
+- Template evaluates `challenge.game.get()` (reverse FK manager named `game`),
+  `challenge.participants.count()/all()`, `challenge.printLootPile()` per row.
+- `_game_result(game)` returns `(finished, win, active_participants)`; finished means
+  exactly one non-defeated/non-fled participant remains (or none).
+
+Implementation:
+1. Replace the loop with a single queryset:
+   ```python
+   histories = (
+       BattleHistory.objects.filter(challenger=player)
+       .prefetch_related(
+           "participants__player",
+           "lootPile",
+           "game",
+       )
+       .order_by("-id")
+   )
+   ```
+   (keeps current semantics — challenges the viewing player created; dedup disappears
+   naturally).
+2. For each history build a dict:
+   - `history`, `participants` (list), `lootPileText` (reuse `printLootPile()` or join
+     prefetched titles),
+   - `game` = `history.game.first()` — may be None (pending challenge); handle gracefully,
+   - `isParticipant` = any(p.player_id == player.id for p in participants),
+   - `started` = earliest `joinedBattle` among participants (None when no participants),
+   - `finished`, `survivors`: when game is not None call `views._game_result(game)`
+     → `finished = _game_result[0]`, survivors = `[0] or []`; when None: finished=False.
+   - `won` (viewing player's perspective): None when not finished; True when the player's
+     own participant is among survivors AND they did not flee; `"fled"` when their
+     participant fled; else False. Keep this a small pure helper
+     (`_challenge_result_for_player(...)`) so tests can hit it directly.
+   - `boardUrl` = `f"{BASE_URL}game/{game.id}/board/{player.id}/"`,
+     `gameUrl` = `f"{BASE_URL}game/{game.id}/{player.id}/"` when game exists; both None
+     otherwise. Documented choice: OWN games always link to boardUrl (active → board,
+     finished → board redirects to result); only non-participant/pending rows fall back
+     to gameUrl.
+3. Keep context key name `challenges` (now a list of dicts) so the template diff stays
+   local; keep `challenges != []` emptiness behavior working.
+4. Sanity-check query count in a test if cheap (Django `assertNumQueries` with generous
+   upper bound) or at least verify prefetches cover template access.
+
+Files to modify:
+- MMM/views.py (viewPlayer + small helper)
+
+Acceptance criteria:
+- [ ] Player page renders unchanged content-wise EXCEPT links may now point at /board/
+      (template still old at this stage is acceptable only if it reads dict fields —
+      prefer landing 1+2 together in review, but code order stays 1 then 2).
+- [ ] No crash for: challenge without Game, without participants, multi-participant,
+      finished games.
+- [ ] `won`/`finished` correct for: active game, win, loss (defeated), fled.
+- [ ] Query count no longer scales per-participant/per-challenge loops (prefetch verified).
+
+Dependencies:
+- within leaf: first subgoal; `compact-template-board-links/` consumes these dicts.

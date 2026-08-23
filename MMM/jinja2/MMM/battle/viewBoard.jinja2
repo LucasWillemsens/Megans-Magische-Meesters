@@ -46,20 +46,28 @@
             <h2>{{ enemy.participant.player.name }} </h2>
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
             <div class="enemyDeckHand">
-                <ul class="deck enemyDeck">
-                    {% if enemy.deckStack %}
-                        {% for card in enemy.deckStack %}
-                    <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
-                        data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
-                        <div class="card back smallCard"></div>
-                    </li>
-                        {% endfor %}
-                    {% else %}
-                    <li>
-                        <div class="card back emptyDeck">Empty</div>
-                    </li>
-                    {% endif %}
-                </ul>
+                <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
+                    {% for indicator in enemy.deckIndicators %}
+                    <ul class="deck-indicator" aria-hidden="true" inert
+                        style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
+                        <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
+                    </ul>
+                    {% endfor %}
+                    <ul class="deck enemyDeck active-deck">
+                        {% if enemy.deckStack %}
+                            {% for card in enemy.deckStack %}
+                        <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
+                            data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                            <div class="card back smallCard"></div>
+                        </li>
+                            {% endfor %}
+                        {% else %}
+                        <li>
+                            <div class="card back emptyDeck">Empty</div>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </div>
                 <ul class="hand enemyHand">
                     {% for card in enemy.handCards %}
                     <li class="cardContainer faceDown {{ card.cssClass }}" data-card-id="{{ card.id }}"
@@ -169,7 +177,7 @@
                         {% for card in lane.cards %}
                             {% set card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" data-source-lane="{{ card.state.lane }}"
+                            <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" tabindex="0" data-source-lane="{{ card.state.lane }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}
                                 style="--card-rotation: {{ card_rotation }}deg;">
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
@@ -198,7 +206,7 @@
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                            <li class="cardContainer {{ card.cssClass }}" tabindex="0" data-source-lane="{{ card.state.lane }}"
                                 title="{{ card.card.title }} of {{ player.name }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"
                                 style="--card-rotation: {{ card_rotation }}deg;">
@@ -271,42 +279,45 @@
             Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
             <span id="turnCounters" hidden>( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn )</span>
             </p>
-        <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}">
-        {% if ownDeckCount > 0 %}
-            {% for _ in ownDeckStack %}
-            <li>
-                {% if loop.last %}
-                <form method="post" action="{{ actionUrl }}" class="cardActionForm">
-                    {{ csrf_input }}
-                    <input type="hidden" name="action" value="draw">
-                    <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
-                </form>
-                {% else %}
-                <div class="card back">*</div>
-                {% endif %}
-            </li>
+        <div class="deck-stack own-deck-stack"{% if ownDeckIndicators %} style="--deck-indicator-count: {{ ownDeckIndicators|length }};"{% endif %}>
+            {% for indicator in ownDeckIndicators %}
+            <ul class="deck-indicator" aria-hidden="true" inert
+                style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
+                <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
+            </ul>
             {% endfor %}
-        {% else %}
-            <li>
-                <div class="card back emptyDeck">
-                    Empty
-                </div>
-            </li>
-        {% endif %}
-        </ul>
-        <ul class="hand">
-            {% if handCards %}
-                {% for card in handCards %}
-            <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true"{% endif %} data-source-lane="{{ card.state.lane }}"
-                data-source-ordinal="{{ card.state.laneOrdinal }}">
-                <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-
-                <form method="post" action="{{ actionUrl }}" class="cardActionForm">
-                    {{ csrf_input }}
-                    <input type="hidden" name="action" value="play">
-                    <input type="hidden" name="card_id" value="{{ card.id }}">
-                    <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
-                    <button type="submit" class="cardActionButton {{ card.cssClass }}" title="Play to {{ card.card.cardType }}">
+            <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
+            {% if ownDeckCount > 0 %}
+                {% for _ in ownDeckStack %}
+                <li>
+                    {% if loop.last %}
+                    <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                        {{ csrf_input }}
+                        <input type="hidden" name="action" value="draw">
+                        <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
+                    </form>
+                    {% else %}
+                    <div class="card back">*</div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            {% else %}
+                <li>
+                    <div class="card back emptyDeck">
+                        Empty
+                    </div>
+                </li>
+            {% endif %}
+            </ul>
+        </div>
+        <div class="hand-scroll">
+            {% for handFan in handFans %}
+            <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
+                {% if handFan %}
+                    {% for card in handFan %}
+                <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true" tabindex="0"{% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
+                    data-source-ordinal="{{ card.state.laneOrdinal }}">
+                    <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                         {% if card.card.artSource == "static" %}
                         <span class="rank">{{ card.card|playing_card_rank_display }}</span>
                         <span class="suit">{{ card.card|playing_card_suit_display }}</span>
@@ -317,7 +328,7 @@
                         <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                         {% endif %}
                         {% endif %}
-                    
+
                         <div class="smallCardInfo">
                             {% if card.card.artSource != "static" %}
                                 <p class="cardTitle">{{ card.card.title }}</p>
@@ -326,18 +337,20 @@
                                 {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                             </p>
                         </div>
-                    </button>
-                </form>
-                </div>
-            </li>
-                {% endfor %}
-            {% else %}
-            <li>
-                <div class="card back emptyHand">
-                </div>
-            </li>
-            {% endif %}
-        </ul>
+                    </div>
+                    <input type="hidden" name="card_id" value="{{ card.id }}">
+                    <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
+                </li>
+                    {% endfor %}
+                {% else %}
+                <li>
+                    <div class="card back emptyHand">
+                    </div>
+                </li>
+                {% endif %}
+            </ul>
+            {% endfor %}
+        </div>
 
         {% if error_message != "" %}
         <div class="cards">
@@ -360,5 +373,6 @@
 <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>
 <script type="module" src="{{ static('laneStacking.js')}}"></script>
+<script type="module" src="{{ static('hoverCooldown.js')}}"></script>
 <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
 {% endblock %}

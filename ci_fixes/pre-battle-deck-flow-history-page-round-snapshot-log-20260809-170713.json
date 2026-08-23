@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260809-170713",
+  "roadmap_path": "pre-battle-deck-flow/history-page/round-snapshot-log",
+  "false_positive_keywords": [
+    "round",
+    "snapshot"
+  ],
+  "description_excerpt": "Record a per-round snapshot of each participant's board as a battle log so completed games can be reviewed round by roun",
+  "notes": ""
+}
