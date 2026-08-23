@@ -133,6 +133,7 @@ class CardDragDropSystem {
         this.keyboardSelection = this._emptyKeyboardSelection();
         this.keyboardListenersBound = false;
         this.keyboardObserver = null;
+        this.lastDragEndedAt = 0;
         this.endTurnHold = new ShortcutHoldAction();
         this.drawHold = new ShortcutHoldAction();
         this.init();
@@ -320,6 +321,7 @@ class CardDragDropSystem {
 
         this.keyboardKeydownHandler = (event) => this.onKeyboardKeyDown(event);
         this.keyboardKeyupHandler = (event) => this.onKeyboardKeyUp(event);
+        this.keyboardClickHandler = (event) => this.onHandCardClick(event);
         this.keyboardVisibilityHandler = () => {
             if (document.hidden || document.visibilityState === 'hidden') {
                 this.clearKeyboardSelection();
@@ -356,6 +358,7 @@ class CardDragDropSystem {
 
         document.addEventListener('keydown', this.keyboardKeydownHandler, true);
         document.addEventListener('keyup', this.keyboardKeyupHandler, true);
+        document.addEventListener('click', this.keyboardClickHandler);
         document.addEventListener('visibilitychange', this.keyboardVisibilityHandler);
         window.addEventListener('blur', this.keyboardBlurHandler);
         window.addEventListener('pagehide', this.keyboardPageHideHandler);
@@ -778,6 +781,7 @@ class CardDragDropSystem {
         card.classList.add('keyboard-selected');
         card.dataset.keyboardSelected = 'true';
         card.setAttribute('aria-selected', 'true');
+        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
         const cardIdInput = this._cardIdInput(card);
         this.keyboardSelection = {
             selectedCard: card,
@@ -883,6 +887,10 @@ class CardDragDropSystem {
             if (card.getAttribute('aria-selected') === 'true') {
                 card.removeAttribute('aria-selected');
             }
+            const activeElement = document.activeElement;
+            if (activeElement && (activeElement === card || card.contains(activeElement))) {
+                activeElement.blur();
+            }
         }
         if (removePreview && selection.hologram?.parentNode) selection.hologram.remove();
         this.keyboardSelection = this._emptyKeyboardSelection();
@@ -890,6 +898,24 @@ class CardDragDropSystem {
 
     cancelKeyboardSelection() {
         this.clearKeyboardSelection();
+    }
+
+    onHandCardClick(event) {
+        const target = event.target;
+        const card = typeof target.closest === 'function'
+            ? target.closest('.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer')
+            : null;
+        if (!card) return;
+        if (event.button !== 0) return;
+        if (this._isTextControlTarget(target)) return;
+        if (this._keyboardTransitionActive()) return;
+        if (Date.now() - this.lastDragEndedAt < 100) return;
+        if (!this._keyboardActionAllowed(event)) return;
+
+        const eligible = this.playableKeyboardCards();
+        const index = eligible.indexOf(card);
+        if (index === -1) return;
+        this.selectKeyboardCard(card, String(index + 1));
     }
 
     onCardDragStart(e) {
@@ -908,6 +934,7 @@ class CardDragDropSystem {
     onCardDragEnd(e) {
         this.draggedCard.classList.remove('dragging');
         this.highlightAllDropZones(false);
+        this.lastDragEndedAt = Date.now();
     }
 
     onDropZoneDragOver(e) {
@@ -1225,6 +1252,7 @@ class CardDragDropSystem {
         if (this.keyboardListenersBound) {
             document.removeEventListener('keydown', this.keyboardKeydownHandler, true);
             document.removeEventListener('keyup', this.keyboardKeyupHandler, true);
+            document.removeEventListener('click', this.keyboardClickHandler);
             document.removeEventListener('visibilitychange', this.keyboardVisibilityHandler);
             window.removeEventListener('blur', this.keyboardBlurHandler);
             window.removeEventListener('pagehide', this.keyboardPageHideHandler);

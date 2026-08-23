@@ -1600,22 +1600,11 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
     background: transparent;
 }
 
-.playerScreen .cardActionForm {    
+.playerScreen .cardActionForm {
     display: flex;
     justify-content: center;
     align-items: center;
     background: transparent;
-}
-
-.playerScreen .hand .cardActionButton {
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: inherit;
-}
-
-.playerScreen .hand .card.staticCard .cardActionButton {
-    height:auto;
 }
 
 .playingCards .card.back .rank,

@@ -262,6 +262,10 @@ class BattleFlowTests(TestCase):
         self.assertEqual(hand_html.count('data-source-lane="0"'), 14)
         self.assertEqual(hand_html.count('data-source-ordinal="'), 14)
         self.assertEqual(hand_html.count('draggable="true"'), 14)
+        self.assertEqual(hand_html.count('tabindex="-1"'), 14)
+
+        self.assertNotIn("cardActionForm", hand_html)
+        self.assertNotIn("cardActionButton", hand_html)
 
     def test_play_budget_blocks_cards_in_every_hand_fan(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -283,6 +287,7 @@ class BattleFlowTests(TestCase):
                 len(re.findall(r'<li class="cardContainer[^>]*draggable="false"', fan)),
                 fan.count("cardContainer"),
             )
+            self.assertNotIn("tabindex", fan)
 
     def test_artless_cards_render_with_css_playing_card_markup(self):
         from mysite.jinja2 import (
@@ -655,7 +660,7 @@ class BattleFlowTests(TestCase):
         # (mirroring the bot draw flow, no cookie round-trip)
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, 'cardContainer loading')
-        self.assertContains(response, 'class="cardActionButton')
+        self.assertContains(response, '<div class="card smallCard">')
         self.assertContains(response, "/static/1flubeltje.jpg")
         self.assertContains(response, 'data-source-lane="-')
 
@@ -690,7 +695,7 @@ class BattleFlowTests(TestCase):
         self.client.post(confirm_url)
         response = self.client.post(draw_url, {"action": "draw"})
 
-        self.assertContains(response, 'class="cardActionButton')
+        self.assertContains(response, 'class="card smallCard staticCard')
         self.assertContains(response, "staticCard")
         self.assertContains(response, '<span class="suit">')
         self.assertContains(response, 'class="cardType"')
@@ -1646,8 +1651,48 @@ class BattleFlowTests(TestCase):
             drag_js.index('    onCardDragStart(e)')
         ]
         self.assertNotIn('createupdateCookie', selection_code)
+        self.assertIn('card.focus({ preventScroll: true })', selection_code)
+        self.assertIn("typeof card.focus === 'function'", selection_code)
+        self.assertIn('activeElement.blur()', selection_code)
+        self.assertIn('card.contains(activeElement)', selection_code)
+
+        self.assertIn("document.addEventListener('click', this.keyboardClickHandler);", drag_js)
+        self.assertIn("document.removeEventListener('click', this.keyboardClickHandler);", drag_js)
+        click_code = drag_js[
+            drag_js.index('    onHandCardClick(event)'):
+            drag_js.index('    onCardDragStart(e)')
+        ]
+        self.assertIn(
+            "closest('.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer')",
+            click_code,
+        )
+        self.assertIn('event.button !== 0', click_code)
+        self.assertIn('_isTextControlTarget(target)', click_code)
+        self.assertIn('_keyboardTransitionActive()', click_code)
+        self.assertIn('_keyboardActionAllowed(event)', click_code)
+        self.assertIn('lastDragEndedAt', click_code)
+        self.assertIn('playableKeyboardCards()', click_code)
+        self.assertIn('this.selectKeyboardCard(card, String(index + 1))', click_code)
+        self.assertNotIn('confirmKeyboardSelection', click_code)
+        self.assertNotIn('_stagePlay', click_code)
+        self.assertNotIn('createupdateCookie', click_code)
+        drag_end_code = drag_js[
+            drag_js.index('    onCardDragEnd(e)'):
+            drag_js.index('    onDropZoneDragOver(e)')
+        ]
+        self.assertIn('this.lastDragEndedAt = Date.now();', drag_end_code)
+
         self.assertIn('li.cardContainer.keyboard-selected', drag_css)
         self.assertIn('.hologram.keyboard-preview', drag_css)
+
+        selected_block = drag_css[drag_css.index('li.cardContainer.keyboard-selected {'):]
+        selected_block = selected_block[:selected_block.index('}')]
+        preview_block = drag_css[drag_css.index('ul.hologramRow .hologram.keyboard-preview {'):]
+        preview_block = preview_block[:preview_block.index('}')]
+        for selection_block in (selected_block, preview_block):
+            self.assertIn('outline: 3px solid', selection_block)
+            self.assertIn('outline-offset: 4px', selection_block)
+            self.assertNotIn('rgba(255, 204, 0', selection_block)
 
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         response = self.client.post(

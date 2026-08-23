@@ -43,11 +43,12 @@ li.cardContainer.ghost {
     filter: grayscale(0.3);
 }
 
+/* Selection marker for JS/tests; selected cards also receive DOM focus, so this
+   mirrors li.cardContainer:focus-within (cards.css) rather than restyling. Identical
+   values mean both selectors matching at once cannot paint a second outline. */
 li.cardContainer.keyboard-selected {
-    opacity: 0.45;
-    filter: grayscale(0.25) drop-shadow(0 0 0.35rem rgba(255, 204, 0, 0.8));
-    outline: 0.2rem solid rgba(255, 204, 0, 0.85);
-    outline-offset: 0.2rem;
+    outline: 3px solid;
+    outline-offset: 4px;
 }
 
 .shortcut-hold-loading {
@@ -99,7 +100,8 @@ ul.hologramRow .hologram .card {
 ul.hologramRow .hologram.keyboard-preview {
     pointer-events: none;
     opacity: 1;
-    filter: drop-shadow(0 0 0.5rem rgba(255, 204, 0, 0.75));
+    outline: 3px solid;
+    outline-offset: 4px;
 }
 
 ul.hologramRow .hologram.keyboard-preview .cardContainer {
