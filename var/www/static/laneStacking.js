@@ -3,9 +3,14 @@
  * 
  * Measures available lane width on load/resize, calculates how many
  * overlapping cards fit per row, and splits excess cards into
- * additional rows below.
+ * additional rows below. Rows created by splitting carry the
+ * `overflow-row` marker class so they can be collapsed and re-split
+ * without ever touching other row groups (e.g. trustedCards).
  */
 class LaneCardStacking {
+    static OVERFLOW_ROW_CLASS = 'overflow-row';
+    static MAX_CARDS_PER_ROW = 15;
+
     constructor() {
         this.debounceTimer = null;
         this.overlapOffset = 1.4; // em per card overlap (from CSS nth-child)
@@ -42,48 +47,52 @@ class LaneCardStacking {
     }
 
     /**
-     * Reflow a single row group — split if children exceed lane width.
+     * Reflow a single row group — collapse previous overflow rows,
+     * then split again if the children no longer fit the lane width.
      * @param {Element} lane - The lane container
-     * @param {Element} row - The row element (ul.cardRow or ul.hologramRow)
+     * @param {Element} row - The source row element (ul.cardRow or ul.hologramRow)
      */
     reflowRowGroup(lane, row) {
+        if (!row.isConnected || !lane.isConnected) return;
+        this.ensureSingleRow(row);
+
         const children = Array.from(row.children);
         if (children.length === 0) return;
 
         const laneWidth = lane.clientWidth;
         if (laneWidth <= 0) return;
 
-        // Calculate how many cards fit per row
-        // The first card starts at left: 0, each subsequent card at overlapOffset em
-        // We need to convert em to px for calculation
+        // Calculate how many cards fit per row.
+        // The first card starts at left: 0, each subsequent card at overlapOffset em.
         const emSize = parseFloat(getComputedStyle(lane).fontSize) || 16;
         const overlapPx = this.overlapOffset * emSize;
         const firstCardWidth = children[0].offsetWidth || 100;
 
-        // Cards per row: 1 (for the first card) + floor((laneWidth - firstCardWidth) / overlapPx)
-        // But since cards overlap, the total width used is: overlapPx * (count - 1) + cardWidth
-        const cardsPerRow = Math.max(1,
-            Math.floor((laneWidth - firstCardWidth) / overlapPx) + 1
+        // Total width used: overlapPx * (count - 1) + cardWidth
+        const cardsPerRow = Math.min(
+            LaneCardStacking.MAX_CARDS_PER_ROW,
+            Math.max(1, Math.floor((laneWidth - firstCardWidth) / overlapPx) + 1)
         );
+        row.dataset.cardsPerRow = String(cardsPerRow);
 
-        if (children.length <= cardsPerRow) {
-            // All fit in one row — reset to single row if needed
-            this.ensureSingleRow(row);
-            return;
+        if (children.length > cardsPerRow) {
+            this.splitIntoRows(row, children, cardsPerRow);
         }
-
-        // Split into multiple rows
-        this.splitIntoRows(row, children, cardsPerRow);
     }
 
     /**
-     * Ensure a row group is a single row (collapse any extra rows).
+     * Move children of every following overflow row (created by
+     * splitting) back into this row and remove those rows. Only
+     * marker-classed siblings of the same element type are consumed,
+     * so the trustedCards row and other row groups stay separate.
      */
     ensureSingleRow(row) {
-        // If there are extra sibling rows of the same type, move children back
-        const rowType = row.tagName === 'UL' ? row.className : '';
+        if (!row.isConnected) return;
         let sibling = row.nextElementSibling;
-        while (sibling && sibling.matches?.('ul.' + row.className.split(' ').join('.'))) {
+        while (sibling) {
+            const isOverflow = sibling.tagName === row.tagName
+                && sibling.classList.contains(LaneCardStacking.OVERFLOW_ROW_CLASS);
+            if (!isOverflow) break;
             const next = sibling.nextElementSibling;
             while (sibling.firstChild) {
                 row.appendChild(sibling.firstChild);
@@ -96,19 +105,17 @@ class LaneCardStacking {
     /**
      * Split children of a row into multiple rows.
      */
-    splitIntoRows(originalRow, children, cardsPerRow) {
-        const rows = [];
+    splitIntoRows(sourceRow, children, cardsPerRow) {
+        const parent = sourceRow.parentNode;
+        if (!parent) return;
 
-        // Create first row with first cardsPerRow children
-        const firstRow = originalRow;
-        firstRow.innerHTML = '';
-        rows.push(firstRow);
-
-        // Create additional rows for overflow
+        const rows = [sourceRow];
         for (let i = cardsPerRow; i < children.length; i += cardsPerRow) {
             const newRow = document.createElement('ul');
-            newRow.className = firstRow.className;
-            newRow.title = firstRow.title;
+            newRow.className = [sourceRow.className, LaneCardStacking.OVERFLOW_ROW_CLASS]
+                .filter(Boolean)
+                .join(' ');
+            newRow.title = sourceRow.title;
             rows.push(newRow);
         }
 
@@ -118,23 +125,11 @@ class LaneCardStacking {
             rows[rowIndex].appendChild(child);
         });
 
-        // Insert additional rows after the first
-        let refNode = firstRow.nextElementSibling;
+        // Insert additional rows after the source row, before whatever follows it
+        const refNode = sourceRow.nextElementSibling;
         for (let i = 1; i < rows.length; i++) {
-            if (refNode === rows[i]) {
-                refNode = refNode.nextElementSibling;
-                continue;
-            }
-            firstRow.parentNode.insertBefore(rows[i], refNode);
-            if (refNode) {
-                // refNode stays the same — the new row was inserted before it
-            } else {
-                refNode = rows[i].nextElementSibling;
-            }
+            parent.insertBefore(rows[i], refNode);
         }
-
-        // Remove any remaining old extra rows
-        this.ensureSingleRow(firstRow);
     }
 }
 

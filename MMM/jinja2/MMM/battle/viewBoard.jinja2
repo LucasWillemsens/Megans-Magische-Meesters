@@ -46,10 +46,10 @@
             <h2>{{ enemy.participant.player.name }} </h2>
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
             <div class="enemyDeckHand">
-                <div class="deck-stack enemy-deck-stack">
+                <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
                     {% for indicator in enemy.deckIndicators %}
                     <ul class="deck-indicator" aria-hidden="true" inert
-                        style="--deck-indicator-offset: -{{ loop.index }}rem;">
+                        style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
                         <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
                     </ul>
                     {% endfor %}
@@ -279,10 +279,10 @@
             Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
             <span id="turnCounters" hidden>( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn )</span>
             </p>
-        <div class="deck-stack own-deck-stack">
+        <div class="deck-stack own-deck-stack"{% if ownDeckIndicators %} style="--deck-indicator-count: {{ ownDeckIndicators|length }};"{% endif %}>
             {% for indicator in ownDeckIndicators %}
             <ul class="deck-indicator" aria-hidden="true" inert
-                style="--deck-indicator-offset: -{{ loop.index }}rem;">
+                style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
                 <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
             </ul>
             {% endfor %}

@@ -691,15 +691,12 @@
     list-style-type: none;
     padding: 0;
     margin: 0;
-    position: relative;
-    clear: both;
-    height: 8em;
+    position: absolute;
 }
 
 .playingCards ul.deck-indicator li {
     padding: 0;
     list-style-type: none;
-    float: left;
     position: absolute;
 }
 
@@ -720,9 +717,9 @@
 
 .playerScreen .deck-stack > ul.deck {
     position: absolute;
-    left: 2rem;
+    left: calc(2rem + var(--deck-indicator-count, 0) * 0.55rem);
     bottom: 0;
-    width: 10rem;
+    width: calc(10rem - var(--deck-indicator-count, 0) * 0.55rem);
     height: var(--hand-row-height, 8em);
     margin: 0;
     overflow: visible;
@@ -736,6 +733,7 @@
 
 .playerScreen .deck-stack > ul.deck-indicator {
     left: var(--deck-indicator-offset, 0);
+    bottom: 0;
     z-index: 1;
     pointer-events: none;
     user-select: none;
@@ -745,19 +743,23 @@
 .playerScreen .deck-stack > ul.deck-indicator li {
     left: 0;
     bottom: 0;
-    width: 5rem;
-    height: 3rem;
+    width: 1.7rem;
+    height: 1.15rem;
 }
 
-/* this is broken */
+/* Inert deck blocks render as small card-back chips overlapping at the
+   bottom-left of the deck stack; the active deck shifts right per chip
+   via --deck-indicator-count so nothing leaves the stack. */
 .deck-indicator-face {
     display: block;
-    width: 4.5rem;
-    height: 2.5rem;
-    border: 2px solid #666;
-    border-radius: .3em;
-    background: repeating-linear-gradient(135deg, #1f326b 0, #1f326b 4px, #4c7190 4px, #4c7190 8px);
-    box-shadow: .15em .15em .2em rgba(0, 0, 0, .45);
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: 1px solid #666;
+    border-radius: .25em;
+    background: repeating-linear-gradient(135deg, #1f326b 0, #1f326b 3px, #4c7190 3px, #4c7190 6px);
+    box-shadow: .08em .08em .16em rgba(0, 0, 0, .45);
+    opacity: .92;
 }
 
 div.playerScreen{
@@ -1007,8 +1009,13 @@ div.playerScreen{
     }
 
     .playerScreen .deckHand .deck-stack > ul.deck {
-        left: .75rem;
-        width: 5.75rem;
+        left: calc(.75rem + var(--deck-indicator-count, 0) * .45rem);
+        width: calc(5.75rem - var(--deck-indicator-count, 0) * .45rem);
+    }
+
+    .playerScreen .deck-stack > ul.deck-indicator li {
+        width: 1.3rem;
+        height: .95rem;
     }
 
     .playerScreen .enemyDeckHand > .hand {
@@ -1211,12 +1218,17 @@ ul.cardRow{
 .playingCards ul.cardRow li.cardContainer:nth-child(13) { left: 18.6em; z-index: 13; }
 .playingCards ul.cardRow li.cardContainer:nth-child(14) { left: 20.0em; z-index: 14; }
 .playingCards ul.cardRow li.cardContainer:nth-child(15) { left: 21.4em; z-index: 15; }
+.playingCards ul.cardRow li.cardContainer:nth-child(16) { left: 22.8em; z-index: 16; }
+.playingCards ul.cardRow li.cardContainer:nth-child(17) { left: 24.2em; z-index: 17; }
+.playingCards ul.cardRow li.cardContainer:nth-child(18) { left: 25.6em; z-index: 18; }
+.playingCards ul.cardRow li.cardContainer:nth-child(19) { left: 27.0em; z-index: 19; }
+.playingCards ul.cardRow li.cardContainer:nth-child(20) { left: 28.4em; z-index: 20; }
 
-.playingCards ul.cardRow + ul.cardRow {
+.playingCards ul.cardRow + ul.cardRow.overflow-row {
     margin-top: 0.5rem;
 }
 
-.playingCards ul.hologramRow + ul.hologramRow {
+.playingCards ul.hologramRow + ul.hologramRow.overflow-row {
     margin-top: 0.5rem;
 }
 

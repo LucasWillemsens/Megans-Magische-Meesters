@@ -1,0 +1,26 @@
+Fix the deck indicator: inert deck blocks currently render as broken-looking faces that go off to the side.
+
+Current state:
+- `MMM/views.py` `_deck_presentation()` returns `deckIndicators` (one dict per 32-card inert block).
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` renders, for both player and enemy, a `.deck-stack` containing one `<ul class="deck-indicator">` per block (each with `--deck-indicator-offset: -{{ loop.index }}rem`) followed by the active `<ul class="deck active-deck">`.
+- `var/www/static/cards.css` has a `/* this is broken */` comment above `.deck-indicator-face`; `.playerScreen .deck-stack > ul.deck-indicator { left: var(--deck-indicator-offset, 0); }` pushes the indicator ul left, and each indicator is a 5rem × 3rem `<li>` with a 4.5rem × 2.5rem face. The negative offsets push indicators outside the deck stack, and the active deck is `left: 2rem; width: 10rem` inside a `min(12rem, 100%)` stack, so indicators visually fly off to the side and look broken.
+
+Implementation:
+1. `var/www/static/cards.css`:
+   - Redesign the inert deck indicator as a compact card-back chip stacked directly under/left of the active deck, contained within the deck-stack: small (~1.5–2rem wide, ~1–1.25rem tall) rounded chips with the card-back pattern, slight overlap per block, no off-stack overflow.
+   - Position chips with positive offsets relative to the stack (left offset growing with `loop.index` via the existing `--deck-indicator-offset` custom property, but computed so chips stay inside the stack), and give the active deck enough left offset when indicators exist (e.g. add `--deck-indicator-count` to the stack and offset the active deck by it).
+   - Fix the `.deck-indicator-face` styling (remove the "broken" comment once fixed) so chips look like a small neat pile rather than floating faces.
+   - Ensure enemy deck stack uses the same layout.
+2. `MMM/jinja2/MMM/battle/viewBoard.jinja2`:
+   - Keep the existing structure but set `--deck-indicator-count: {{ loop.length }}` (or similar) on the `.deck-stack` so CSS can shift the active deck.
+   - Keep `aria-hidden`/`inert` on indicators; no form/button/action hooks.
+3. `var/www/static/loadingAnimations.js` and `var/www/static/cardDragDrop.js`: verify their active-deck lookups (`.active-deck`) still target the active deck; no changes expected unless offsets change geometry used by `duplicateCard()` for negative source lanes — check `activeDeckForBoard()`.
+
+Acceptance criteria:
+- [ ] Indicators render as a small, tidy stacked pile near the active deck, never off-screen or outside the deck stack.
+- [ ] With 0 indicators nothing extra renders; with 1–3 indicators the pile grows leftward within the stack and the active deck remains clearly the top/active element.
+- [ ] Indicators remain inert, aria-hidden, non-focusable, non-draggable, pointer-events disabled.
+- [ ] Player and enemy decks look consistent.
+- [ ] Draw animations still originate from the active deck.
+
+Dependencies: none.

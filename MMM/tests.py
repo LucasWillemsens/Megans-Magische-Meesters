@@ -1799,6 +1799,45 @@ class BattleFlowTests(TestCase):
                 f"Lane {lane_name} missing hologramRow before cardRow"
             )
 
+    def test_lane_overflow_splits_rows_without_merging_back(self):
+        """Overflow rows stay separate; only marker rows merge, never trustedCards."""
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'laneStacking.js')) as js_file:
+            stacking_js = js_file.read()
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        # Splitting marks overflow rows, caps rows at 15 cards and never
+        # calls ensureSingleRow after splitting (the old merge-back bug).
+        self.assertIn("'overflow-row'", stacking_js)
+        self.assertIn('MAX_CARDS_PER_ROW = 15', stacking_js)
+        ensure_code = stacking_js[
+            stacking_js.index('    ensureSingleRow('):stacking_js.index('    splitIntoRows(')
+        ]
+        self.assertIn('OVERFLOW_ROW_CLASS', ensure_code)
+        split_code = stacking_js[
+            stacking_js.index('    splitIntoRows('):stacking_js.index('document.addEventListener')
+        ]
+        self.assertNotIn('ensureSingleRow', split_code)
+        self.assertIn('OVERFLOW_ROW_CLASS', split_code)
+
+        # Card flight helpers only count the main cards row group.
+        find_code = loading_js[
+            loading_js.index('function findCardRowForOrdinal('):
+            loading_js.index('const HAND_FAN_SIZE')
+        ]
+        self.assertIn('[title="cards"]', find_code)
+        self.assertNotIn('[title="trustedCards"]', find_code)
+
+        # CSS keeps left offsets beyond the 15th card and vertical gaps
+        # only between genuine overflow rows.
+        self.assertIn('li.cardContainer:nth-child(20)', cards_css)
+        self.assertIn('ul.cardRow + ul.cardRow.overflow-row', cards_css)
+
 
 class ChallengeFormParser(HTMLParser):
     def __init__(self):

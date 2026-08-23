@@ -621,13 +621,17 @@ function activeDeckForBoard(board) {
 
 /**
  * Find the correct .cardRow within a lane for a given ordinal.
- * When a lane has multiple rows (overflow), this calculates which row
- * the ordinal falls into based on cards-per-row.
+ * Only the main cards row group counts: overflow rows created by
+ * LaneCardStacking keep title="cards", the trustedCards row does not.
  */
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
-    const rows = laneElement.querySelectorAll(':scope > ul.cardRow');
-    if (rows.length <= 1) return rows[0] || null;
-    const cpr = cardsPerRow || 5; // fallback default
+    const rows = laneElement.querySelectorAll(':scope > ul.cardRow[title="cards"]');
+    if (rows.length === 0) return null;
+    if (rows.length === 1) return rows[0];
+    const storedCardsPerRow = parseInt(rows[0].dataset.cardsPerRow, 10);
+    const cpr = (Number.isFinite(storedCardsPerRow) && storedCardsPerRow > 0)
+        ? storedCardsPerRow
+        : (cardsPerRow || 5);
     const rowIndex = Math.min(Math.max(0, Math.floor((ordinal - 1) / cpr)), rows.length - 1);
     return rows[rowIndex];
 }
@@ -696,7 +700,7 @@ function duplicateCard(element, lane, ordinal)
 {
     let laneElement  = null;
     const sourceLane = Number.parseInt(lane, 10);
-    const cardsPerRow = 5; // Default, will be recalculated by LaneCardStacking
+    const cardsPerRow = 5; // Fallback when LaneCardStacking has not stored cards-per-row
     const duplicate = element.cloneNode(true);
     duplicate.classList.add('duplicate');
     const enemyBoard = element.closest('.enemyBoard');

@@ -1,0 +1,32 @@
+Extend keyboard card selection in `var/www/static/cardDragDrop.js` (and related files).
+
+Current state:
+- `HAND_FAN_SIZE = 13` in both `MMM/views.py` (line 26) and `var/www/static/loadingAnimations.js` (line 635).
+- `onKeyboardKeyDown()` handles digits 1–9 with a digit buffer (`_noZeroOrdinal`), arrows, Enter/Space confirmation, 0/Escape cancellation. No `+`/`-`/`Backspace` handling.
+- Keyboard preview holograms are face-up (`_buildPlayHologram(card, lane, true)`); `confirmKeyboardSelection()` stages a face-up preview marked `keyboard-staged`.
+- Drag-to-lane plays (`onDropZoneDrop`) build a face-down hologram with a one-shot `onFaceDownCardClick` listener to flip face up.
+
+Required changes:
+1. 9-card hands:
+   - `MMM/views.py`: `HAND_FAN_SIZE = 9`.
+   - `var/www/static/loadingAnimations.js`: `HAND_FAN_SIZE = 9`.
+   - `var/www/static/cards.css`: adjust hand fan geometry for 9 cards (`--hand-fan-width: calc(13.2em + 5.25rem)` currently sized for 13 cards; the nth-child left offsets run to 13 — 9-card fans should size to the 9th offset (8.8em) + card width). Keep the existing rotation pattern table (positions 1–9 apply; extra rows 10–13 become unused but harmless).
+   - `MMM/tests.py`: update fan-size expectations (13→9: `test_hand_fans_preserve_order_and_repeat_every_thirteen_cards` etc., and `HAND_FAN_SIZE = 13` string assertions in `test_large_hand_layout_and_animation_hooks_are_fan_aware`).
+2. `+` and `-` keys: with a selection active, `+` selects the next eligible card (index + 1) and `-` the previous one, wrapping or clamping (wrap preferred for navigation; document choice) in `playableKeyboardCards()` order. No selection yet → no-op (or select card 1 on `+`; pick and document).
+3. Backspace resets the selected card number like pressing 0 (cancel selection, clear buffer).
+4. Last-digit fallback in `onKeyboardKeyDown()`: when the typed buffer parses to an ordinal higher than the number of eligible cards, use only the last digit: e.g. 4 cards in hand, buffer "23" → select card 3. If the last digit is also out of range (e.g. 4 cards, "5" or "25"), drop the selection like pressing 0 (clear buffer + preview). Keep the existing no-zero ordinal for in-range multi-digit buffers.
+5. faceDown lane play for keyboard selection:
+   - `confirmKeyboardSelection()` must produce the same face-down hologram as a drag-to-lane play: remove the face-up `keyboard-preview` and build the hologram with `_buildPlayHologram(card, laneValue)` (face-down path) before calling `_stagePlay()`. The staged hologram must get the one-shot `onFaceDownCardClick` listener so it can be clicked to flip face up, exactly like a dragged play.
+   - The face-down staged hologram card should be focusable (`tabindex="0"`) and visually indicate focus (`:focus-visible`/`:focus-within` lift styling already exists for `.hologram`). It must be selectable (click = flip). It should only indicate it will be played face up when it actually will be flipped face up (i.e., only when `remainingAllowances().flips > 0`; otherwise no flip affordance/`blocked` title behavior).
+   - Update `MMM/tests.py` keyboard-confirmation contract tests (`test_keyboard_confirmation_contract_preserves_staging_and_guards`) for the new face-down staging behavior.
+
+Acceptance criteria:
+- [ ] Hand fans hold 9 cards; 10th card starts a second fan; tests updated.
+- [ ] `+`/`-` step the selection to the next/previous eligible hand card.
+- [ ] Backspace cancels the selection and clears the buffer, same as 0.
+- [ ] "23" with 4 eligible cards selects card 3; "5"/"25" with 4 cards drops the selection like 0.
+- [ ] Confirming a keyboard-selected card stages a face-down hologram identical to drag-and-drop plays, clickable to flip face up (with flip allowance), and focusable.
+- [ ] Existing arrow/Enter/Space/Escape/digit behaviors unchanged otherwise.
+- [ ] Cookie semantics unchanged (single `createupdateCookie` call on confirm; no cookie during selection).
+
+Dependencies: after `handcard-action-merge/` (shares `cardDragDrop.js` and hand markup). Needs `cardrow-overflow-fix/` landed (multi-row DOM stability).

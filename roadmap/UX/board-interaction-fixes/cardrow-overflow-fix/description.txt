@@ -1,0 +1,27 @@
+Fix lane cardRow overflow: cards in overflowing cardRows overlap instead of wrapping to a new row.
+
+Current state: `var/www/static/laneStacking.js` `reflowRowGroup()`/`splitIntoRows()` split children into multiple `ul.cardRow` elements, but `splitIntoRows()` calls `this.ensureSingleRow(firstRow)` at the end, which immediately merges all newly created rows back into the first row. Net result: all cards stay in one row, and because `cards.css` only defines absolute `left` offsets up to `nth-child(15)` (`.playingCards ul.cardRow li.cardContainer:nth-child(n)`), cards beyond that all stack at `left: 0` — overlapping.
+
+Also, `ensureSingleRow()` matches sibling rows by class name only (`ul.cardRow`), so when it does run it would also merge the separate "trustedCards" cardRow (`viewBoard.jinja2` renders two `<ul class="cardRow">` per lane: title="cards" and title="trustedCards") into the main row, breaking the trusted row layout.
+
+Implementation:
+1. In `var/www/static/laneStacking.js`:
+   - Remove the trailing `this.ensureSingleRow(firstRow)` call inside `splitIntoRows()` (the merge-back bug).
+   - Make `ensureSingleRow()` only merge sibling rows that were created by the splitting logic. Mark split rows with a class (e.g. `overflow-row`) when creating them in `splitIntoRows()`, and in `ensureSingleRow()` only consume siblings that have that marker class. This keeps the trustedCards row untouched.
+   - In `reflowRowGroup()`, before splitting, first collapse previously created marked overflow rows back into the source row (so resize rebalancing works), then re-split.
+   - Make row-type matching in `ensureSingleRow()` scope-safe (`:scope` not needed; marker-class matching is enough).
+   - Guard against infinite loops and reflow on detached rows.
+2. In `var/www/static/cards.css`:
+   - Add left offsets beyond `nth-child(15)` for `.playingCards ul.cardRow li.cardContainer` (e.g. up to 25 or via a `:nth-child(n+16)` general rule using `calc()`), OR make `laneStacking.js` cap `cardsPerRow` at 15. Prefer capping cardsPerRow at 15 in JS plus adding CSS rules through at least 20 as defense.
+   - Ensure `.cardRow + .cardRow` margin only applies between genuine overflow rows (marker class) and does not add a margin above the trustedCards row (trustedCards row is not directly adjacent to the cards row — it follows a `<p>` — so verify no unintended margin).
+   - Keep the vertical gap between overflow rows visible.
+3. `MMM/jinja2/MMM/battle/viewBoard.jinja2` — no changes expected; the two per-lane cardRows (cards + trustedCards) must remain separate and both individually overflowable.
+
+Acceptance criteria:
+- [ ] A lane with more cards than fit one row renders them across multiple `.cardRow` elements without overlap.
+- [ ] The trustedCards row is never merged into the cards row and can overflow independently.
+- [ ] Resizing the window (debounced) rebalances rows without duplicating or losing cards.
+- [ ] No horizontal page overflow from lane rows.
+- [ ] Drag/drop and hologram rows still work after splitting.
+
+Dependencies: none (first leaf).

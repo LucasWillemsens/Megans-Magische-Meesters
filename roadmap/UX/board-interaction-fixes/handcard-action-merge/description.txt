@@ -1,0 +1,34 @@
+Remove the old "handcard action" (the per-card play `<form>` with a submit button that plays a hand card to its own type lane on click) and merge hand-card interaction with the number-key selection. Selecting a card (via number keys or by clicking it) should focus it. Update the orange selection styling to match regular focus styling.
+
+Current state:
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (own hand fans, lines ~314–359): each hand card renders a `<form method="post" class="cardActionForm">` with hidden `action=play`, `card_id`, `lane`, and a `<button class="cardActionButton">` wrapping the card face. Clicking it submits the form immediately (separate from drag/drop and keyboard selection).
+- `var/www/static/cardDragDrop.js`: keyboard selection (`selectKeyboardCard`, `onKeyboardKeyDown`, `confirmKeyboardSelection`, `clearKeyboardSelection`) manages a `.keyboard-selected` class on the source card and a `.keyboard-preview` hologram. The card is never actually focused.
+- `var/www/static/cardDragDrop.css`: `li.cardContainer.keyboard-selected` uses an orange/yellow outline + glow (rgba(255, 204, 0)) that differs from regular focus styling in `var/www/static/cards.css` (`li.cardContainer:focus-within { outline-offset: 4px; outline: 3px solid; }`).
+
+Implementation:
+1. `MMM/jinja2/MMM/battle/viewBoard.jinja2`:
+   - Remove the `<form class="cardActionForm">` and `<button class="cardActionButton">` from hand fan cards. Keep the card content (image/rank/suit/info) directly in the `<li class="cardContainer">`.
+   - Keep a hidden `input[name="card_id"]` with the card id (JS and tests depend on it) and keep `data-source-lane`/`data-source-ordinal`, `draggable`, `blocked`, `ghost` behavior. The hidden input must not be inside any form that could submit — wrap it in a div or keep it bare in the li.
+   - Add `tabindex="-1"` (programmatic focus) to playable hand cardContainers; the JS will move focus on selection.
+   - Update `MMM/tests.py` expectations that count `name="card_id"` or expect the form (`test_hand_fan_cards_keep_action_and_source_attributes`, `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks`).
+2. `var/www/static/cardDragDrop.js`:
+   - In `selectKeyboardCard()`, after applying the `.keyboard-selected` class, focus the selected card (`.focus({preventScroll: true})` on the cardContainer) so `:focus-within` styling applies.
+   - In `clearKeyboardSelection()`, blur the previously selected card if it still holds focus (or move focus to the end-turn button/body when the selection is removed via Escape/0/Backspace).
+   - Add a click listener on eligible hand cardContainers that triggers `selectKeyboardCard(card, digitBuffer)` with the correct ordinal (same as typing its number) — only when the card is playable (reuse `_isPlayableKeyboardCard` and guards) and no drag is in progress. Clicking a card should select it (not confirm); confirmation stays on Space/Enter/drop-zone click. Ensure the click handler does not interfere with dragstart (only treat as selection if no drag occurred).
+   - The clicked card's ordinal is its index in `playableKeyboardCards()` + 1; set `digitBuffer` accordingly.
+3. `var/www/static/cardDragDrop.css`:
+   - Replace the orange `.keyboard-selected` styling with styles matching regular focus: same outline (`outline: 3px solid; outline-offset: 4px;`), no orange glow. Keep a subtle background/border highlight only if it matches the focus style.
+   - Keep/refresh `.keyboard-preview` hologram styling as needed.
+4. `MMM/tests.py`:
+   - Update static-contract tests that assert the hand form markup; assert hidden `card_id` input remains and no `cardActionForm`/`cardActionButton` in the hand.
+
+Acceptance criteria:
+- [ ] Hand cards no longer submit a play form on click; no `cardActionForm`/`cardActionButton` in the player hand markup.
+- [ ] Clicking a playable hand card selects it exactly like typing its number (preview appears, card gets `.keyboard-selected`), and the card receives DOM focus.
+- [ ] Selecting via number keys also focuses the card; `:focus-within` styling is visible.
+- [ ] Clearing the selection (Escape/0/Backspace) removes focus from the card appropriately.
+- [ ] The selection visual matches regular focus (same outline treatment, no orange glow).
+- [ ] Blocked/ghost/staged cards are neither selectable by click nor focusable.
+- [ ] Drag-and-drop still works from hand cards after click-to-select changes.
+
+Dependencies: after `cardrow-overflow-fix/` and `deck-indicator-restyle/` (shared viewBoard.jinja2/cardDragDrop.js files).

@@ -1,0 +1,10 @@
+Fixes for board interaction regressions and polish, ordered so earlier leaves land first.
+
+Order:
+1. `cardrow-overflow-fix/` — multi-row overflow splitting currently collapses back to one row (JS bug), causing overlapping cards.
+2. `deck-indicator-restyle/` — inert deck indicators render off to the side and look broken.
+3. `handcard-action-merge/` — remove the old per-handcard play form action; merge with number-key selection (selection focuses the card); unify orange selection styling with regular focus.
+4. `keyboard-selection-extensions/` — 9-card hand fans, +/- selection stepping, backspace reset, last-digit fallback, faceDown lane play for keyboard selection.
+5. `focus-and-hover-fixes/` — focus behavior for unplayable handcards/draw and cardRow cards; 0.5s hover cooldown driven by mouse movement.
+6. `deck-stable-draw/` — deck stack must not visually move when the top card is drawn.
+7. `compact-active-challenges/` — smaller challenge list, result preview, direct board link for own active games.
