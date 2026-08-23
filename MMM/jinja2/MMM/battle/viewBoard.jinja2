@@ -177,7 +177,7 @@
                         {% for card in lane.cards %}
                             {% set card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
                             {% if card.state.faceDown %}
-                            <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" data-source-lane="{{ card.state.lane }}"
+                            <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" tabindex="0" data-source-lane="{{ card.state.lane }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}
                                 style="--card-rotation: {{ card_rotation }}deg;">
                                 <input type="hidden" name="card_id" value="{{ card.id }}">
@@ -206,7 +206,7 @@
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                            <li class="cardContainer {{ card.cssClass }}" tabindex="0" data-source-lane="{{ card.state.lane }}"
                                 title="{{ card.card.title }} of {{ player.name }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"
                                 style="--card-rotation: {{ card_rotation }}deg;">
@@ -240,7 +240,7 @@
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
-                            <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                            <li class="cardContainer {{ card.cssClass }}" tabindex="0" data-card-id="{{ card.id }}"
                                 title="{{ card.card.title }} of {{ player.name }}"
                                 style="--card-rotation: {{ trusted_card_rotation }}deg;">
                                 <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
@@ -373,5 +373,6 @@
 <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>
 <script type="module" src="{{ static('laneStacking.js')}}"></script>
+<script type="module" src="{{ static('hoverCooldown.js')}}"></script>
 <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
 {% endblock %}

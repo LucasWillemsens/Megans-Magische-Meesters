@@ -144,6 +144,13 @@ ul.hologramRow .hologram:hover {
     opacity: 1;
     transition: transform 0.15s ease-out, opacity 0.15s ease-out;
 }
+/* .card-hover mirror driven by hoverCooldown.js; :hover stays for no-JS. */
+ul.hologramRow .hologram.card-hover {
+    z-index: 100;
+    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+    opacity: 1;
+    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+}
 ul.hologramRow .hologram:focus-within {
     z-index: 100;
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
@@ -196,5 +203,8 @@ div.drop-zone-active {
 }
 
 ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
+    animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
+}
+ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }

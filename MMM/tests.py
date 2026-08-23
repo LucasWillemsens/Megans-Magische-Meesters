@@ -1178,6 +1178,26 @@ class BattleFlowTests(TestCase):
         self.assertNotIn("<button", block)
         self.assertNotIn("draggable", block)
 
+        # enemy boards stay fully unfocusable: no tabindex anywhere on their side
+        enemy_section = re.search(
+            r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
+            content, re.DOTALL
+        )
+        self.assertIsNotNone(enemy_section)
+        self.assertNotIn('tabindex', enemy_section.group(1))
+
+        # own lane cards (cards row + trustedCards, faceDown and revealed) are
+        # keyboard-reachable: every own-board card container carries tabindex="0"
+        own_board = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL
+        )
+        self.assertIsNotNone(own_board)
+        own_card_tags = re.findall(r'<li class="cardContainer[^>]*>', own_board.group(0))
+        self.assertTrue(own_card_tags)
+        for tag in own_card_tags:
+            self.assertIn('tabindex="0"', tag)
+
         # the player's own controls are untouched (the deck still draws)
         self.assertContains(response, 'class="card back draw"')
 
@@ -1684,6 +1704,30 @@ class BattleFlowTests(TestCase):
             'selectKeyboardCard(eligibleCards[nextIndex], String(nextIndex + 1))',
             step_block,
         )
+
+        flip_branch_start = keydown_code.index(
+            "if (!activeSelection && (key === 'Enter' || key === ' ')) {"
+        )
+        selection_confirm_index = keydown_code.index(
+            'this.confirmKeyboardSelection()) event.preventDefault();'
+        )
+        self.assertLess(flip_branch_start, selection_confirm_index)
+        self.assertIn('this.flipKeyboardFocusedCard(event)', keydown_code[flip_branch_start:])
+
+        flip_method_code = drag_js[
+            drag_js.index('    flipKeyboardFocusedCard(event)'):
+            drag_js.index('    _keyboardHologramRow(laneValue)')
+        ]
+        self.assertIn('.playerBoard ul.cardRow li.cardContainer.faceDown', flip_method_code)
+        self.assertIn('.hologram.keyboard-staged .cardContainer.faceDown', flip_method_code)
+        self.assertIn('_laneValueForCard(card)', flip_method_code)
+        self.assertIn('this.remainingAllowances().flips <= 0', flip_method_code)
+        self.assertIn("classList.contains('blocked')", flip_method_code)
+        self.assertIn("classList.contains('ghost')", flip_method_code)
+        self.assertIn('this.onFaceDownCardClick(event, laneValue)', flip_method_code)
+        self.assertIn('event.preventDefault()', flip_method_code)
+        self.assertIn('_laneValueForCard(card) {', drag_js)
+        self.assertIn("card.closest('li.lane').classList[1]", drag_js)
         selection_code = drag_js[
             drag_js.index('    selectKeyboardCard(card'):
             drag_js.index('    onCardDragStart(e)')
@@ -1801,6 +1845,106 @@ class BattleFlowTests(TestCase):
         self.assertIn(".querySelector('.cardContainer.faceDown')", confirm_code)
         self.assertIn("setAttribute('tabindex', '0')", confirm_code)
         self.assertIn('this.remainingAllowances().flips > 0', confirm_code)
+
+    def test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        affordances_code = drag_js[
+            drag_js.index('    applyTurnAffordances() {'):
+            drag_js.index('    createDropZones() {')
+        ]
+
+        blocked_branch_start = affordances_code.index('if (remaining.plays <= 0) {')
+        restore_branch_start = affordances_code.index('} else {', blocked_branch_start)
+        restore_branch_end = affordances_code.index(
+            'if (remaining.flips <= 0)', restore_branch_start
+        )
+        blocked_branch = affordances_code[blocked_branch_start:restore_branch_start]
+        self.assertIn("card.classList.add('blocked');", blocked_branch)
+        self.assertIn("card.setAttribute('draggable', 'false');", blocked_branch)
+        self.assertIn("card.removeAttribute('tabindex');", blocked_branch)
+
+        restore_branch = affordances_code[restore_branch_start:restore_branch_end]
+        self.assertIn("!card.hasAttribute('tabindex')", restore_branch)
+        self.assertIn("card.setAttribute('tabindex', '-1');", restore_branch)
+        self.assertIn('_isPlayableKeyboardCard(card)', restore_branch)
+
+        deck_branch = affordances_code[
+            affordances_code.index('if (remaining.draws <= 0)', restore_branch_end):
+        ]
+        self.assertIn("querySelector('button.draw')", deck_branch)
+        self.assertNotIn("setAttribute('tabindex'", deck_branch)
+        self.assertNotIn("removeAttribute('tabindex')", deck_branch)
+
+    def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+        with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
+            hover_js = js_file.read()
+
+        # cards.css .card-hover mirrors of the card :hover rules
+        self.assertIn('.playingCards li.cardContainer.card-hover {', cards_css)
+        self.assertIn(
+            'li.cardContainer:not(.blocked).card-hover {\n        z-index: 1000;',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen .deckHand .hand:has(li.cardContainer.card-hover)',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover',
+            cards_css,
+        )
+        self.assertIn(
+            'li.cardContainer.blocked.card-hover {\n        opacity: 0.55 !important;',
+            cards_css,
+        )
+        self.assertIn(
+            'li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard',
+            cards_css,
+        )
+
+        # cardDragDrop.css .card-hover mirrors (hologram lift + hand morph)
+        self.assertIn('ul.hologramRow .hologram.card-hover', drag_css)
+        self.assertIn(
+            'ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard',
+            drag_css,
+        )
+
+        # manager stays passive and cooldown-driven
+        self.assertIn('class CardHoverManager', hover_js)
+        self.assertIn('HOVER_SWITCH_COOLDOWN_MS = 500', hover_js)
+        self.assertIn("addEventListener('mousemove'", hover_js)
+        self.assertIn('{ passive: true }', hover_js)
+        self.assertIn(
+            "OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand'",
+            hover_js,
+        )
+        self.assertIn('prefers-reduced-motion', hover_js)
+        self.assertNotIn('preventDefault', hover_js)
+        self.assertNotIn('stopPropagation', hover_js)
+
+        # the board page loads the new module next to the other scripts
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        self.assertContains(
+            response,
+            '<script type="module" src="/static/hoverCooldown.js"></script>',
+        )
 
     def test_end_turn_hold_contract_reuses_guard_timer_and_indicator(self):
         import os

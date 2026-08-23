@@ -1,0 +1,67 @@
+Replace instant CSS-only hover with a JS-managed hover state driven by real mouse movement
+and a 0.5s cooldown between hovered-card switches, eliminating flicker when the pointer
+sweeps across overlapping cards. Subgoal 3 of 3 of `focus-and-hover-fixes/`; land last.
+
+Current state (all pure CSS, all instant):
+- `var/www/static/cards.css`: container lift/margin (~45–49), z-index/shadow (~67–76),
+  lane-card translateY lift (~77–86), hand-group dimming of non-hovered cards (~105–110),
+  hand opacity overrides (~114–125), smallCard highlight (~126–137).
+- `var/www/static/cardDragDrop.css`: hologram lift on `:hover` (~139–144), hand morph
+  animation on hover (~196–198).
+- No JS tracks which card is hovered; `mouseenter/mouseleave` pairs exist only for the
+  hologram arrow feature (`_addHoverArrow`) — unrelated.
+
+Implementation:
+1. New hover manager (add to `var/www/static/cardDragDrop.js` as a small self-contained
+   class, e.g. `CardHoverManager`, instantiated alongside `CardDragDropSystem`, OR a new
+   module `hoverCooldown.js` loaded from `viewBoard.jinja2` next to the other scripts —
+   prefer the new module if cardDragDrop.js feels overloaded):
+   - Scope: elements matching `.playerScreen .deckHand .hand li.cardContainer`,
+     `.playerBoard ul.cardRow li.cardContainer`, `.playerBoard ul.hologramRow .hologram`
+     (own side only; skip anything inside `.enemyBoard`/`.enemyDeckHand`). Resolve targets
+     lazily on mousemove via `event.target.closest(...)` — no per-card listeners needed.
+   - Track `mousemove` on the `.playerScreen` container ONLY (movement-driven updates;
+     no mousemove = no change). Throttle to animation frames.
+   - Cooldown: switching the `.card-hover` target is allowed only if >=500ms elapsed since
+     the last switch; moving within the SAME card never counts as a switch. Moving off
+     all cards clears `.card-hover` immediately (no cooldown on clear).
+   - Apply/remove a single `.card-hover` class on the card element (and reuse the existing
+     `li.cardContainer.hover` hook used by `_addHoverArrow` only if semantics match —
+     otherwise keep them separate).
+   - Must be strictly passive: no preventDefault/stopPropagation anywhere, listeners
+     passive where supported, zero impact on dragstart/click/flip handling.
+   - Respect `@media (prefers-reduced-motion: reduce)` pattern used by shortcut holds:
+     when reduced motion is requested, either disable the manager entirely or skip
+     transitions (choose disable-for-cards, keep focus styles) — document choice in code.
+2. CSS (`cards.css` + `cardDragDrop.css`): duplicate each card-scoped `:hover` visual rule
+   listed above as a `.card-hover` counterpart (e.g.
+   `.playingCards ul.cardRow li.cardContainer.card-hover:not(.blocked)` mirrors the
+   `:hover` rule body). KEEP the original `:hover` rules during this leaf (touch devices
+   and no-JS fall back to them); removing redundant `:hover` rules can be a follow-up.
+   Keep `:focus-within` rules untouched. Do NOT convert non-card UI hover (buttons,
+   links, sort controls, challenge links, draw button).
+3. `MMM/tests.py`: add a static contract test (pattern of
+   `test_challenge_card_styles_cover_stacking_hover_and_focus`) asserting `.card-hover`
+   rules exist in cards.css/cardDragDrop.css and (if module approach) that
+   viewBoard.jinja2 loads the new script.
+
+Files to modify:
+- var/www/static/cardDragDrop.js OR new var/www/static/hoverCooldown.js (manager)
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (script tag only if new module)
+- var/www/static/cards.css, var/www/static/cardDragDrop.css (.card-hover rules)
+- MMM/tests.py (contract test)
+
+Acceptance criteria:
+- [ ] Hovered card changes only when the mouse moves; sweeping quickly across a fan/lane
+      shows at most one switch per 500ms instead of flicker.
+- [ ] Leaving all cards clears hover immediately; re-entering after cooldown switches
+      normally.
+- [ ] Hand morph/raise, lane lift+shadow, smallCard highlight, hologram lift all work via
+      `.card-hover`; focus-within styles unchanged.
+- [ ] Dragstart, drag/drop, click-to-select, flip clicks, hold-shortcuts unaffected.
+- [ ] Non-card UI hovers (buttons/links) untouched.
+- [ ] Full test suite passes including the new contract test.
+
+Dependencies:
+- within leaf: requires `lane-card-focus-flip-keys/`; completes
+  `focus-and-hover-fixes/`.

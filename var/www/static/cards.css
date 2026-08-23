@@ -47,6 +47,12 @@
 .playingCards strong .cardContainer {
     margin-top: -30px;
 }
+
+/* .card-hover mirrors of the card :hover rules are driven by
+   hoverCooldown.js; the :hover originals stay for touch/no-JS fallback. */
+.playingCards li.cardContainer.card-hover {
+    margin-top: -30px;
+}
     .playingCards li.cardContainer:focus-within:active
     {
         margin-top: -25px;
@@ -74,7 +80,23 @@
         box-shadow: .1em .1em 0.15em #333;
         filter: none;
     }
+    li.cardContainer:not(.blocked).card-hover {
+        z-index: 1000;
+        box-shadow: none;
+        filter: drop-shadow(0.1em 0.1em 0.15em #333);
+    }
+    li.cardContainer:not(.blocked):focus-within.card-hover {
+        z-index: 1000;
+        box-shadow: .1em .1em 0.15em #333;
+        filter: none;
+    }
     .playingCards ul.cardRow li.cardContainer:not(.blocked):hover {
+        z-index: 1000;
+        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+        filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
+        transition: transform 0.15s ease-out, filter 0.15s ease-out;
+    }
+    .playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {
         z-index: 1000;
         transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
@@ -104,7 +126,12 @@
 
     .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
     .playerScreen .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
-       { 
+       {
+        opacity: 0.6;
+        filter:none;
+    }
+    .playerScreen .deckHand .hand:has(li.cardContainer.card-hover) :not(li.cardContainer.card-hover *, li.cardContainer:focus-within *)
+       {
         opacity: 0.6;
         filter:none;
     }
@@ -113,8 +140,11 @@
     }
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked):hover{
         opacity: 1 !important;
-    } 
-    
+    }
+    .playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{
+        opacity: 1 !important;
+    }
+
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
         opacity: 1 !important;
         z-index: 2;
@@ -123,10 +153,16 @@
     .playerScreen .deckHand .hand li.cardContainer.blocked:hover {
         opacity: 0.55 !important;
     }
+    .playerScreen .deckHand .hand li.cardContainer.blocked.card-hover {
+        opacity: 0.55 !important;
+    }
     li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
         background: var(--card-background-highlight);
     }
     li.cardContainer:not(.blocked):not(.faceDown):hover:active > .smallCard{
+        background: var(--card-background-highlight);
+    }
+    li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard{
         background: var(--card-background-highlight);
     }
     li.cardContainer:not(.blocked):focus-within

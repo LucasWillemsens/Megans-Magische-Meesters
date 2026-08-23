@@ -232,6 +232,13 @@ class CardDragDropSystem {
                 card.classList.add('blocked');
                 card.setAttribute('draggable', 'false');
                 card.title = this.tooltips.play;
+                card.removeAttribute('tabindex');
+            });
+        } else {
+            this.playerHandCards().forEach(card => {
+                if (!card.hasAttribute('tabindex') && this._isPlayableKeyboardCard(card)) {
+                    card.setAttribute('tabindex', '-1');
+                }
             });
         }
 
@@ -246,6 +253,8 @@ class CardDragDropSystem {
         }
 
         if (remaining.draws <= 0) {
+            // The deck stack must stay focus-inert (no tabindex on ul/li);
+            // the disabled draw button is the visible indication.
             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
             if (deck) deck.classList.add('blocked');
             const drawBtn = deck?.querySelector('button.draw');
@@ -287,22 +296,20 @@ class CardDragDropSystem {
             .querySelectorAll(':not(.hologram) .cardContainer.faceDown:not(.blocked)')
         ).filter((card) => card.closest('.enemyDeckHand') == null);
 
-        faceDownCards.forEach((card, index) => {
-            let laneValue = null;
-            const laneElementClass = card.closest('li.lane').classList[1];
-            if (laneElementClass === 'Intelligence') {
-                laneValue = 1;
-            }else if (laneElementClass === 'Speed') {
-                laneValue = 2;
-            } else if (laneElementClass === 'Visciousness') {
-                laneValue = 3;
-            } else if (laneElementClass === 'Resolve') {
-                laneValue = 4;
-            } else {
-                console.warn('Unknown lane type for face-down card:', laneElementClass);
-            }
+        faceDownCards.forEach((card) => {
+            const laneValue = this._laneValueForCard(card);
             card.addEventListener('click', (e) => this.onFaceDownCardClick(e, laneValue), {once : true});
         });
+    }
+
+    _laneValueForCard(card) {
+        const laneElementClass = card.closest('li.lane').classList[1];
+        if (laneElementClass === 'Intelligence') return 1;
+        if (laneElementClass === 'Speed') return 2;
+        if (laneElementClass === 'Visciousness') return 3;
+        if (laneElementClass === 'Resolve') return 4;
+        console.warn('Unknown lane type for face-down card:', laneElementClass);
+        return null;
     }
 
     setupDropZoneListeners() {
@@ -720,6 +727,11 @@ class CardDragDropSystem {
             return;
         }
 
+        if (!activeSelection && (key === 'Enter' || key === ' ')) {
+            this.flipKeyboardFocusedCard(event);
+            return;
+        }
+
         if (
             this.keyboardSelection.selectedCard &&
             (key === 'Enter' || key === ' ' || key === 'Space' || key === 'Spacebar')
@@ -787,6 +799,33 @@ class CardDragDropSystem {
             return;
         }
         this.clearKeyboardSelection();
+    }
+
+    flipKeyboardFocusedCard(event) {
+        const card = this._keyboardFlipTarget(event);
+        if (!card || event.repeat) return;
+        const laneValue = this._laneValueForCard(card);
+        if (
+            laneValue == null ||
+            this.remainingAllowances().flips <= 0 ||
+            card.classList.contains('blocked') ||
+            card.closest('.blocked') ||
+            card.classList.contains('ghost')
+        ) return;
+        event.preventDefault();
+        this.onFaceDownCardClick(event, laneValue);
+    }
+
+    _keyboardFlipTarget(event) {
+        for (const candidate of [event.target, document.activeElement]) {
+            if (!candidate || typeof candidate.closest !== 'function') continue;
+            const card = candidate.closest(
+                '.playerBoard ul.cardRow li.cardContainer.faceDown, ' +
+                '.hologram.keyboard-staged .cardContainer.faceDown'
+            );
+            if (card) return card;
+        }
+        return null;
     }
 
     _keyboardHologramRow(laneValue) {
@@ -912,8 +951,6 @@ class CardDragDropSystem {
         if (staged && faceDownCard && this.remainingAllowances().flips > 0) {
             faceDownCard.setAttribute('tabindex', '0');
         }
-        // Enter/Space flipping for focused face-down holograms is forward-scoped
-        // to focus-and-hover-fixes/lane-card-focus-flip-keys/.
         return staged;
     }
 
@@ -1196,7 +1233,8 @@ class CardDragDropSystem {
 
     onFaceDownCardClick(e, laneValue) {
         if (this.remainingAllowances().flips <= 0) return;
-        const card = e.currentTarget ?? e.target.closest('.cardContainer');
+        const card = (e.currentTarget instanceof Element ? e.currentTarget : null)
+            ?? e.target.closest('.cardContainer');
         if (!card || card.closest('.keyboard-preview')) return;
         const cardId = card.querySelectorAll('input[name="card_id"]')[0].value;
         const sourceLane = card.dataset.sourceLane ?? '0';
