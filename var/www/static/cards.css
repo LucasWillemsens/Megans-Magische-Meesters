@@ -1202,7 +1202,7 @@ ul.cardRow{
     transform: rotate(var(--card-rotation, 0deg));
 }
 
-/* TODO fix */
+/* Offsets extend past MAX_CARDS_PER_ROW in laneStacking.js as defense against JS cap changes. */
 .playingCards ul.cardRow li.cardContainer:nth-child(1) { left: 0; z-index: 1; }
 .playingCards ul.cardRow li.cardContainer:nth-child(2) { left: 3.2em; z-index: 2; }
 .playingCards ul.cardRow li.cardContainer:nth-child(3) { left: 4.6em; z-index: 3; }

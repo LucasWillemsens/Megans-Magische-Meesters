@@ -1838,6 +1838,18 @@ class BattleFlowTests(TestCase):
         self.assertIn('li.cardContainer:nth-child(20)', cards_css)
         self.assertIn('ul.cardRow + ul.cardRow.overflow-row', cards_css)
 
+        cap_match = re.search(r'MAX_CARDS_PER_ROW = (\d+)', stacking_js)
+        defined_offsets = re.findall(
+            r'ul\.cardRow li\.cardContainer:nth-child\((\d+)\)', cards_css
+        )
+        self.assertIsNotNone(cap_match, "MAX_CARDS_PER_ROW missing from laneStacking.js")
+        self.assertTrue(defined_offsets, "No cardContainer nth-child offsets in cards.css")
+        self.assertLessEqual(
+            int(cap_match.group(1)),
+            max(int(offset) for offset in defined_offsets),
+            "MAX_CARDS_PER_ROW exceeds highest nth-child offset in cards.css"
+        )
+
 
 class ChallengeFormParser(HTMLParser):
     def __init__(self):
