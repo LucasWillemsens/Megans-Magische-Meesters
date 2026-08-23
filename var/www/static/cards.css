@@ -581,7 +581,7 @@
 }
 
 .playingCards .hand-scroll {
-    --hand-fan-width: calc(13.2em + 5.25rem);
+    --hand-fan-width: calc(8.8em + 5.25rem);
     display: flex;
     flex: 1 1 60%;
     align-items: flex-end;
@@ -621,10 +621,6 @@
 .playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(7)  { left: 6.6em; }
 .playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(8)  { left: 7.7em; }
 .playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(9)  { left: 8.8em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(10) { left: 9.9em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(11) { left: 11em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(12) { left: 12.1em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(13) { left: 13.2em; }
 
 /* Per-position transforms are scoped to each fan so every group repeats the
    same readable rotation pattern. */
@@ -638,10 +634,6 @@
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(7) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(8) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(9) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(10) { --hand-tx: -1.7em; --hand-ty: 1em; --hand-rot: 39deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(11) { --hand-tx: -2.2em; --hand-ty: 1.5em; --hand-rot: 48deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(12) { --hand-tx: -2.8em; --hand-ty: 2.1em; --hand-rot: 57deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(13) { --hand-tx: -3.5em; --hand-ty: 2.8em; --hand-rot: 66deg; }
 
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer,
 .playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) {

@@ -636,7 +636,7 @@ function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
     return rows[rowIndex];
 }
 
-const HAND_FAN_SIZE = 13;
+const HAND_FAN_SIZE = 9;
 
 function handContainersForBoard(board) {
     if (!board) return [];

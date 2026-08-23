@@ -1,0 +1,45 @@
+Extend keyboard card selection: shrink hand fans to 9 cards, add +/- stepping and Backspace
+reset plus last-digit fallback, and make confirming a selection stage a faceDown hologram
+identical to drag-and-drop plays.
+
+Subgoals (land in this order):
+1. `nine-card-fans/` — HAND_FAN_SIZE 13→9 in backend + animation JS; fan width CSS;
+   test updates.
+2. `stepping-and-buffer-keys/` — +/- step through eligible cards (wrap), Backspace resets
+   like 0, last-digit fallback for oversized buffers.
+3. `facedown-confirm-staging/` — confirmKeyboardSelection() stages a faceDown hologram
+   with the one-shot flip listener (same as drag plays); focusable with flip affordance
+   only while flips remain.
+
+Key codebase facts (verified):
+- `HAND_FAN_SIZE = 13` at `MMM/views.py` line 26 and
+  `var/www/static/loadingAnimations.js` line 639.
+- `onKeyboardKeyDown()` handles digits 1–9 (buffered `_noZeroOrdinal`), arrows,
+  Enter/Space confirm, 0/Escape cancel; no +/-/Backspace today; oversized buffers just
+  fail selection silently and KEEP the buffer.
+- `confirmKeyboardSelection()` currently marks the face-up preview hologram
+  `keyboard-staged` and calls `_stagePlay(..., preserveKeyboardPreview=true)`; drag plays
+  instead build a faceDown hologram via `_buildPlayHologram(card, laneValue)` whose
+  non-preview branch attaches the one-shot `onFaceDownCardClick` listener.
+- Fan CSS: `--hand-fan-width: calc(13.2em + 5.25rem)` (cards.css line 584); nth-child
+  left offsets run 1–13; rotateHand translation table runs 1–13 (rows 10–13 become unused
+  at fan size 9 but are harmless).
+
+Acceptance criteria (leaf-level, detailed per subgoal):
+- [ ] Hand fans hold 9 cards; the 10th starts a second fan; all fan-size tests updated.
+- [ ] `+`/`-` step the selection next/previous through eligible cards (wrap-around);
+      documented behavior when no selection is active.
+- [ ] Backspace cancels selection and clears the buffer, same as 0.
+- [ ] Buffer "23" with 4 eligible cards selects card 3; "5"/"25" with 4 cards drops the
+      selection like pressing 0.
+- [ ] Confirming stages a faceDown hologram identical to drag-and-drop plays: clickable
+      to flip face up while flips remain, focusable, no flip affordance once flips are
+      exhausted.
+- [ ] Existing arrow/Enter/Space/Escape/digit behaviors unchanged; cookie semantics
+      unchanged (single `createupdateCookie` call on confirm via `_stagePlay`, none during
+      selection).
+
+Dependencies:
+- after `handcard-action-merge/` (shares `cardDragDrop.js`, hand markup, selection
+  styling) and after `cardrow-overflow-fix/` landed (multi-row DOM stability — done).
+- gate for `focus-and-hover-fixes/`.

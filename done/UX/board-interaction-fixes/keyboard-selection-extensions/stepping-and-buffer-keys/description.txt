@@ -1,0 +1,61 @@
+Add +/- selection stepping, Backspace reset, and last-digit fallback to
+`onKeyboardKeyDown()`. Subgoal 2 of 3 of `keyboard-selection-extensions/`; requires
+`nine-card-fans/` (so eligible indices are 1–9) and builds on the click-to-select digit
+buffer semantics from `handcard-action-merge`.
+
+Current state (`var/www/static/cardDragDrop.js onKeyboardKeyDown()`):
+- Digits 1–9 append to `keyboardSelection.digitBuffer`; ordinal comes from
+  `_noZeroOrdinal(buffer)` (base-9 style accumulation: "23" → 2*9+3 = 21).
+- If ordinal > eligible count the function returns WITHOUT selecting and keeps the buffer.
+- No `+`/`-` handling; Backspace is unhandled (browser history risk is mitigated only by
+  nothing — currently Backspace would navigate back if pressed outside inputs!).
+
+Implementation:
+1. `+` / `-` stepping (handle after the Enter/Space and arrow branches, before digit
+   handling):
+   - Accept keys `'+'` and `'='` (and `event.code === 'NumpadAdd'`) as step-forward;
+     `'-'`/`'_'` (`NumpadSubtract`) as step-back.
+   - Guard with `_keyboardActionAllowed(event)` and `event.repeat` allowed? Choose:
+     ALLOW repeat for held-key stepping (feels like cycling) — document the choice here:
+     repeat is intentionally permitted for +/- only.
+   - With an active selection: find current index in `playableKeyboardCards()` (match by
+     identity against `keyboardSelection.selectedCard`; if missing, treat as index -1),
+     step ±1 with WRAP-AROUND (documented choice: wrap, matching arrow-lane wrap), and
+     re-select via `selectKeyboardCard(eligible[newIndex], String(newIndex + 1))`
+     (selectKeyboardCard already clears the previous hologram). No-op if fewer than 2
+     eligible cards.
+   - With NO active selection: `+` selects card 1; `-` is a no-op (documented choice).
+2. Backspace reset: handle `key === 'Backspace'` alongside the existing `'0'` branch using
+   the same `_cancelKeyboardSelectionFromEvent(event)` guard path (which calls
+   `event.preventDefault()` — this also stops accidental history navigation).
+3. Last-digit fallback (digit branch): when `_noZeroOrdinal(digitBuffer)` exceeds
+   `eligibleCards.length`:
+   - Retry with only the last digit (`digitBuffer.slice(-1)`); if that ordinal is within
+     range, select `eligibleCards[ordinal - 1]` with digitBuffer set to just that digit
+     (e.g. "23" with 4 cards → selects card 3, buffer becomes "3").
+   - If even the last digit is out of range ("5" or "25" with 4 cards), drop the selection
+     like pressing 0: call `this.clearKeyboardSelection()` (clears buffer AND preview) and
+     swallow the event.
+   - In-range multi-digit buffers keep the existing `_noZeroOrdinal` value unchanged.
+4. Update static contract coverage in `MMM/tests.py`: extend
+   `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks` (or add a
+   sibling test) asserting the new handler strings exist: `'+'`/step handling,
+   `'Backspace'`, `slice(-1)` fallback, and that Backspace shares the cancel path
+   (`_cancelKeyboardSelectionFromEvent`).
+
+Files to modify:
+- var/www/static/cardDragDrop.js (onKeyboardKeyDown only)
+- MMM/tests.py (contract test extension)
+
+Acceptance criteria:
+- [ ] `+` steps to next eligible card, `-` to previous, wrapping at both ends; held key
+      cycles; selection preview follows the moving card.
+- [ ] `+` with empty selection picks card 1; `-` with empty selection does nothing.
+- [ ] Backspace cancels selection/buffer identically to 0 and does not navigate back.
+- [ ] Buffer "23" with 4 eligible cards selects card 3 (buffer resets to "3"); "25" with 4
+      cards clears like 0; "23" with 21+ eligible still resolves via base-9 ordinal.
+- [ ] Arrow lanes, Enter/Space confirm, Escape/0 cancel, plain digits behave as before.
+- [ ] Full test suite passes.
+
+Dependencies:
+- within leaf: requires `nine-card-fans/`; before `facedown-confirm-staging/`.

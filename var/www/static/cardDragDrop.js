@@ -708,7 +708,7 @@ class CardDragDropSystem {
         }
         const activeSelection = this.keyboardSelection.selectedCard || this.keyboardSelection.digitBuffer;
 
-        if (key === '0') {
+        if (key === '0' || key === 'Backspace') {
             if (!activeSelection) return;
             this._cancelKeyboardSelectionFromEvent(event);
             return;
@@ -743,6 +743,29 @@ class CardDragDropSystem {
             return;
         }
 
+        // Held +/- repeats intentionally cycle through the fan, unlike other keys.
+        const stepDirection =
+            (key === '+' || key === '=' || event.code === 'NumpadAdd') ? 1 :
+            ((key === '-' || key === '_' || event.code === 'NumpadSubtract') ? -1 : 0);
+        if (stepDirection !== 0) {
+            if (!this._keyboardActionAllowed(event)) return;
+            const eligibleCards = this.playableKeyboardCards();
+            let stepped = false;
+            if (!activeSelection) {
+                if (stepDirection > 0 && eligibleCards.length > 0) {
+                    stepped = this.selectKeyboardCard(eligibleCards[0], '1');
+                }
+            } else if (eligibleCards.length >= 2) {
+                const currentIndex = eligibleCards.indexOf(this.keyboardSelection.selectedCard);
+                const nextIndex =
+                    (((currentIndex + stepDirection) % eligibleCards.length) +
+                        eligibleCards.length) % eligibleCards.length;
+                stepped = this.selectKeyboardCard(eligibleCards[nextIndex], String(nextIndex + 1));
+            }
+            if (stepped) event.preventDefault();
+            return;
+        }
+
         if (event.repeat || !/^[1-9]$/.test(key) || !this._keyboardActionAllowed(event)) return;
 
         const eligibleCards = this.playableKeyboardCards();
@@ -752,9 +775,18 @@ class CardDragDropSystem {
         const digitBuffer = `${this.keyboardSelection.digitBuffer}${key}`;
         this.keyboardSelection.digitBuffer = digitBuffer;
         const ordinal = this._noZeroOrdinal(digitBuffer);
-        if (!ordinal || ordinal > eligibleCards.length) return;
-
-        this.selectKeyboardCard(eligibleCards[ordinal - 1], digitBuffer);
+        if (!ordinal) return;
+        if (ordinal <= eligibleCards.length) {
+            this.selectKeyboardCard(eligibleCards[ordinal - 1], digitBuffer);
+            return;
+        }
+        const lastDigitBuffer = digitBuffer.slice(-1);
+        const lastDigitOrdinal = this._noZeroOrdinal(lastDigitBuffer);
+        if (lastDigitOrdinal && lastDigitOrdinal <= eligibleCards.length) {
+            this.selectKeyboardCard(eligibleCards[lastDigitOrdinal - 1], lastDigitBuffer);
+            return;
+        }
+        this.clearKeyboardSelection();
     }
 
     _keyboardHologramRow(laneValue) {
@@ -855,11 +887,12 @@ class CardDragDropSystem {
         }
 
         const selection = this.keyboardSelection;
+        const card = selection.selectedCard;
         if (
-            !selection.selectedCard ||
+            !card ||
             !selection.hologram ||
             !selection.hologram.parentNode ||
-            !this._isPlayableKeyboardCard(selection.selectedCard) ||
+            !this._isPlayableKeyboardCard(card) ||
             this._keyboardTransitionActive() ||
             this.remainingAllowances().plays <= 0
         ) {
@@ -867,15 +900,21 @@ class CardDragDropSystem {
             return false;
         }
 
-        selection.hologram.classList.add('keyboard-staged');
-        selection.hologram.dataset.keyboardStaged = 'true';
-        return this._stagePlay(
-            selection.selectedCard,
-            selection.currentLane,
-            selection.hologram,
-            true,
-            selection,
-        );
+        selection.hologram.remove();
+        const hologram = this._buildPlayHologram(card, requestedLane, false, selection.rotation);
+        this._keyboardHologramRow(requestedLane).appendChild(hologram);
+        hologram.classList.add('keyboard-staged');
+        hologram.dataset.keyboardStaged = 'true';
+
+        const staged = this._stagePlay(card, requestedLane, hologram, true, selection);
+
+        const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
+        if (staged && faceDownCard && this.remainingAllowances().flips > 0) {
+            faceDownCard.setAttribute('tabindex', '0');
+        }
+        // Enter/Space flipping for focused face-down holograms is forward-scoped
+        // to focus-and-hover-fixes/lane-card-focus-flip-keys/.
+        return staged;
     }
 
     clearKeyboardSelection({removePreview = true} = {}) {

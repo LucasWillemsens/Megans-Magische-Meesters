@@ -186,15 +186,15 @@ class BattleFlowTests(TestCase):
         self.assertIn("0p", content)
         self.assertIn("0f", content)
 
-    def test_hand_fans_preserve_order_and_repeat_every_thirteen_cards(self):
+    def test_hand_fans_preserve_order_and_repeat_every_nine_cards(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         for hand_count, expected_fan_sizes in (
-            (13, [13]),
-            (14, [13, 1]),
-            (26, [13, 13]),
-            (27, [13, 13, 1]),
+            (9, [9]),
+            (10, [9, 1]),
+            (18, [9, 9]),
+            (19, [9, 9, 1]),
         ):
             self._replace_hand_with_count(self.human_participant, hand_count)
             response = self.client.get(board_url)
@@ -280,7 +280,7 @@ class BattleFlowTests(TestCase):
             re.DOTALL,
         )
 
-        self.assertEqual([fan.count("cardContainer") for fan in fan_matches], [13, 1])
+        self.assertEqual([fan.count("cardContainer") for fan in fan_matches], [9, 5])
         for fan in fan_matches:
             self.assertEqual(fan.count("blocked"), fan.count("cardContainer"))
             self.assertEqual(
@@ -1625,7 +1625,7 @@ class BattleFlowTests(TestCase):
             '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer',
             drag_js,
         )
-        self.assertIn('HAND_FAN_SIZE = 13', loading_js)
+        self.assertIn('HAND_FAN_SIZE = 9', loading_js)
         self.assertIn('handSourceForOrdinal', loading_js)
         self.assertNotIn("document.querySelector('.playerScreen .deckHand .hand')", loading_js)
 
@@ -1642,10 +1642,48 @@ class BattleFlowTests(TestCase):
         self.assertIn('playableKeyboardCards', drag_js)
         self.assertIn('input[name="card_id"]', drag_js)
         self.assertIn('_noZeroOrdinal', drag_js)
-        self.assertIn("if (key === '0')", drag_js)
+        self.assertIn("if (key === '0' || key === 'Backspace') {", drag_js)
         self.assertIn('keyboard-preview', drag_js)
         self.assertIn('clearKeyboardSelection', drag_js)
         self.assertIn('createupdateCookie', drag_js)
+
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    _keyboardHologramRow(laneValue)')
+        ]
+        backspace_branch_start = keydown_code.index("if (key === '0' || key === 'Backspace') {")
+        backspace_branch = keydown_code[
+            backspace_branch_start:
+            keydown_code.index('}', backspace_branch_start) + 1
+        ]
+        self.assertIn('this._cancelKeyboardSelectionFromEvent(event);', backspace_branch)
+        self.assertIn('_noZeroOrdinal(digitBuffer)', keydown_code)
+        self.assertIn('digitBuffer.slice(-1)', keydown_code)
+        self.assertLess(
+            keydown_code.index('digitBuffer.slice(-1)'),
+            keydown_code.rindex('this.clearKeyboardSelection();'),
+        )
+
+        arrow_branch_index = keydown_code.index('ArrowDown: 1')
+        step_block_start = keydown_code.index('const stepDirection =')
+        digit_guard_index = keydown_code.index("event.repeat || !/^[1-9]$/.test(key)")
+        self.assertLess(arrow_branch_index, step_block_start)
+        self.assertLess(step_block_start, digit_guard_index)
+        self.assertIn("event.code === 'NumpadAdd'", keydown_code)
+        self.assertIn("event.code === 'NumpadSubtract'", keydown_code)
+        step_block = keydown_code[step_block_start:digit_guard_index]
+        self.assertNotIn('event.repeat', step_block)
+        self.assertIn("key === '+'", step_block)
+        self.assertIn("key === '='", step_block)
+        self.assertIn("key === '-'", step_block)
+        self.assertIn("key === '_'", step_block)
+        self.assertIn('(currentIndex + stepDirection) % eligibleCards.length', step_block)
+        self.assertIn('eligibleCards.length >= 2', step_block)
+        self.assertIn("selectKeyboardCard(eligibleCards[0], '1')", step_block)
+        self.assertIn(
+            'selectKeyboardCard(eligibleCards[nextIndex], String(nextIndex + 1))',
+            step_block,
+        )
         selection_code = drag_js[
             drag_js.index('    selectKeyboardCard(card'):
             drag_js.index('    onCardDragStart(e)')
@@ -1740,7 +1778,29 @@ class BattleFlowTests(TestCase):
         ]
         self.assertNotIn('onFaceDownCardClick', keyboard_preview_code)
         self.assertIn("hologram.classList.add('keyboard-preview')", drag_js)
-        self.assertIn("hologram.classList.add('keyboard-staged')", drag_js)
+
+        confirm_code = drag_js[
+            drag_js.index('    confirmKeyboardSelection(laneValue'):
+            drag_js.index('    clearKeyboardSelection({removePreview')
+        ]
+        self.assertIn('moveKeyboardSelection(requestedLane)', confirm_code)
+        self.assertIn('selection.hologram.remove()', confirm_code)
+        self.assertIn(
+            'this._buildPlayHologram(card, requestedLane, false, selection.rotation)',
+            confirm_code,
+        )
+        self.assertIn('this._keyboardHologramRow(requestedLane)', confirm_code)
+        self.assertIn("hologram.classList.add('keyboard-staged')", confirm_code)
+        self.assertIn("hologram.dataset.keyboardStaged = 'true'", confirm_code)
+        self.assertNotIn("hologram.classList.add('keyboard-preview')", confirm_code)
+        self.assertIn(
+            'this._stagePlay(card, requestedLane, hologram, true, selection)',
+            confirm_code,
+        )
+        self.assertNotIn('createupdateCookie', confirm_code)
+        self.assertIn(".querySelector('.cardContainer.faceDown')", confirm_code)
+        self.assertIn("setAttribute('tabindex', '0')", confirm_code)
+        self.assertIn('this.remainingAllowances().flips > 0', confirm_code)
 
     def test_end_turn_hold_contract_reuses_guard_timer_and_indicator(self):
         import os

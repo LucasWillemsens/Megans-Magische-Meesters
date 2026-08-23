@@ -23,7 +23,7 @@ from .models import (
 BASE_URL = "http://127.0.0.1:8000/"
 TURN_PHASE_COOKIE = "turn_phase"
 DECK_BLOCK_SIZE = 32
-HAND_FAN_SIZE = 13
+HAND_FAN_SIZE = 9
 OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
 
 def index(request):
