@@ -699,16 +699,39 @@ function insertHandClone(source, clone) {
 function duplicateCard(element, lane, ordinal)
 {
     let laneElement  = null;
+    const enemyBoard = element.closest('.enemyBoard');
     const sourceLane = Number.parseInt(lane, 10);
     const cardsPerRow = 5; // Fallback when LaneCardStacking has not stored cards-per-row
     const duplicate = element.cloneNode(true);
     duplicate.classList.add('duplicate');
-    const enemyBoard = element.closest('.enemyBoard');
+    if (sourceLane < 0) {
+        const deckElement = activeDeckForBoard(enemyBoard ?? document.querySelector('.playerBoard'));
+        if (!deckElement) return null;
+        if (!enemyBoard) {
+            duplicate.classList.add('faceDown');
+            const innerCard = duplicate.querySelector('.card');
+            if (innerCard) {
+                innerCard.classList.add('back');
+                innerCard.replaceChildren();
+            }
+        }
+        const topStackCard = deckElement.querySelector('li:last-of-type');
+        const stackRect = (topStackCard ?? deckElement).getBoundingClientRect();
+        duplicate.style.position = 'fixed';
+        duplicate.style.left = `${stackRect.left}px`;
+        duplicate.style.top = `${stackRect.top}px`;
+        duplicate.style.width = `${stackRect.width}px`;
+        duplicate.style.height = `${stackRect.height}px`;
+        document.body.appendChild(duplicate);
+        const originalRect = element.getBoundingClientRect();
+        const duplicateRect = duplicate.getBoundingClientRect();
+        duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
+        duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);
+        return duplicate;
+    }
     if (enemyBoard) {
         const enemyLaneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
-        if (sourceLane < 0) {
-            laneElement = activeDeckForBoard(enemyBoard);
-        } else if (sourceLane === 0) {
+        if (sourceLane === 0) {
             const handSource = handSourceForOrdinal(enemyBoard, ordinal);
             if (handSource) insertHandClone(handSource, duplicate);
         } else if (enemyLaneNames[sourceLane]) {
@@ -719,15 +742,7 @@ function duplicateCard(element, lane, ordinal)
         }
     } else {
         const playerBoard = document.querySelector('.playerBoard');
-        if (sourceLane < 0) {
-            laneElement = activeDeckForBoard(document.querySelector('.playerBoard'));
-            duplicate.classList.add('faceDown');
-            const innerCard = duplicate.querySelector('.card');
-            if (innerCard) {
-                innerCard.classList.add('back');
-                innerCard.replaceChildren();
-            }
-        } else switch (sourceLane) {
+        switch (sourceLane) {
             case 0: {
                 const handSource = handSourceForOrdinal(playerBoard, ordinal);
                 if (handSource) insertHandClone(handSource, duplicate);
@@ -768,19 +783,12 @@ function duplicateCard(element, lane, ordinal)
         } else {
             laneElement.appendChild(duplicate);
         }
-        const originalRect = element.getBoundingClientRect();
-        const duplicateRect = duplicate.getBoundingClientRect();
-        if (sourceLane > 0){
-            duplicate.classList.add('flipFaceUp');
-            duplicate.classList.add('faceDown');
-            const innerCard = duplicate.querySelector('.card');
-            if (innerCard) {
-                innerCard.classList.add('back');
-                innerCard.replaceChildren();
-            }
-        } else{
-            duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);
-            duplicate.style.setProperty('--move-y', `${originalRect.top - duplicateRect.top}px`);
+        duplicate.classList.add('flipFaceUp');
+        duplicate.classList.add('faceDown');
+        const innerCard = duplicate.querySelector('.card');
+        if (innerCard) {
+            innerCard.classList.add('back');
+            innerCard.replaceChildren();
         }
         return duplicate;
     }

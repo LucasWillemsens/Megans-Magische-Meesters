@@ -2099,6 +2099,40 @@ class BattleFlowTests(TestCase):
             "MAX_CARDS_PER_ROW exceeds highest nth-child offset in cards.css"
         )
 
+    def test_deck_draw_animation_does_not_insert_into_deck(self):
+        """Deck draws overlay the pile via fixed positioning instead of shifting it."""
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        duplicate_card = _extract_js_brace_block(loading_js, 'function duplicateCard(')
+        deck_branch = _extract_js_brace_block(duplicate_card, 'if (sourceLane < 0)')
+
+        self.assertNotIn('insertBefore', deck_branch)
+        self.assertNotIn('laneElement.appendChild', deck_branch)
+        self.assertEqual(deck_branch.count('appendChild'), 1)
+        self.assertIn('document.body.appendChild', deck_branch)
+        self.assertIn("'li:last-of-type'", deck_branch)
+        self.assertIn('getBoundingClientRect', deck_branch)
+        self.assertIn("position = 'fixed'", deck_branch)
+        self.assertIn('--move-x', deck_branch)
+
+
+def _extract_js_brace_block(source, opener):
+    """Return source from opener through its balanced closing brace."""
+    start = source.index(opener)
+    depth = 0
+    for index in range(source.index('{', start), len(source)):
+        if source[index] == '{':
+            depth += 1
+        elif source[index] == '}':
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    raise ValueError(f"Unbalanced braces after {opener!r}")
+
 
 class ChallengeFormParser(HTMLParser):
     def __init__(self):
