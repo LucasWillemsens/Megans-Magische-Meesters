@@ -349,7 +349,7 @@ class loadingAnimationsSystem {
      */
     _makeCardClone() {
         const li = document.createElement('li');
-        li.className = 'cardContainer faceDown';
+        li.className = 'cardContainer faceDown duplicate-deck-flight';
         const div = document.createElement('div');
         div.className = 'card back smallCard';
         li.appendChild(div);
@@ -707,6 +707,7 @@ function duplicateCard(element, lane, ordinal)
     if (sourceLane < 0) {
         const deckElement = activeDeckForBoard(enemyBoard ?? document.querySelector('.playerBoard'));
         if (!deckElement) return null;
+        duplicate.classList.add('duplicate-deck-flight');
         if (!enemyBoard) {
             duplicate.classList.add('faceDown');
             const innerCard = duplicate.querySelector('.card');
@@ -716,7 +717,7 @@ function duplicateCard(element, lane, ordinal)
             }
         }
         const topStackCard = deckElement.querySelector('li:last-of-type');
-        const stackRect = (topStackCard ?? deckElement).getBoundingClientRect();
+        const stackRect = (topStackCard?.querySelector('.card') ?? topStackCard ?? deckElement).getBoundingClientRect();
         duplicate.style.position = 'fixed';
         duplicate.style.left = `${stackRect.left}px`;
         duplicate.style.top = `${stackRect.top}px`;

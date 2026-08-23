@@ -240,7 +240,7 @@
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
-                            <li class="cardContainer {{ card.cssClass }}" tabindex="0" data-card-id="{{ card.id }}"
+                            <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
                                 title="{{ card.card.title }} of {{ player.name }}"
                                 style="--card-rotation: {{ trusted_card_rotation }}deg;">
                                 <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
@@ -315,7 +315,7 @@
             <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
                 {% if handFan %}
                     {% for card in handFan %}
-                <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true" tabindex="-1"{% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
+                <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true" tabindex="0"{% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
                     data-source-ordinal="{{ card.state.laneOrdinal }}">
                     <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
                         {% if card.card.artSource == "static" %}

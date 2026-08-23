@@ -1,0 +1,55 @@
+Trusted cards must not be keyboard-focusable: remove `tabindex="0"` from the own-board
+trustedCards row in the board template (regression from `lane-card-focus-flip-keys`,
+which added tabindex to ALL own lane cardContainers). Trusted cards are settled board
+state — they are never playable, flippable, or selectable, so a Tab stop on them is dead
+weight. The flippable `title="cards"` row KEEPS its `tabindex="0"`.
+
+Current state (verified 2026-08-23):
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` line 243: every trusted card li renders
+  `<li class="cardContainer {{ card.cssClass }}" tabindex="0" data-card-id="..." ...>`
+  inside `<ul class="cardRow" title="trustedCards">` (line 240).
+- The enemy trustedCards row (template line 127) has no tabindex — only the player's own
+  row is affected.
+- The own flippable row containers keep `tabindex="0"` at lines 180 (faceDown) and
+  209 (revealed) — DO NOT touch those.
+- No JS depends on trustedCards focusability: `flipKeyboardFocusedCard()` /
+  `_keyboardFlipTarget()` (`var/www/static/cardDragDrop.js` ~804-829) only target
+  `.cardContainer.faceDown`, and trusted cards are always revealed; `hoverCooldown.js`
+  drives `.card-hover` from mousemove, not focus; `laneStacking.js` reflows trustedCards
+  rows for layout only and reads no tabindex.
+- Test pinning current behavior: `MMM/tests.py`
+  `test_enemy_deck_and_hand_have_no_interactive_hooks` (~lines 1189-1199) asserts that
+  EVERY own-board `li class="cardContainer..."` tag carries `tabindex="0"` — including
+  trustedCards. This assertion must be narrowed, not just flipped.
+
+Implementation:
+1. `MMM/jinja2/MMM/battle/viewBoard.jinja2` line 243: delete the `tabindex="0"`
+   attribute from the trusted-card li opening tag (keep `data-card-id`, `title`,
+   rotation style and classes exactly as-is).
+2. `MMM/tests.py` `test_enemy_deck_and_hand_have_no_interactive_hooks`: replace the
+   blanket "every own-board cardContainer has tabindex=0" loop with two scoped checks:
+   a. Extract the playerBoard's `cards` rows (`<ul class="cardRow" title="cards">...</ul>`
+      blocks, server-rendered only) and assert each `li class="cardContainer..."` tag in
+      them still has `tabindex="0"`.
+   b. Extract the trustedCards rows (`<ul class="cardRow" title="trustedCards">...</ul>`)
+      and assert NO `li class="cardContainer..."` tag in them contains `tabindex`.
+   c. Keep the existing enemy-section "no tabindex anywhere" assertion untouched.
+3. Optional guard: extend the test (or add a sibling) asserting the trustedCards li tags
+   keep `data-card-id` so the row stays test-addressable after the attribute removal.
+
+Files to create/modify:
+- MMM/jinja2/MMM/battle/viewBoard.jinja2 (remove tabindex="0" at line 243)
+- MMM/tests.py (narrow the tabindex assertions in
+  test_enemy_deck_and_hand_have_no_interactive_hooks; optional data-card-id guard)
+
+Acceptance criteria:
+- [ ] Trusted cards in the own board's trustedCards rows render without any tabindex
+      attribute; Tab never stops on them.
+- [ ] Own face-down and revealed lane cards in the `title="cards"` rows remain
+      `tabindex="0"` and Enter/Space flip still works (keyboard flip path unchanged).
+- [ ] Enemy boards remain fully unfocusable (existing assertion still green).
+- [ ] Updated/extended tests pass; full suite `python3 manage.py test` green.
+
+Dependencies:
+- none (independent template one-liner + test update). Land before or together with
+  `../hand-tab-focus/` to keep template/test churn in one pass; no code overlap.

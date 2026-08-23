@@ -237,7 +237,7 @@ class CardDragDropSystem {
         } else {
             this.playerHandCards().forEach(card => {
                 if (!card.hasAttribute('tabindex') && this._isPlayableKeyboardCard(card)) {
-                    card.setAttribute('tabindex', '-1');
+                    card.setAttribute('tabindex', '0');
                 }
             });
         }
@@ -946,6 +946,8 @@ class CardDragDropSystem {
         hologram.dataset.keyboardStaged = 'true';
 
         const staged = this._stagePlay(card, requestedLane, hologram, true, selection);
+        hologram.dataset.stagedForCardId = selection.cardId;
+        if (staged) this._mirrorStagedFocus(card, hologram);
 
         const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
         if (staged && faceDownCard && this.remainingAllowances().flips > 0) {
@@ -974,6 +976,13 @@ class CardDragDropSystem {
 
     cancelKeyboardSelection() {
         this.clearKeyboardSelection();
+    }
+
+    _mirrorStagedFocus(card, hologram) {
+        const ghostCard = hologram.querySelector('.cardContainer');
+        if (!ghostCard) return;
+        card.addEventListener('focusin', () => ghostCard.classList.add('keyboard-selected'));
+        card.addEventListener('focusout', () => ghostCard.classList.remove('keyboard-selected'));
     }
 
     onHandCardClick(event) {
@@ -1075,6 +1084,7 @@ class CardDragDropSystem {
 
         card.classList.add('ghost');
         card.setAttribute('draggable', 'false');
+        card.removeAttribute('tabindex');
         this._addHoverArrow(card, hologram);
         this.staged.plays++;
         this.applyTurnAffordances();
@@ -1098,6 +1108,10 @@ class CardDragDropSystem {
             this._removePreviewControls(copycard);
         } else {
             copycard.classList.add('faceDown');
+            copycard.classList.remove('keyboard-selected');
+            copycard.removeAttribute('aria-selected');
+            delete copycard.dataset.keyboardSelected;
+            copycard.removeAttribute('tabindex');
             const cardFace = copycard.querySelector(':scope > .card');
             if (cardFace) cardFace.classList.add('back');
             const button = copycard.querySelector('button');

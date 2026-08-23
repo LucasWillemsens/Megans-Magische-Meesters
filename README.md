@@ -192,12 +192,120 @@ Any setting like this should be stored as a rule in a new database table called 
 
 Implement the remaining UX and accessibility improvements for the battle, challenge, and player pages.
 
+#### Board Interaction Fixes
+
+Fixes for board interaction regressions and polish, ordered so earlier leaves land first.
+
+- [~] Close-out of the lane cardRow overflow fix: verify the already-implemented multi-row
+splitting behavior and remove the leftover stale comment. The original bug (rows merging
+back into one, cards overlapping at left:0 beyond nth-child(15), trustedCards row being
+consumed) is FIXED in the current codebase. _(Close-out of the lane cardRow overflow fix: verify the already-implemented multi-row)_
+- [~] Close-out of the deck indicator restyle: verify the already-implemented inert deck chip
+design and do a visual QA pass. The original problem (indicators rendered as broken-looking
+5rem x 3rem faces pushed outside the deck stack by negative offsets, "this is broken"
+comment in cards.css) is FIXED in the current codebase. _(Close-out of the deck indicator restyle: verify the already-implemented inert deck chip)_
+- [~] Stop the deck stack from visually jumping when a draw animation runs: the draw clone must
+not be inserted into the active deck `<ul>`. _(Stop the deck stack from visually jumping when a draw animation runs: the draw clone must)_
+
+##### Compact Active Challenges
+
+Make the active challenges list on the player page take less vertical space, show the
+result when a game is over, and link own games straight to the board (the board redirects
+to the result page when finished).
+
+- [~] Compact the challenge list styles and update the challenge-page tests for the new board
+URLs, result badge, and tighter layout. Subgoal 3 of 3 of `compact-active-challenges/`;
+land last in the leaf (and last in the whole goal). _(Compact the challenge list styles and update the challenge-page tests for the new board)_
+- [~] Compact the challenge rows in the player page template, add a result badge for finished
+games, and point own games straight at the board URL. Subgoal 2 of 3 of
+`compact-active-challenges/`; consumes the dicts built by `view-challenge-enrichment/`. _(Compact the challenge rows in the player page template, add a result badge for finished)_
+- [~] Replace the N+1 plain challenge list in `viewPlayer()` with enriched, prefetched challenge
+dicts carrying result and URL data. Subgoal 1 of 3 of `compact-active-challenges/`; land
+before the template/styles subgoals. _(Replace the N+1 plain challenge list in `viewPlayer()` with enriched, prefetched challenge)_
+
+##### Focus And Hover Fixes
+
+Fix focus behavior for unplayable handcards and the draw button, make own lane cardRow
+cards keyboard-focusable with Enter/Space flipping, and replace instant CSS-only hover
+with a mousemove-driven hover manager that enforces a 0.5s cooldown between hovered-card
+switches.
+
+- [~] Keep blocked/unplayable hand cards and the exhausted draw control out of the tab order and
+immune to hover/select affordances. Subgoal 1 of 3 of `focus-and-hover-fixes/`; requires
+`handcard-action-merge` (playable cards now carry `tabindex="-1"`). _(Keep blocked/unplayable hand cards and the exhausted draw control out of the tab order and)_
+- [~] Replace instant CSS-only hover with a JS-managed hover state driven by real mouse movement
+and a 0.5s cooldown between hovered-card switches, eliminating flicker when the pointer
+sweeps across overlapping cards. Subgoal 3 of 3 of `focus-and-hover-fixes/`; land last. _(Replace instant CSS-only hover with a JS-managed hover state driven by real mouse movement)_
+- [~] Make own lane cardRow cards keyboard-focusable with a visible focus ring/lift, and support
+Enter/Space to flip a focused face-down card (lane cards and staged holograms). Subgoal 2
+of 3 of `focus-and-hover-fixes/`; requires `blocked-and-draw-focus-hygiene/`. _(Make own lane cardRow cards keyboard-focusable with a visible focus ring/lift, and support)_
+
+##### Handcard Action Merge
+
+Remove the old "handcard action" (the per-card play form whose submit button plays a hand
+card to its own type lane on click) and merge hand-card interaction with number-key
+selection: selecting a card (via number keys or by clicking it) focuses it, and the orange
+selection styling is unified with regular focus styling.
+
+- [~] Remove the per-handcard play form/button from the board template and keep the data hooks
+the JS needs as bare hidden inputs. This is subgoal 1 of 3 of `handcard-action-merge/`;
+land it before `selection-focus-click-to-select/`. _(Remove the per-handcard play form/button from the board template and keep the data hooks)_
+- [~] Wire DOM focus into keyboard card selection and add click-to-select so clicking a playable
+hand card behaves exactly like typing its number. Subgoal 2 of 3 of
+`handcard-action-merge/`; requires `hand-markup-form-removal/` (tabindex="-1", bare hidden
+card_id/lane inputs). _(Wire DOM focus into keyboard card selection and add click-to-select so clicking a playable)_
+- [~] Unify the orange keyboard-selection styling with regular focus styling so a selected card
+looks exactly like a focused one. Subgoal 3 of 3 of `handcard-action-merge/`; land last —
+it depends on the focus wiring of `selection-focus-click-to-select/` (a selected card now
+receives DOM focus, so `:focus-within` styles already apply and the extra orange layer is
+redundant). _(Unify the orange keyboard-selection styling with regular focus styling so a selected card)_
+
+##### Keyboard Selection Extensions
+
+Extend keyboard card selection: shrink hand fans to 9 cards, add +/- stepping and Backspace
+reset plus last-digit fallback, and make confirming a selection stage a faceDown hologram
+identical to drag-and-drop plays.
+
+- [~] Make confirming a keyboard selection stage the same faceDown hologram as drag-and-drop
+plays, focusable and click-to-flip while flips remain. Subgoal 3 of 3 of
+`keyboard-selection-extensions/`; land last in the leaf. _(Make confirming a keyboard selection stage the same faceDown hologram as drag-and-drop)_
+- [~] Switch hand fans from 13 to 9 cards across backend, animation JS, and fan geometry CSS.
+Subgoal 1 of 3 of `keyboard-selection-extensions/`; land first so the +/- stepping of the
+next subgoal operates on 1–9 ordinals only. _(Switch hand fans from 13 to 9 cards across backend, animation JS, and fan geometry CSS.)_
+- [~] Add +/- selection stepping, Backspace reset, and last-digit fallback to
+`onKeyboardKeyDown()`. Subgoal 2 of 3 of `keyboard-selection-extensions/`; requires
+`nine-card-fans/` (so eligible indices are 1–9) and builds on the click-to-select digit
+buffer semantics from `handcard-action-merge`. _(Add +/- selection stepping, Backspace reset, and last-digit fallback to)_
+
+
+#### Board Qa Followups
+
+Post-QA follow-up fixes found while testing the board-interaction-fixes work
+(PR #24 branch). Four bugs, reported by the user on 2026-08-23:
+
+- [~] Fix the visually broken drawn-card deck->hand flight animation. Diagnose first (the
+breakage is a styling-context regression from `deck-stable-draw`, commit c0fa207), then
+repair WITHOUT regressing the stationary-deck-pile constraint. _(Fix the visually broken drawn-card deck->hand flight animation. Diagnose first (the)_
+- [~] Staged played-ghost holograms must not show stale focus/selection styling: strip the
+selection snapshot at clone time and let the ghost's highlight mirror its hand
+counterpart's LIVE focus state instead of being a frozen one. _(Staged played-ghost holograms must not show stale focus/selection styling: strip the)_
+- [~] Playable hand cards must be Tab-reachable: change the hand cardContainer from
+`tabindex="-1"` to `tabindex="0"` when plays remain, and teach `applyTurnAffordances()`
+to restore `"0"` instead of `"-1"`. Blocked hand cards (plays_left <= 0) stay
+non-focusable per the earlier blocked-and-draw-focus-hygiene rule. Keyboard number
+selection keeps working; Tab focus is an additional, equivalent entry point. _(Playable hand cards must be Tab-reachable: change the hand cardContainer from)_
+- [~] Trusted cards must not be keyboard-focusable: remove `tabindex="0"` from the own-board
+trustedCards row in the board template (regression from `lane-card-focus-flip-keys`,
+which added tabindex to ALL own lane cardContainers). Trusted cards are settled board
+state — they are never playable, flippable, or selectable, so a Tab stop on them is dead
+weight. The flippable `title="cards"` row KEEPS its `tabindex="0"`. _(Trusted cards must not be keyboard-focusable: remove `tabindex="0"` from the own-board)_
+
 #### Consistent Styling
 
 Make battle, player, and challenge-page presentation consistent without changing game rules.
 
 - [~] Repair challenge-form radio markup and preselect the first valid player, deck, and starting card. _(Repair challenge-form radio markup and preselect the first valid player, deck, and starting card.)_
-- [~] Fix hand-card vertical alignment and make card-type/footer content readable on every card. _(Fix hand-card vertical alignment and make card-type/footer content readable on every card.)_
+- [~] Fix hand-card vertical alignment and keep card-type/footer content anchored at the bottom of every card, exactly as before the UX rework. _(Fix hand-card vertical alignment and keep card-type/footer content anchored at the bottom of every card, exactly as before the UX rework.)_
 - [~] Give board controls truthful pointer and hover feedback for flip and draw actions. _(Give board controls truthful pointer and hover feedback for flip and draw actions.)_
 - [~] Assign every newly played card the next highest ordinal in its destination lane. _(Assign every newly played card the next highest ordinal in its destination lane.)_
 - [~] Render decks larger than 32 cards as a bounded active stack plus inert 32-card indicators. _(Render decks larger than 32 cards as a bounded active stack plus inert 32-card indicators.)_

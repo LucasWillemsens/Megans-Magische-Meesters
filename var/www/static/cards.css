@@ -176,7 +176,8 @@
     cursor: pointer;
 }
 
-.playingCards .card.back {
+.playingCards .card.back,
+.duplicate-deck-flight .card.back {
     text-indent: -4000px;
     background-color: #ccc;
     background-repeat: repeat;
@@ -1471,6 +1472,22 @@ ul.hand li.cardContainer > .card.smallCard::after{
     z-index: 999;
     transition: transform var(--move-duration, 0.45s) cubic-bezier(.2, .8, .2, 1);
     will-change: transform;
+}
+
+/* Deck-flight clones live on document.body, outside every .playingCards
+   subtree, so they must carry their own card sizing and back pattern. */
+.duplicate-deck-flight {
+    overflow: hidden;
+}
+
+.duplicate-deck-flight > .card.back {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
 }
 
 .duplicate.to-original {

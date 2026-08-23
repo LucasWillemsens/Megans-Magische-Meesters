@@ -81,6 +81,13 @@ li.cardContainer.keyboard-selected {
     to { transform: scaleX(1); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .shortcut-hold-loading::before {
+        transform: scaleX(1);
+        animation: none;
+    }
+}
+
 ul.hologramRow {
     position: relative;
     padding: 0;

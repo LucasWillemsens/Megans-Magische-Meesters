@@ -262,7 +262,7 @@ class BattleFlowTests(TestCase):
         self.assertEqual(hand_html.count('data-source-lane="0"'), 14)
         self.assertEqual(hand_html.count('data-source-ordinal="'), 14)
         self.assertEqual(hand_html.count('draggable="true"'), 14)
-        self.assertEqual(hand_html.count('tabindex="-1"'), 14)
+        self.assertEqual(hand_html.count('tabindex="0"'), 14)
 
         self.assertNotIn("cardActionForm", hand_html)
         self.assertNotIn("cardActionButton", hand_html)
@@ -802,7 +802,7 @@ class BattleFlowTests(TestCase):
             response = self.client.get(board_url)
             content = response.content.decode()
             own_section = re.search(
-                r'<div class="deck-stack own-deck-stack">(.*?)<div class="hand-scroll"[^>]*>',
+                r'<div class="deck-stack own-deck-stack"[^>]*>(.*?)<div class="hand-scroll"[^>]*>',
                 content,
                 re.DOTALL,
             )
@@ -1164,6 +1164,20 @@ class BattleFlowTests(TestCase):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
+
+        # stage one revealed and one face-down untrusted lane card next to the
+        # trusted starting card so both own-board row types have content
+        revealed_lane_card = self._initialize_with_hand_card(
+            self.human_participant, self.human_cards[1]
+        )
+        self.human_participant.playCard(
+            revealed_lane_card.id, flipFaceUp=True, specialClause=True
+        )
+        facedown_lane_card = self._initialize_with_hand_card(
+            self.human_participant, self.human_cards[2]
+        )
+        self.human_participant.playCard(facedown_lane_card.id, specialClause=True)
+
         response = self.client.get(board_url)
         content = response.content.decode()
 
@@ -1186,17 +1200,39 @@ class BattleFlowTests(TestCase):
         self.assertIsNotNone(enemy_section)
         self.assertNotIn('tabindex', enemy_section.group(1))
 
-        # own lane cards (cards row + trustedCards, faceDown and revealed) are
-        # keyboard-reachable: every own-board card container carries tabindex="0"
+        # flippable lane cards stay keyboard-reachable while trusted cards are
+        # settled board state: scope the tabindex checks per row type instead
+        # of matching every own-board card container
         own_board = re.search(
             r'<li class="playerBoard.*?(?=<div class="deckHand">)',
             content, re.DOTALL
         )
         self.assertIsNotNone(own_board)
-        own_card_tags = re.findall(r'<li class="cardContainer[^>]*>', own_board.group(0))
-        self.assertTrue(own_card_tags)
-        for tag in own_card_tags:
+        own_board_markup = own_board.group(0)
+
+        def row_container_tags(row_title):
+            return [
+                tag
+                for row in re.findall(
+                    rf'<ul class="cardRow" title="{row_title}">(.*?)</ul>',
+                    own_board_markup,
+                    re.DOTALL,
+                )
+                for tag in re.findall(r'<li class="cardContainer[^>]*>', row)
+            ]
+
+        flippable_tags = row_container_tags("cards")
+        self.assertTrue(flippable_tags)
+        for tag in flippable_tags:
             self.assertIn('tabindex="0"', tag)
+
+        trusted_tags = row_container_tags("trustedCards")
+        self.assertTrue(trusted_tags)
+        for tag in trusted_tags:
+            self.assertNotIn("tabindex", tag)
+            # the trusted rows stay test-addressable via data-card-id now
+            # that the tabindex attribute is gone
+            self.assertIn("data-card-id", tag)
 
         # the player's own controls are untouched (the deck still draws)
         self.assertContains(response, 'class="card back draw"')
@@ -1621,7 +1657,7 @@ class BattleFlowTests(TestCase):
         self.assertIn('.smallCardInfo .cardType', cards_css)
         # Static cards reuse the same footer look as normal cards.
         self.assertIn('.playingCards .card.staticCard .smallCardInfo .cardType', cards_css)
-        self.assertIn('font-size: 0.65rem', cards_css)
+        self.assertIn('margin-bottom: -1px', cards_css)
         # No centered suit overlay was introduced on static small cards.
         self.assertNotIn('.playingCards .card.smallCard.staticCard .suit::after', cards_css)
         self.assertIn('height: var(--hand-row-height)', cards_css)
@@ -1813,6 +1849,7 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("card.classList.add('ghost')", staging_code)
         self.assertIn("card.setAttribute('draggable', 'false')", staging_code)
+        self.assertIn("card.removeAttribute('tabindex')", staging_code)
         self.assertIn('this.staged.plays++;', staging_code)
         self.assertIn('this.applyTurnAffordances();', staging_code)
 
@@ -1846,6 +1883,30 @@ class BattleFlowTests(TestCase):
         self.assertIn("setAttribute('tabindex', '0')", confirm_code)
         self.assertIn('this.remainingAllowances().flips > 0', confirm_code)
 
+        else_branch_start = drag_js.index(
+            '        } else {', drag_js.index('    _buildPlayHologram(')
+        )
+        non_preview_code = drag_js[
+            else_branch_start:drag_js.index('        }', else_branch_start + 1)
+        ]
+        self.assertIn("copycard.classList.add('faceDown')", non_preview_code)
+        self.assertIn("copycard.classList.remove('keyboard-selected')", non_preview_code)
+        self.assertIn("copycard.removeAttribute('aria-selected')", non_preview_code)
+        self.assertIn('delete copycard.dataset.keyboardSelected;', non_preview_code)
+        self.assertIn("copycard.removeAttribute('tabindex')", non_preview_code)
+        self.assertNotIn('onFaceDownCardClick', non_preview_code)
+
+        self.assertIn("hologram.dataset.stagedForCardId = selection.cardId", confirm_code)
+        self.assertIn('this._mirrorStagedFocus(card, hologram)', confirm_code)
+        mirror_helper_code = drag_js[
+            drag_js.index('    _mirrorStagedFocus(card, hologram) {'):
+            drag_js.index('    onHandCardClick(event)')
+        ]
+        self.assertIn("'focusin'", mirror_helper_code)
+        self.assertIn("'focusout'", mirror_helper_code)
+        self.assertIn("ghostCard.classList.add('keyboard-selected')", mirror_helper_code)
+        self.assertIn("ghostCard.classList.remove('keyboard-selected')", mirror_helper_code)
+
     def test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently(self):
         import os
 
@@ -1870,7 +1931,7 @@ class BattleFlowTests(TestCase):
 
         restore_branch = affordances_code[restore_branch_start:restore_branch_end]
         self.assertIn("!card.hasAttribute('tabindex')", restore_branch)
-        self.assertIn("card.setAttribute('tabindex', '-1');", restore_branch)
+        self.assertIn("card.setAttribute('tabindex', '0');", restore_branch)
         self.assertIn('_isPlayableKeyboardCard(card)', restore_branch)
 
         deck_branch = affordances_code[
@@ -2131,6 +2192,8 @@ class BattleFlowTests(TestCase):
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
             loading_js = js_file.read()
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
 
         duplicate_card = _extract_js_brace_block(loading_js, 'function duplicateCard(')
         deck_branch = _extract_js_brace_block(duplicate_card, 'if (sourceLane < 0)')
@@ -2143,6 +2206,17 @@ class BattleFlowTests(TestCase):
         self.assertIn('getBoundingClientRect', deck_branch)
         self.assertIn("position = 'fixed'", deck_branch)
         self.assertIn('--move-x', deck_branch)
+
+        # The body-appended clone leaves every .playingCards-scoped rule
+        # behind, so it must carry a dedicated body-safe styling class and
+        # measure the visible top-card face rather than the wrapping li.
+        self.assertIn("classList.add('duplicate-deck-flight')", deck_branch)
+        self.assertIn("topStackCard?.querySelector('.card')", deck_branch)
+        self.assertIn(
+            '.playingCards .card.back,\n.duplicate-deck-flight .card.back',
+            cards_css,
+        )
+        self.assertIn('.duplicate-deck-flight > .card.back', cards_css)
 
 
 def _extract_js_brace_block(source, opener):

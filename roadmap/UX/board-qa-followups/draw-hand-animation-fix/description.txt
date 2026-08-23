@@ -1,0 +1,119 @@
+Fix the visually broken drawn-card deck->hand flight animation. Diagnose first (the
+breakage is a styling-context regression from `deck-stable-draw`, commit c0fa207), then
+repair WITHOUT regressing the stationary-deck-pile constraint.
+
+Symptom: after the deck-stable-draw change, the clone that flies from the top of the
+deck to the drawn card's hand slot no longer looks like a card back — it renders as an
+unstyled collapsed sliver, and its start position can sit offset/oversized relative to
+the visible deck pile.
+
+Animation flow (verified 2026-08-23):
+- `MMM/views.py` boardAction action=="draw" (~413-423) records the draw as a play with
+  `sourceLane` = deck card's negative lane; `_update_moved_hand_cards()` (~753-763)
+  marks the drawn hand card `cssClass="loading"`; template renders
+  `li.cardContainer.loading` with `data-source-lane="-N"` `data-source-ordinal="0"`
+  (pinned by `test_draw_renders_drawn_card_loading_from_deck`, MMM/tests.py ~652-685).
+- `var/www/static/loadingAnimations.js` `Animate()` (~10-49) calls
+  `duplicateCard(element, lane, ordinal)` (~699-796). The negative-lane branch
+  (~707-731, rewritten by commit c0fa207 "stop deck pile jump during draw animations")
+  now: forces `.faceDown` + empties the inner `.card` into a `.back`
+  (lines 710-717), measures `stackRect` from
+  `deckElement.querySelector('li:last-of-type')` (line 718), sets inline
+  `position/left/top/width/height` (720-724), appends to `document.body` (725),
+  computes `--move-x/--move-y` from rects (726-729). `Animate()` then adds
+  `.to-original` in rAF and reveals on transitionend or timeout (28-45).
+  `.duplicate.to-original` translates by the delta (`cards.css` ~1476-1478).
+
+Diagnosis (why it broke):
+1. PRIMARY — styling-context loss. Before c0fa207 the clone was inserted INTO the deck
+   `<ul>`, i.e. inside the `<div class="playerScreen playingCards rotateHand">`
+   subtree (viewBoard.jinja2 line 25), so every `.playingCards ...` rule applied.
+   Appending to document.body orphans the clone from that subtree, and ALL card
+   sizing/painting rules are `.playingCards`-scoped:
+   - `.playingCards .card` (cards.css ~18-35): display inline-block, width 4.25rem,
+     height 6rem, padding .25em — gone on body;
+   - `.playingCards .card.back` (~179-187): the card-back pattern backgrounds — gone;
+   - `.playingCards .card.back *` visibility guards (~1641-1650) — gone (moot, content
+     emptied anyway at loadingAnimations.js 715).
+   Only body-safe rules remain: global `li.cardContainer { width calc(4.75rem+6px);
+   height calc(6.5rem+6px) }` (cards.css ~1392-1404) and
+   `li.cardContainer > .smallCard { background/border/radius/max-* }` (~1339-1346,
+   `--card-background` lives on :root so the flat color survives). Net effect: the
+   emptied inner div has no explicit size -> height collapses to its borders -> the
+   flying object is a thin pale rectangle without the card-back pattern.
+2. SECONDARY — start-rect fidelity. `li:last-of-type` of the active player deck is the
+   plain `<li>` WRAPPING the Draw-button form (viewBoard.jinja2 ~291-303:
+   `<form class="cardActionForm"><button class="card back draw">`). Its shrink-to-fit
+   rect includes button margins (`margin: 0 .5em .5em 0` from `.playingCards .card`),
+   so stackRect can exceed the visible top-card face by a few px in each direction;
+   the emptyDeck fallback li contains no `.card` element at all. Measure the inner
+   `.card` of that li when present instead of the li itself.
+3. NOT broken / leave untouched: `--move-x/--move-y` math (726-729), the
+   rAF `.to-original` + transitionend/timeout reveal flow in `Animate()` (28-45),
+   `.duplicate` transition/z-index/pointer-events (cards.css ~1469-1474), original
+   hidden via `.playerScreen .cardContainer.loading:not(.duplicate)` (~1484-1486),
+   hand/lane duplicateCard paths.
+
+Hard constraint (must NOT regress):
+- The deck pile must stay stationary: NO insertion into any `<ul>`. This is pinned by
+  `test_deck_draw_animation_does_not_insert_into_deck` (MMM/tests.py ~2127-2145), which
+  extracts the negative-lane branch and asserts: no `insertBefore`, no
+  `laneElement.appendChild`, exactly one appendChild which IS
+  `document.body.appendChild`, plus presence of `'li:last-of-type'`,
+  `getBoundingClientRect`, `position = 'fixed'`, `'--move-x'`. If the chosen fix changes
+  the attach point or selector, UPDATE THIS TEST deliberately in the same change — never
+  weaken the no-insert guarantee.
+
+Implementation:
+1. Reproduce in the browser first (draw with devtools open; inspect the body-appended
+   clone) and confirm the diagnosis above before coding.
+2. Preferred fix (A) — make the flying clone self-sufficient at body level:
+   - In the negative-lane branch add a dedicated class to the clone, e.g.
+     `duplicate.classList.add('duplicate-deck-flight')`.
+   - Add body-safe CSS in cards.css for `.duplicate-deck-flight` (+ its inner
+     `.card.back.smallCard`): explicit rem-based card dimensions matching the
+     li.cardContainer box (or width/height 100% of the fixed-size li), border-radius,
+     overflow hidden, and a card-back look equivalent to `.playingCards .card.back`
+     (reuse the same pattern/background-color declarations; factor them into a shared
+     selector list like `.playingCards .card.back, .duplicate-deck-flight .card.back`
+     if cleaner).
+   - Improve stackRect: measure `(topStackCard?.querySelector('.card') ?? topStackCard
+     ?? deckElement).getBoundingClientRect()` so the clone starts exactly on the visible
+     top-card face (handles the emptyDeck fallback too).
+3. Alternative fix (B, only if A proves insufficient) — attach the clone to a
+   layout-neutral container INSIDE `.playingCards` (e.g., an absolute overlay in
+   `.playerScreen .deckHand`), converting viewport coords to container-local via
+   getBoundingClientRect deltas. Existing descendant selectors then keep working with
+   zero duplicated CSS, but stacking contexts need checking AND the contract test's
+   `document.body.appendChild` assertion must be updated. Choose A unless B is clearly
+   better in practice.
+4. Verify enemy draws behave identically (enemy branch skips the faceDown forcing since
+   enemy clones are already faceDown deck cards, but suffers the SAME context loss when
+   appended to body — multi-enemy boards included).
+5. Confirm the special-draw shuffle-back flights INTO the deck
+   (`_flyCardToDeck`, loadingAnimations.js ~410-457, also body-appended but
+   scale/fade-based) still read correctly against the stationary pile; only align their
+   styling if trivially shareable with the new `.duplicate-deck-flight` rules.
+
+Files to create/modify:
+- var/www/static/loadingAnimations.js (negative-lane branch: flight class, inner-card
+  rect measurement)
+- var/www/static/cards.css (body-safe `.duplicate-deck-flight` card-back styling)
+- MMM/tests.py (update test_deck_draw_animation_does_not_insert_into_deck assertions to
+  the new reality while keeping the no-insert invariant; optionally assert the flight
+  class exists)
+
+Acceptance criteria:
+- [ ] The flying object visibly reads as a card back lifting off the TOP of the deck
+      pile (correct pattern, correct size, aligned within a couple px of the visible
+      top card) and lands on the drawn hand slot; original hand card reveal timing
+      unchanged (transitionend + timeout fallback both still fire).
+- [ ] Deck pile does not shift by even 1px during the animation (compare deck bounding
+      rect before/during/after) — stationary-pile constraint holds.
+- [ ] Enemy deck draws animate identically (multi-enemy boards included).
+- [ ] Shuffle-back flights into the deck still look right.
+- [ ] Updated contract test passes; full suite green.
+
+Dependencies:
+- none hard; independent of the other three leaves (different file + test scope).
+  Land after any in-flight work touching loadingAnimations.js to avoid conflicts.
