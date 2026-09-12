@@ -1,30 +1,74 @@
-Implement the remaining UX and accessibility improvements for the battle, challenge, and player pages.
+UX and accessibility close-out: every child goal under this tree is implemented, tested, and verified in the browser (PR #24). This single file replaces the per-goal directories.
 
-Implementation:
-1. Treat `consistent-styling/` and `shortcut-keys/` as the two implementation tracks. Keep this directory as the coordination plan; do not move either track to `done/` until its browser behavior and regression tests are complete.
-2. Complete the consistent-styling leaves in their dependency order: battle cursors and card readability, lane ordinal correctness, large-deck rendering, large-hand rendering, then the player-page and challenge-page polish leaves.
-3. Complete the shortcut-keys leaves after the final hand markup is stable: keyboard selection and preview, confirmation/navigation/cancellation, hold-to-end-turn, and hold-to-draw.
-4. Preserve the existing cookie-staged action contract, turn-allowance contract, deferred enemy phase, and loading-animation pipeline. UX work must not introduce a second way to submit a draw, play, flip, or end-turn action.
-5. Validate each leaf with `python3 manage.py test` plus a browser check at narrow and wide viewport sizes. Use keyboard-only checks for focus, shortcuts, blocked actions, and cancellation; use the existing `.blocked`, `#turnLimits`, `.hologramRow`, and `data-source-*` hooks as the observable contracts.
+Implement the remaining UX and accessibility improvements for the battle, challenge, and player pages. All four tracks are complete: consistent styling (8/8 leaves), shortcut keys (4/4), board-interaction fixes (7/7 including all subgoals), and board QA follow-ups (4/4). Validation: `python3 manage.py test` (94 tests, all passing), `python3 manage.py check` (only the pre-existing missing-assets warning), JavaScript syntax checks, and browser/QA passes at narrow and wide viewport sizes including keyboard-only checks.
 
-Files to create/modify:
-- `roadmap/UX/consistent-styling/description.txt` — scope, child leaves, and the ordered styling plan.
-- `roadmap/UX/consistent-styling/*/description.txt` — actionable implementation plans for all eight styling leaves.
-- `roadmap/UX/shortcut-keys/description.txt` — shortcut flow, shared guards, and dependency order.
-- `roadmap/UX/shortcut-keys/*/description.txt` — actionable implementation plans for all four shortcut leaves.
-- `MMM/jinja2/MMM/battle/viewBoard.jinja2`, `MMM/views.py`, `MMM/models.py`, `MMM/tests.py` — likely implementation/test targets described by the child leaves; agents must change only the files required by their assigned leaf.
-- `var/www/static/cards.css`, `var/www/static/cardDragDrop.css`, `var/www/static/cardDragDrop.js`, `var/www/static/loadingAnimations.js`, and any explicitly approved hand-layout module — battle styling, keyboard, and animation integration targets.
+## Consistent styling (8/8 complete)
 
-Acceptance criteria:
-- [ ] Every UX child directory has a concrete implementation plan, file list, measurable acceptance criteria, and explicit dependencies.
-- [ ] The two parent descriptions identify a single safe execution order and call out shared-file conflicts before implementation begins.
-- [ ] The plan distinguishes completed foundations in `done/` from work that is still required in `roadmap/UX/`.
-- [ ] The plan covers responsive rendering, pointer/keyboard accessibility, blocked-action behavior, semantic challenge-page markup, and regression verification.
-- [ ] No application code, status marker, or `done/` snapshot is changed by the planning task itself.
+Battle, player, and challenge-page presentation made consistent without changing game rules.
 
-Dependencies:
-- `done/battle-interaction/` — existing board markup, drag/drop, hologram, click-to-flip, play-cookie, and loading-animation contracts.
-- `done/turn-affordances/` — server/client turn budgets, `.blocked` states, tooltips, and `#turnLimits`.
-- `done/battle-page-polish/lane-card-stacking/` — current stacked lane/hologram CSS and `laneStacking.js` behavior.
-- `done/client-side-asset-generation/` — current static CSS-playing-card markup and footer rules; static-card art itself is not a new UX leaf.
-- `roadmap/UX/consistent-styling/` must finish its large-hand layout before `roadmap/UX/shortcut-keys/keyboard-card-selection/` is implemented.
+1. `in-game-cursor-affordances` — Non-blocked player face-down lane cards and face-down holograms get `cursor: pointer`; blocked cards keep `cursor: not-allowed`; enemy boards never acquire pointer cursors; the drawable top deck card tilts on hover only when the draw button is enabled and the deck is non-empty (`cardDragDrop.css`, `cards.css`).
+2. `hand-card-visibility` — The bottom-anchored card-type footer cascade was restored (7px / -2.75rem base rule, 0.65rem static-card override); static cards show a type-only footer with no centered suit overlay; the enemy hand renders as a horizontal scrollable flex row instead of a clipped vertical stack (`cards.css`).
+3. `lane-ordinal-on-play` — `BattleParticipant.playCard()` computes the destination lane maximum BEFORE moving the card so a stale hand ordinal can never inflate it; the direct trusted starting-card play initializes to ordinal 1; empty lanes start at 1; covered for human, bot, special, empty-lane, occupied-lane, and trusted-lane cases (`MMM/models.py`, `MMM/tests.py`).
+4. `large-deck-rendering` — `contextBoard()`/`newBoard()` partition decks into a rightmost active stack of at most 32 cards plus inert 32-card indicator chips (`DECK_BLOCK_SIZE = 32`, `_deck_presentation()`); the board template renders `.deck-stack`/`ul.deck-indicator` wrappers with `aria-hidden inert` chips and a single `.active-deck` draw form; `loadingAnimations.js` targets the active deck explicitly; rendering tests cover 32/40/64/65-card decks (`MMM/views.py`, `viewBoard.jinja2`, `cards.css`).
+5. `large-hand-rendering` — The player hand renders as rotating fans inside a `.hand-scroll` wrapper (server-chunked `handFans`, one `.hand-fan` `<ul>` per chunk with `data-fan-index`); per-fan rotation patterns, responsive horizontal scrolling, and fan-aware drag/drop + animation source lookup (`MMM/views.py`, `viewBoard.jinja2`, `cards.css`, `cardDragDrop.js`, `loadingAnimations.js`). Fan size later reduced 13 → 9 by `board-interaction-fixes/keyboard-selection-extensions`.
+6. `player-page-polish` — Possessive fix (`Lucas' page` vs `Meg's page`), challenge cards rewritten as valid semantic markup with a single block-level `.challenge-card-link`, no nested anchors, and `draggable="false"`; compact responsive styles in `style.css` (`viewPlayer.jinja2`).
+7. `owned-cards-sorting` — `viewPlayer()` accepts `?sort=name|type|date` and passes an explicitly sorted `ownedCards` list built from `Player.getCollection()` (so a card whose latest owner is another player never shows); name sorts case-insensitively by title, type by cardType 0–3, date by the player's latest `CardOwnerHistory.aquiredAt` newest-first; sort controls are plain links with active/ARIA state, no JavaScript required (`MMM/views.py`, `viewPlayer.jinja2`, `style.css`).
+8. `challenge-page-default-selection` — `createGame.jinja2` radio markup repaired (void `<input>`, no `</input>` closing tags) and the first valid player, deck, and starting card are preselected with `loop.first` checked; the "New deck" fallback is checked when no saved decks exist; form fields, names, and CSRF unchanged.
+
+## Shortcut keys (4/4 complete)
+
+Accessible keyboard controls that reuse the existing cookie-staged action system; all shortcuts are inactive in text controls, enemy/loading/timeline phases, and for exhausted or blocked actions.
+
+1. `keyboard-card-selection` — Digits 1–9 select the corresponding eligible hand card via the no-zero parser (11 → card 10, 21 → card 19, ...); the selection builds a face-up `.keyboard-preview` hologram in the card's own lane and writes NO cookie; blocked/ghost/staged/loading/enemy cards are excluded (`cardDragDrop.js`).
+2. `confirm-and-navigate` — Space/Enter confirms via the exact drag/drop `createupdateCookie()` payload; arrow keys move the preview across the four lanes with wrap-around; drop-zone clicks confirm into the clicked lane; Escape/0 (and Backspace) cancel without cookie or staged-count change (`cardDragDrop.js`).
+3. `hold-to-end-turn` — Holding **e** for one continuous second submits the existing end-turn form exactly once; early release, repeat keys, blur, and visibility changes cancel cleanly; `.shortcut-hold-loading` shows a visible one-second progress bar with `aria-busy` and a reduced-motion fallback (`cardDragDrop.js`, `cardDragDrop.css`).
+4. `hold-to-draw` — Holding **d** for one second draws via the existing active-deck draw form; same shared `ShortcutHoldAction` helper, progress indicator, guards (non-blocked active deck, draws remaining, player phase), and single-submission guarantees.
+
+## Board interaction fixes (7/7 complete)
+
+1. `cardrow-overflow-fix` — Verified close-out: multi-row overflow splitting was already correct (`OVERFLOW_ROW_CLASS` marker rows, `MAX_CARDS_PER_ROW = 15`, nth-child offsets through 20); the stale TODO comment was replaced with a factual note and the contract test hardened with a cap-vs-offset assertion (`laneStacking.js`, `cards.css`, `MMM/tests.py`).
+2. `deck-indicator-restyle` — Verified close-out: inert deck chips render as small card-back chips inside `.deck-stack`, offset by `--deck-indicator-count`, with the active deck shifting right per chip; no broken oversized faces (`viewBoard.jinja2`, `cards.css`).
+3. `handcard-action-merge` — The per-handcard play form/button was removed; cards keep bare hidden `card_id` and `lane` inputs as JS contracts; playable cards carry `tabindex="-1"` (later `0` per board-qa-followups); number-key and click selection both focus the selected card; the orange selection styling was unified with the regular focus ring (no glow) (`viewBoard.jinja2`, `cardDragDrop.js`, `cardDragDrop.css`).
+4. `keyboard-selection-extensions` — Hand fans shrunk from 13 to 9 cards (`HAND_FAN_SIZE = 9` in `views.py` and `loadingAnimations.js`, fan width `calc(8.8em + 5.25rem)`, dead nth-child/rotation rows pruned); `+`/`-` step through eligible cards with wrap-around; Backspace cancels like 0 (with `preventDefault`); oversized buffers fall back to the last digit; confirming a selection stages the same faceDown hologram as drag-and-drop plays with rotation continuity, one-shot click-to-flip, and `tabindex="0"` only while flips remain.
+5. `focus-and-hover-fixes` — Blocked hand cards lose tabindex and the deck stays focus-inert; own lane cardContainers (cards row, faceDown + revealed) get `tabindex="0"` with Enter/Space flipping a focused faceDown card via the same path as clicking; new `hoverCooldown.js` module drives `.card-hover` from real mouse movement with a 500 ms switch cooldown, rAF-throttled, strictly passive, own-side only, disabled under `prefers-reduced-motion`; CSS `:hover` rules keep working as no-JS/touch fallback.
+6. `deck-stable-draw` — `duplicateCard()` negative-lane clones are no longer inserted into the deck `<ul>`; the clone is positioned fixed at the deck top-card rect and appended to `document.body`, so nth-child offsets never shift; `--move-x`/`--move-y` measured after fixed positioning keeps the `.to-original` flight + transitionend reveal unchanged; a contract test pins the no-insert behavior (`loadingAnimations.js`, `MMM/tests.py`).
+7. `compact-active-challenges` — `viewPlayer()` replaces the N+1 challenge loop with a single prefetched `BattleHistory` queryset mapped to enriched dicts (participants, loot text, game, started, finished/won/fled via a pure `_challenge_result_for_player` helper, boardUrl/gameUrl); the template renders compact inline challenge rows with a Won/Lost/Fled badge on finished games and links own games straight to `/game/<id>/board/<player>/`; `style.css` compacts the block and adds badge variants; tests pin board URLs, badge absence on active games, and the finished-game badge.
+
+## Board QA follow-ups (4/4 complete)
+
+Post-QA fixes reported on 2026-08-23 while testing the board-interaction-fixes work.
+
+1. `trusted-cards-unfocusable` — `tabindex="0"` removed from the own-board trustedCards row (regression from `lane-card-focus-flip-keys`); the flippable `title="cards"` row keeps it; the blanket tabindex test was narrowed to scoped per-row assertions (`viewBoard.jinja2`, `MMM/tests.py`).
+2. `hand-tab-focus` — Playable hand cards render `tabindex="0"` (Tab-reachable) while blocked cards stay unfocusable; `applyTurnAffordances()` restores `"0"` idempotently; `_stagePlay()` strips tabindex from staged hand ghosts so played cards never remain dead Tab stops (`viewBoard.jinja2`, `cardDragDrop.js`).
+3. `ghost-focus-mirroring` — The `_buildPlayHologram` non-preview branch strips the selection snapshot (`keyboard-selected`, `aria-selected`, `data-keyboard-selected`) and normalizes clone tabindex, so staged ghosts no longer carry a frozen orange outline; `_mirrorStagedFocus()` wires focusin/focusout so the ghost mirrors its hand counterpart's LIVE focus state instead (`cardDragDrop.js`).
+4. `draw-hand-animation-fix` — The deck→hand flight clone was an unstyled collapsed sliver because `document.body` appending lost all `.playingCards`-scoped styling; a body-safe `.duplicate-deck-flight` class restores explicit card sizing and the card-back pattern, and the start rect now measures the top card's inner `.card` for exact alignment; the stationary-deck-pile constraint holds and the contract test was updated without weakening the no-insert invariant (`loadingAnimations.js`, `cards.css`, `MMM/tests.py`).
+
+## Files touched across the goal
+
+- `MMM/models.py` — destination lane ordinal before card move; trusted starting-card ordinal 1.
+- `MMM/views.py` — `DECK_BLOCK_SIZE`, `HAND_FAN_SIZE`, deck presentation metadata, hand fans, `_ordered_lane_cards`, player-page challenge enrichment (`_enrich_challenge`, `_challenge_result_for_player`), owned-card sorting (`_get_owned_cards` and helpers).
+- `MMM/tests.py` — 94 tests including board markup/contract, ordinal, deck/hand fan, keyboard, focus/hover, player-page, and challenge-form regressions.
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — deck-stack/indicator markup, hand fans and `hand-scroll`, bare hidden inputs, tabindex management, hoverCooldown script tag.
+- `MMM/jinja2/MMM/viewPlayer.jinja2` — possessive fix, challenge-card markup, collection sort controls.
+- `MMM/jinja2/MMM/createGame.jinja2` — valid radio markup and first-option defaults.
+- `var/www/static/cards.css`, `var/www/static/cardDragDrop.css`, `var/www/static/style.css` — footer/fan/deck-indicator/challenge/sort styles, cursor and `.card-hover` rules, hold-progress indicator.
+- `var/www/static/cardDragDrop.js` — keyboard selection lifecycle, confirmation/navigation, hold shortcuts, flip keys, staging mirroring, affordance tabindex handling.
+- `var/www/static/loadingAnimations.js` — active-deck lookup, fan-aware hand source lookup, deck-flight clone fix.
+- `var/www/static/laneStacking.js` — overflow-row marker system and reflow hardening.
+- `var/www/static/hoverCooldown.js` — new mousemove-driven hover manager.
+
+## Acceptance criteria
+
+- [x] All four tracks and every child leaf are implemented and recorded in this close-out.
+- [x] Cookie-staged play/flip contract, `#turnLimits` parity, deferred enemy phase, and the loading-animation pipeline are preserved; UX work added no second way to submit a draw, play, flip, or end-turn action.
+- [x] Decks and hands remain usable at 32/40/65-card deck sizes and 9/10/18/27+ hand sizes, including narrow viewports, with real counts and action semantics unchanged.
+- [x] Keyboard-only operation works for selection, confirmation, navigation, cancellation, hold-to-draw, and hold-to-end-turn; blocked/disabled/enemy states are never focusable or actionable.
+- [x] `python3 manage.py test` passes (94 tests); `python3 manage.py check` reports only the pre-existing missing-assets warning; JS syntax and CSS structure verified.
+
+## Dependencies (all satisfied)
+
+- `done/battle-interaction/` — board markup, drag/drop, hologram, click-to-flip, play-cookie, and loading-animation contracts.
+- `done/turn-affordances/` — turn budgets, `.blocked` states, tooltips, and `#turnLimits`.
+- `done/battle-page-polish/lane-card-stacking/` — stacked lane/hologram CSS and `laneStacking.js`.
+- `done/client-side-asset-generation/` — static CSS-playing-card markup and footer rules.
+- `done/web-flow/` — challenge setup and player-page flow.

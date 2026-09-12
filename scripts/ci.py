@@ -204,21 +204,26 @@ def save_false_positive_blocklist(blocklist):
     FALSE_POSITIVE_BLOCKLIST.write_text(json.dumps(data, indent=2) + "\n")
 
 
+def _correction_name(record):
+    """Human-readable identifier for a correction record."""
+    slug = re.sub(r"[^a-z0-9]+", "-", record.get("roadmap_path", "").lower()).strip("-")[:60]
+    return f"{slug}-{record.get('timestamp', 'unknown')}"
+
+
 def record_correction(roadmap_path, false_positive_keywords, description_excerpt, notes=""):
     """Record a manual correction so the CI can learn from it.
 
     Called by the devops agent (or user) after they manually remove a falsely
     matched done/ entry. The CI will use this to adjust its matching in future
     runs.
+
+    Corrections are appended to the single compact log
+    `ci_fixes/corrections_log.jsonl`; the compiled false-positive blocklist
+    is refreshed from the same data. No per-correction files are written.
     """
     CI_FIXES_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Generate a unique filename from the path and timestamp
-    slug = re.sub(r"[^a-z0-9]+", "-", roadmap_path.lower()).strip("-")[:60]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = f"{slug}-{stamp}.json"
-    fix_path = CI_FIXES_DIR / filename
-
     record = {
         "timestamp": stamp,
         "roadmap_path": roadmap_path,
@@ -226,8 +231,16 @@ def record_correction(roadmap_path, false_positive_keywords, description_excerpt
         "description_excerpt": description_excerpt,
         "notes": notes,
     }
-    fix_path.write_text(json.dumps(record, indent=2) + "\n")
-    print(f"  Recorded correction: {fix_path.relative_to(REPO_ROOT)}")
+
+    # Append to the single compact correction log.
+    log_path = CI_FIXES_DIR / "corrections_log.jsonl"
+    with open(log_path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+    try:
+        display_path = log_path.relative_to(REPO_ROOT)
+    except ValueError:
+        display_path = log_path
+    print(f"  Recorded correction in {display_path}")
 
     # Update the global blocklist with this correction
     blocklist = load_false_positive_blocklist()
@@ -241,28 +254,51 @@ def record_correction(roadmap_path, false_positive_keywords, description_excerpt
         blocklist["pairs"].add((kw.lower(), clean_path))
     save_false_positive_blocklist(blocklist)
 
-    # Also append to a running log
-    log_path = CI_FIXES_DIR / "corrections_log.jsonl"
-    with open(log_path, "a") as f:
-        f.write(json.dumps(record) + "\n")
-
     print(f"  Updated false-positive blocklist ({len(blocklist['keywords'])} keywords, "
           f"{len(blocklist['paths'])} paths).")
-    return fix_path
+    return log_path
 
 
 def list_corrections():
-    """List all recorded corrections from ci_fixes/."""
+    """List all recorded corrections from ci_fixes/.
+
+    Records live in the single compact `corrections_log.jsonl` file. Legacy
+    per-correction JSON files are still read for backwards compatibility and
+    deduplicated against the log. Returns a list of {"name", "data"} dicts.
+    """
     CI_FIXES_DIR.mkdir(parents=True, exist_ok=True)
     fixes = []
+    seen = set()
+
+    log_path = CI_FIXES_DIR / "corrections_log.jsonl"
+    if log_path.exists():
+        for line in log_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            key = (data.get("roadmap_path"), data.get("timestamp"))
+            if key in seen:
+                continue
+            seen.add(key)
+            fixes.append({"name": _correction_name(data), "data": data})
+
+    # Legacy per-correction files (backwards compatibility).
     for f in sorted(CI_FIXES_DIR.glob("*.json")):
         if f.name == "false_positive_blocklist.json":
             continue
         try:
             data = json.loads(f.read_text())
-            fixes.append((f, data))
         except json.JSONDecodeError:
             continue
+        key = (data.get("roadmap_path"), data.get("timestamp"))
+        if key in seen:
+            continue
+        seen.add(key)
+        fixes.append({"name": f.name, "data": data})
     return fixes
 
 
@@ -832,8 +868,9 @@ def main():
             print("No corrections recorded yet.")
             return
         print(f"Recorded corrections ({len(fixes)}):\n")
-        for fpath, data in fixes:
-            print(f"  {fpath.name}")
+        for item in fixes:
+            data = item["data"]
+            print(f"  {item['name']}")
             print(f"    Path:     {data.get('roadmap_path', '?')}")
             print(f"    Keywords: {', '.join(data.get('false_positive_keywords', []))}")
             print(f"    Desc:     {data.get('description_excerpt', '?')[:80]}")
