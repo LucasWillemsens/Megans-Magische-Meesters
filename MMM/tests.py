@@ -2004,6 +2004,16 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
 
+        # Switches that land inside the cooldown window must not be dropped:
+        # the pending target is applied when the window expires, so the hover
+        # reaches the card the pointer stopped on even without further
+        # mousemove events.
+        self.assertIn('schedulePendingSwitch(target, this.switchCooldownMs - elapsed)', hover_js)
+        self.assertIn('schedulePendingSwitch(target, waitMs)', hover_js)
+        self.assertIn('cancelPendingSwitch()', hover_js)
+        self.assertIn('this.pendingTarget = target', hover_js)
+        self.assertIn('this.pendingTimer = window.setTimeout', hover_js)
+
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
@@ -2243,6 +2253,40 @@ class BattleFlowTests(TestCase):
         self.assertIn('moveDuration * 1000 + 150', animate_block)
         self.assertIn('playerFinished,', animate_block)
         self.assertIn('schedule(reloadToBoard, reloadWindow)', animate_block)
+
+    def test_draw_flights_start_after_scroll_settles(self):
+        """Deck->hand flights must be measured after the browser restores the scroll position.
+
+        The browser restores the previous page's scroll offset shortly after
+        DOMContentLoaded. Measuring the flight at DOMContentLoaded time (scroll
+        still at the top) leaves the whole animation out of view below the
+        fold. The flight start must be deferred until the scroll settles (load
+        event with a bounded fallback) and the deck scrolled into view first.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        start_flights = _extract_js_brace_block(loading_js, 'const startFlights = (run) =>')
+        # Wait for the load event (scroll restoration target) with a bounded
+        # fallback so a hanging subresource can't stall the sequence.
+        self.assertIn("document.readyState === 'complete'", start_flights)
+        self.assertIn("addEventListener('load', begin, { once: true })", start_flights)
+        self.assertIn('schedule(begin, 150)', start_flights)
+        # The deck/hand must be on screen before the flight is measured.
+        self.assertIn(".playerScreen .deckHand", start_flights)
+        self.assertIn("scrollIntoView({ block: 'end' })", start_flights)
+
+        # Both player-flight branches defer through startFlights; the
+        # no-player-element paths keep their immediate scheduling.
+        player_moves = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
+        self.assertIn('startFlights(runPlayerMoves)', player_moves)
+        no_phase = _extract_js_brace_block(
+            loading_js, 'if (animationsElements.length > 0)'
+        )
+        self.assertIn('startFlights(runFlights)', no_phase)
 
     def test_animation_skip_and_pause_controls(self):
         """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""

@@ -30,6 +30,8 @@ class CardHoverManager {
         this.lastSwitchAt = Number.NEGATIVE_INFINITY;
         this.frameHandle = null;
         this.pendingEvent = null;
+        this.pendingTarget = null;
+        this.pendingTimer = null;
         this.onMouseMove = null;
         this.applyPendingTarget = () => this.consumePendingTarget();
     }
@@ -53,6 +55,7 @@ class CardHoverManager {
             this.frameHandle = null;
         }
         this.pendingEvent = null;
+        this.cancelPendingSwitch();
         this.clearHover();
     }
 
@@ -69,16 +72,51 @@ class CardHoverManager {
         if (!event) return;
 
         const target = this.resolveHoverTarget(event.target);
-        if (target === this.hoveredCard) return;
+        if (target === this.hoveredCard) {
+            this.cancelPendingSwitch();
+            return;
+        }
 
         if (!target) {
+            this.cancelPendingSwitch();
             this.clearHover();
             return;
         }
-        if (this.now() - this.lastSwitchAt < this.switchCooldownMs) return;
+        const elapsed = this.now() - this.lastSwitchAt;
+        if (elapsed < this.switchCooldownMs) {
+            // Inside the cooldown window: don't drop the switch — apply it
+            // when the window expires, so the hover still lands on the card
+            // the pointer stopped on (a dropped event would leave the old
+            // card highlighted indefinitely).
+            this.schedulePendingSwitch(target, this.switchCooldownMs - elapsed);
+            return;
+        }
 
+        this.cancelPendingSwitch();
         this.swapHover(target);
         this.lastSwitchAt = this.now();
+    }
+
+    schedulePendingSwitch(target, waitMs) {
+        this.cancelPendingSwitch();
+        this.pendingTarget = target;
+        this.pendingTimer = window.setTimeout(() => {
+            this.pendingTimer = null;
+            const pending = this.pendingTarget;
+            this.pendingTarget = null;
+            if (!pending || pending === this.hoveredCard) return;
+            if (typeof pending.isConnected !== 'undefined' && !pending.isConnected) return;
+            this.swapHover(pending);
+            this.lastSwitchAt = this.now();
+        }, waitMs);
+    }
+
+    cancelPendingSwitch() {
+        if (this.pendingTimer !== null) {
+            window.clearTimeout(this.pendingTimer);
+            this.pendingTimer = null;
+        }
+        this.pendingTarget = null;
     }
 
     resolveHoverTarget(target) {
@@ -95,6 +133,7 @@ class CardHoverManager {
     }
 
     clearHover() {
+        this.cancelPendingSwitch();
         if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
         this.hoveredCard = null;
     }
