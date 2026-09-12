@@ -1,3 +1,0 @@
-Improve UX in various ways, including the improvement of accesibillity
-
-Includes: consistent-styling, shortcut-keys.

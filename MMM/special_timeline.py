@@ -170,38 +170,56 @@ def build_spd_timeline(participant, speed, power, opponent, timeline):
             return ""
 
 
-def build_vis_timeline(participant, viciousness, opponent, timeline):
-    """Append visSpecial steps to the timeline. Returns response string."""
+def build_vis_timeline(participant, viciousness, opponent, timeline, outcome=None, trusted_res_card=None):
+    """Append visSpecial steps to the timeline. Returns response string.
+
+    Args:
+        outcome: "drain", "win", or "fail" as resolved by visSpecial. When
+                 omitted (backward compatibility), the outcome is re-derived
+                 from the current board state.
+        trusted_res_card: The resolve card spent by the attack. When omitted,
+                 it is re-queried (only valid when outcome is None).
+    """
     if opponent is None:
         return ""
     opponentInt, opponentSpd, opponentVis, opponentRes, opponentTactics, opponentPower, opponentInfluence = opponent.getStats()
 
-    from MMM.views import getTrustableCards
-    newTrustedResCards = getTrustableCards(participant, [4])
-    newTrustedResCard = newTrustedResCards[0] if newTrustedResCards else None
+    if outcome is None:
+        # Backward-compatible derivation: only valid before the resolve card
+        # has been trusted.
+        from MMM.views import getTrustableCards
+        newTrustedResCards = getTrustableCards(participant, [4])
+        trusted_res_card = newTrustedResCards[0] if newTrustedResCards else None
+        if trusted_res_card is None:
+            outcome = "drain"
+        elif opponentRes < viciousness:
+            outcome = "win"
+        else:
+            outcome = "fail"
 
-    if newTrustedResCard is None:
+    if outcome == "drain":
         # Drain - self defeat
         banner = f"{participant.player.name} drains the last of their resolve and is defeated"
         timeline.append(build_trigger_step(participant, banner, lane=3))
         timeline.append(build_participant_effect_step(
             participant, banner, defeated_id=participant.id))
         return banner
-    elif opponentRes < viciousness:
+    elif outcome == "win":
         # Win - defeat opponent
         banner = f"{participant.player.name} attacks and defeats {opponent.player.name} ({viciousness} > {opponentRes})"
         timeline.append(build_trigger_step(participant, banner, lane=3))
         # Card-effect for the trusted resolve card glowing
-        affected = [{
-            "cardId": newTrustedResCard.id,
-            "sourceLane": newTrustedResCard.state.lane,
-            "sourceOrdinal": newTrustedResCard.state.laneOrdinal,
-            "destinationLane": newTrustedResCard.state.lane,
-            "destinationOrdinal": newTrustedResCard.state.laneOrdinal,
-            "flipFaceUp": False,
-            "trust": True,
-        }]
-        timeline.append(build_card_effect_step(participant, affected))
+        if trusted_res_card is not None:
+            affected = [{
+                "cardId": trusted_res_card.id,
+                "sourceLane": trusted_res_card.state.lane,
+                "sourceOrdinal": trusted_res_card.state.laneOrdinal,
+                "destinationLane": trusted_res_card.state.lane,
+                "destinationOrdinal": trusted_res_card.state.laneOrdinal,
+                "flipFaceUp": False,
+                "trust": True,
+            }]
+            timeline.append(build_card_effect_step(participant, affected))
         timeline.append(build_participant_effect_step(
             participant, banner, defeated_id=opponent.id))
         return banner
@@ -210,16 +228,17 @@ def build_vis_timeline(participant, viciousness, opponent, timeline):
         banner = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({viciousness} <= {opponentRes})"
         timeline.append(build_trigger_step(participant, banner, lane=3))
         # Still trust the resolve card
-        affected = [{
-            "cardId": newTrustedResCard.id,
-            "sourceLane": newTrustedResCard.state.lane,
-            "sourceOrdinal": newTrustedResCard.state.laneOrdinal,
-            "destinationLane": newTrustedResCard.state.lane,
-            "destinationOrdinal": newTrustedResCard.state.laneOrdinal,
-            "flipFaceUp": False,
-            "trust": True,
-        }]
-        timeline.append(build_card_effect_step(participant, affected))
+        if trusted_res_card is not None:
+            affected = [{
+                "cardId": trusted_res_card.id,
+                "sourceLane": trusted_res_card.state.lane,
+                "sourceOrdinal": trusted_res_card.state.laneOrdinal,
+                "destinationLane": trusted_res_card.state.lane,
+                "destinationOrdinal": trusted_res_card.state.laneOrdinal,
+                "flipFaceUp": False,
+                "trust": True,
+            }]
+            timeline.append(build_card_effect_step(participant, affected))
         return ""
 
 

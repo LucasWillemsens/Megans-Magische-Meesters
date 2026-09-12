@@ -21,7 +21,7 @@
                     <legend>Please select the player you wish to challenge:</legend>
                 {% for player in players %}
                     <div class="smallCard">
-                        <input type="radio" id="challengePlayer{{player.id}}" value="{{player.id}}" name="challengePlayer" required>
+                        <input type="radio" id="challengePlayer{{player.id}}" value="{{player.id}}" name="challengePlayer" required {% if loop.first %}checked{% endif %}>
                             <label for="challengePlayer{{player.id}}">
                                 {{player.name}}
                                 
@@ -32,7 +32,6 @@
                                 <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name}}'s profile picture" />
                                 {% endif %}
                             </label>
-                        </input>
                     </div>
                 {% endfor %}
                 </fieldset>
@@ -56,7 +55,7 @@
                     <legend>Please select your deck for this challenge:</legend>
                     {% for deck in decks %}
                     <div class="smallCard">
-                        <input type="radio" id="startingDeck{{deck.id}}" value="{{deck.id}}" name="startingDeck" required>
+                        <input type="radio" id="startingDeck{{deck.id}}" value="{{deck.id}}" name="startingDeck" required {% if loop.first %}checked{% endif %}>
                             <label for="startingDeck{{deck.id}}">
                                 {% if deck.artSource == "" %}
                                 <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{deck.title}}" />
@@ -71,20 +70,18 @@
                                     </p>
                                 </div>
                             </label>
-                        </input>
                     </div>
                     {% endfor %}
                 </fieldset>
                 {% else %}
                 <fieldset class="cardOptions">
                     <legend>Please select your deck for this challenge:</legend>
-                        <input type="radio" id="startingDeckNew" value="New" name="startingDeck" required>
+                        <input type="radio" id="startingDeckNew" value="New" name="startingDeck" required checked>
                             <label for="startingDeckNew">
                                 <p>
                                     A deck containing all your cards
                                 </p>
                             </label>
-                        </input>
                     </fieldset>
                 {% endif %}
             </div>
@@ -101,7 +98,7 @@
                     <legend>Please select your trusted starting card for this challenge:</legend>
                     {% for card in cardOwner.card.all() %}
                     <div class="smallCard">
-                        <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required>
+                        <input type="radio" id="startingCard{{card.id}}" value="{{card.id}}" name="startingCard" required {% if loop.first %}checked{% endif %}>
                             <label for="startingCard{{card.id}}">
                                 <div class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}">
                                 {% if card.artSource == "static" %}
@@ -125,7 +122,6 @@
                                 </div>
                                 </div>
                             </label>
-                        </input>
                     </div>
                     {% endfor %}
                 </fieldset>
