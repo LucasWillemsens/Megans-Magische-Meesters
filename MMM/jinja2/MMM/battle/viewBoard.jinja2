@@ -206,7 +206,7 @@
                                 </div>
                             </li>
                             {% else %}
-                            <li class="cardContainer {{ card.cssClass }}" tabindex="0" data-source-lane="{{ card.state.lane }}"
+                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
                                 title="{{ card.card.title }} of {{ player.name }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"
                                 style="--card-rotation: {{ card_rotation }}deg;">

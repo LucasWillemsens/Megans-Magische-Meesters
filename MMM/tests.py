@@ -1224,7 +1224,12 @@ class BattleFlowTests(TestCase):
         flippable_tags = row_container_tags("cards")
         self.assertTrue(flippable_tags)
         for tag in flippable_tags:
-            self.assertIn('tabindex="0"', tag)
+            if "faceDown" in tag:
+                # Face-down lane cards are flippable, so they stay focusable.
+                self.assertIn('tabindex="0"', tag)
+            else:
+                # Face-up lane cards are settled: never focusable.
+                self.assertNotIn("tabindex", tag)
 
         trusted_tags = row_container_tags("trustedCards")
         self.assertTrue(trusted_tags)
@@ -2218,6 +2223,110 @@ class BattleFlowTests(TestCase):
         )
         self.assertIn('.duplicate-deck-flight > .card.back', cards_css)
 
+    def test_draw_flight_reload_window_waits_for_flight_completion(self):
+        """The no-phase branch must wait out the full card flight.
+
+        moveDuration (up to 1.2s) exceeds the stagger window (delay/2), so the
+        reload used to fire mid-flight and cut the deck->hand animation short.
+        The reload window must include the flight finish time.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        animate_block = _extract_js_brace_block(
+            loading_js, 'if (animationsElements.length > 0)'
+        )
+        self.assertIn('const playerFinished', animate_block)
+        self.assertIn('moveDuration * 1000 + 150', animate_block)
+        self.assertIn('playerFinished,', animate_block)
+        self.assertIn('schedule(reloadToBoard, reloadWindow)', animate_block)
+
+    def test_animation_skip_and_pause_controls(self):
+        """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        self.assertIn('class PausableTimeout', loading_js)
+        self.assertIn('class AnimationControls', loading_js)
+        self.assertIn('skipAnimations()', loading_js)
+        self.assertIn('togglePause()', loading_js)
+        self.assertIn("key === 'e' || key === 'E' || key === 'Enter' || key === 'Escape'", loading_js)
+        self.assertIn(
+            "key === 'w' || key === 'W' || key === ' ' || key === 'Space' || key === 'Spacebar'",
+            loading_js,
+        )
+        self.assertIn('this._scheduler.cancelAll()', loading_js)
+        self.assertIn("addEventListener('keydown'", loading_js)
+
+        # The enemy phase must run through the pausable scheduler so pause
+        # and skip can actually stop it.
+        enemy_block = _extract_js_brace_block(loading_js, "if (phase === 'enemy')")
+        self.assertIn('schedule(reloadToBoard, reloadWindow)', enemy_block)
+        self.assertIn('turnMarker(', enemy_block)
+
+        self.assertIn('.pauseIndicator', cards_css)
+        self.assertIn('.pauseIndicator.visible', cards_css)
+
+    def test_ghost_card_numbering_and_flip_contract(self):
+        """Staged ghosts keep their hand slot number and can be flipped face up."""
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        self.assertIn('orderableKeyboardCards', drag_js)
+        self.assertIn('_isGhostFlipCandidate', drag_js)
+        self.assertIn('_stagedLaneForGhost', drag_js)
+        self.assertIn('_selectGhostFlipCard', drag_js)
+        self.assertIn('_confirmGhostFlipSelection', drag_js)
+        self.assertIn('ghostFlip: true', drag_js)
+        self.assertIn('ghostFlip: false', drag_js)
+        self.assertIn('card.dataset.stagedLane = String(laneValue);', drag_js)
+        self.assertIn('hologram.dataset.stagedForCardId = String(cardId);', drag_js)
+        self.assertIn('card.dataset.stagedFlipped', drag_js)
+
+        # Ghost flips rewrite the staged play cookie with flipFaceUp=true.
+        self.assertIn(
+            'this.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);',
+            drag_js,
+        )
+
+        # Number selection is position-based over the full hand (ghosts
+        # included): the ghost in slot 1 no longer shifts later cards.
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    _keyboardHologramRow(laneValue)')
+        ]
+        self.assertIn('orderableCards[ordinal - 1]', keydown_code)
+        self.assertIn('orderableCards[lastDigitOrdinal - 1]', keydown_code)
+        self.assertIn('selectOrderedCard(', keydown_code)
+
+        # Staging must never write the flip cookie inside selectKeyboardCard;
+        # the ghost-flip helpers live outside the selection slice.
+        selection_code = drag_js[
+            drag_js.index('    selectKeyboardCard(card'):
+            drag_js.index('    onCardDragStart(e)')
+        ]
+        self.assertNotIn('createupdateCookie', selection_code)
+        self.assertIn('this._selectGhostFlipCard(card, digitBuffer)', selection_code)
+
+        # Ghosts are no longer blocked when the play budget is exhausted, so
+        # they stay selectable for their face-up flip.
+        affordances_code = drag_js[
+            drag_js.index('    applyTurnAffordances() {'):
+            drag_js.index('    createDropZones() {')
+        ]
+        self.assertIn("!card.classList.contains('ghost')", affordances_code)
+
 
 def _extract_js_brace_block(source, opener):
     """Return source from opener through its balanced closing brace."""
@@ -3149,6 +3258,84 @@ class SpecialTimelineTests(TestCase):
 
         participant_effects = [s for s in timeline if s["kind"] == PARTICIPANT_EFFECT]
         self.assertGreaterEqual(len(participant_effects), 1)
+
+    def test_build_vis_timeline_win_outcome_after_resolve_trusted(self):
+        """A successful vis attack must NOT read as a resolve drain.
+
+        visSpecial trusts the resolve card before building the timeline, so
+        re-deriving the outcome from trustable cards would report the drain
+        banner. The explicit outcome/trusted-card arguments must win.
+        """
+        from MMM.special_timeline import (
+            build_vis_timeline,
+            PARTICIPANT_EFFECT,
+        )
+
+        # Give the human a face-up untrusted resolve card and trust it
+        # (exactly what visSpecial does before recording the timeline).
+        self._reset_all_cards_to_deck()
+        gc = list(GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id
+        ))
+        resolve_card = gc[0]
+        resolve_card.state.draw()
+        resolve_card.state.play(4)
+        resolve_card.state.reveal()
+        resolve_card.state.updateOrdinal(1)
+        resolve_card.state.save()
+        resolve_card.state.trust()
+        resolve_card.state.save()
+
+        opponent = self.bot_participant
+        timeline = []
+        result = build_vis_timeline(
+            self.human_participant, 5, opponent, timeline,
+            outcome="win",
+            trusted_res_card=resolve_card,
+        )
+
+        self.assertIn("attacks and defeats", result)
+        self.assertNotIn("drains", result)
+        self.assertGreaterEqual(len(timeline), 2)
+        self.assertEqual(timeline[0]["kind"], "special-trigger")
+        self.assertIn("attacks and defeats", timeline[0]["banner"])
+
+        participant_effects = [s for s in timeline if s["kind"] == PARTICIPANT_EFFECT]
+        self.assertGreaterEqual(len(participant_effects), 1)
+        # The defeated participant is the OPPONENT, never the attacker.
+        self.assertEqual(participant_effects[0]["defeatedParticipantId"], opponent.id)
+        self.assertIsNone(participant_effects[0]["fledParticipantId"])
+
+    def test_vis_special_win_defeats_opponent_and_records_attack_timeline(self):
+        """End-to-end: winning via viciousness must not read as a resolve drain."""
+        from MMM.views import visSpecial
+
+        # Human: one face-up untrusted resolve card to spend.
+        self._reset_all_cards_to_deck()
+        gc = list(GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id
+        ))
+        resolve_card = gc[0]
+        resolve_card.state.draw()
+        resolve_card.state.play(4)
+        resolve_card.state.reveal()
+        resolve_card.state.updateOrdinal(1)
+        resolve_card.state.save()
+
+        timeline = []
+        result = visSpecial(self.human_participant, 5, timeline=timeline)
+
+        # The human had resolve, so the attack succeeds and the OPPONENT loses.
+        self.assertIn("attacks and defeats", result)
+        self.assertNotIn("drains", result)
+        self.human_participant.refresh_from_db()
+        self.bot_participant.refresh_from_db()
+        self.assertTrue(self.bot_participant.defeated)
+        self.assertFalse(self.human_participant.defeated)
+
+        banners = [step.get("banner", "") for step in timeline]
+        self.assertTrue(any("attacks and defeats" in banner for banner in banners))
+        self.assertFalse(any("drains" in banner for banner in banners))
 
     def test_normal_draw_produces_no_timeline(self):
         """Verify drawing a card normally (deck not emptied) produces no timeline."""

@@ -583,27 +583,33 @@ def visSpecial(participant, viciousness, opponentId=None, timeline=None):
     newTrustedResCards = getTrustableCards(participant, [4])
     if len(newTrustedResCards) > 0:  
         newTrustedResCard = newTrustedResCards[0]
+    outcome = None
     if newTrustedResCard is None:
         response = f"{participant.player.name} drains the last of their resolve and is defeated"
+        outcome = "drain"
         print(response)
         participant.defeated = True
         participant.save()
-        if timeline is not None:
-            build_vis_timeline(participant, viciousness, opponent, timeline)
-        return response
     elif opponentRes < viciousness:
         response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({viciousness} > {opponentRes})"
+        outcome = "win"
         print(response)
         opponent.defeated = True
         opponent.save()
     else:
         response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({viciousness} <= {opponentRes})"
+        outcome = "fail"
         print(response)
         response = ""
-    newTrustedResCard.state.trust()
-    newTrustedResCard.state.save()
+    if newTrustedResCard is not None:
+        newTrustedResCard.state.trust()
+        newTrustedResCard.state.save()
     if timeline is not None:
-        build_vis_timeline(participant, viciousness, opponent, timeline)
+        # Pass the resolved outcome AND the trusted card explicitly. The
+        # resolve card has just been trusted, so re-deriving the outcome
+        # inside build_vis_timeline would wrongly report the drain/defeat
+        # banner even when the attack succeeded.
+        build_vis_timeline(participant, viciousness, opponent, timeline, outcome, newTrustedResCard)
     return response
 
 def resSpecial(participant, count, timeline=None):

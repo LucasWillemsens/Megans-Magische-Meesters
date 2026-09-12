@@ -42,7 +42,9 @@
     user-select: none;
 }
 
-.playingCards li.cardContainer:hover, .playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,
+.playingCards:not(.hover-managed) li.cardContainer:hover,
+.playingCards.hover-managed .enemyBoard li.cardContainer:hover,
+.playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,
 .playingCards label.cardContainer:hover,
 .playingCards strong .cardContainer {
     margin-top: -30px;
@@ -75,9 +77,26 @@
         box-shadow: none;
         filter: drop-shadow(0.1em 0.1em 0.15em #333);
     }
+    /* While the JS hover manager drives own-side hover visuals, the raw
+       :hover shadow is suppressed (enemy boards stay instant). The z-index
+       from the original rule stays: stacking must not change during the
+       cooldown window. */
+    .playerScreen.hover-managed li.cardContainer:not(.blocked):hover {
+        box-shadow: unset;
+        filter: none;
+    }
+    .playerScreen.hover-managed .enemyBoard li.cardContainer:not(.blocked):hover {
+        z-index: 1000;
+        box-shadow: none;
+        filter: drop-shadow(0.1em 0.1em 0.15em #333);
+    }
     li.cardContainer:not(.blocked):focus-within:hover {
         z-index: 1000;
         box-shadow: .1em .1em 0.15em #333;
+        filter: none;
+    }
+    .playerScreen.hover-managed li.cardContainer:not(.blocked):focus-within:hover {
+        box-shadow: unset;
         filter: none;
     }
     li.cardContainer:not(.blocked).card-hover {
@@ -90,7 +109,8 @@
         box-shadow: .1em .1em 0.15em #333;
         filter: none;
     }
-    .playingCards ul.cardRow li.cardContainer:not(.blocked):hover {
+    .playingCards:not(.hover-managed) ul.cardRow li.cardContainer:not(.blocked):hover,
+    .playingCards.hover-managed .enemyBoard ul.cardRow li.cardContainer:not(.blocked):hover {
         z-index: 1000;
         transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
@@ -106,7 +126,7 @@
         z-index: 999;
         transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
     }
-    .playingCards ul.cardRow li.cardContainer.ghost:hover {
+    .playingCards:not(.hover-managed) ul.cardRow li.cardContainer.ghost:hover {
         z-index: 999;
         transform: none;
         filter: none;
@@ -125,7 +145,7 @@
     }
 
     .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
-    .playerScreen .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
+    .playerScreen:not(.hover-managed) .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
        {
         opacity: 0.6;
         filter:none;
@@ -138,7 +158,7 @@
         ul.hand li.cardContainer.blocked::after{
         cursor: not-allowed !important;
     }
-    .playerScreen .deckHand .hand li.cardContainer:not(.blocked):hover{
+    .playerScreen:not(.hover-managed) .deckHand .hand li.cardContainer:not(.blocked):hover{
         opacity: 1 !important;
     }
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{
@@ -150,13 +170,19 @@
         z-index: 2;
     }
 
-    .playerScreen .deckHand .hand li.cardContainer.blocked:hover {
+    .playerScreen:not(.hover-managed) .deckHand .hand li.cardContainer.blocked:hover {
         opacity: 0.55 !important;
     }
     .playerScreen .deckHand .hand li.cardContainer.blocked.card-hover {
         opacity: 0.55 !important;
     }
     li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
+        background: var(--card-background-highlight);
+    }
+    .playerScreen.hover-managed li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
+        background: var(--card-background);
+    }
+    .playerScreen.hover-managed .enemyBoard li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
         background: var(--card-background-highlight);
     }
     li.cardContainer:not(.blocked):not(.faceDown):hover:active > .smallCard{
@@ -1442,7 +1468,17 @@ li.cardContainer > .smallCard a, li.cardContainer > .smallCard p:is(:not(.cardTy
     margin-block-end: 0;
 }
 
-li.cardContainer:hover > .smallCard a::after{
+.playerScreen:not(.hover-managed) li.cardContainer:hover > .smallCard a::after{
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    border-radius: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+.playerScreen li.cardContainer.card-hover > .smallCard a::after{
     position: absolute;
     width: 100%;
     height: 100%;
@@ -1524,7 +1560,13 @@ ul.hand li.cardContainer > .card.smallCard::after{
     box-shadow: none;
 }
 
-ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
+.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
+    right: 80%;
+    top: 80%;
+    filter: drop-shadow(4px 4px 4px #000);
+}
+
+.playerScreen ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard::after {
     right: 80%;
     top: 80%;
     filter: drop-shadow(4px 4px 4px #000);
@@ -1592,6 +1634,27 @@ ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
 
 .timeline-banner {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Enemy-turn / timeline pause indicator (W/Space pauses, E/Enter/Escape skips). */
+.pauseIndicator {
+    display: none;
+    position: fixed;
+    top: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.4em 1em;
+    background: rgba(20, 20, 30, 0.85);
+    color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 0.5em;
+    z-index: 1001;
+    font-weight: bold;
+    pointer-events: none;
+}
+
+.pauseIndicator.visible {
+    display: block;
 }
 
 .playingCards .card.smallCard[class*="rank-"] {

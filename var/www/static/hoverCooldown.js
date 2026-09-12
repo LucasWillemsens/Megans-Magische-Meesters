@@ -8,6 +8,15 @@ const OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand';
 
 const HOVER_SWITCH_COOLDOWN_MS = 500;
 
+/**
+ * Marker class applied to the managed container while the JS hover manager
+ * is running. cards.css / cardDragDrop.css gate the own-side :hover rules
+ * behind :not(.hover-managed) so the cooldown actually drives the visual
+ * hover state (the :hover rules remain the no-JS / touch fallback, and
+ * enemy-board hover stays instant).
+ */
+const HOVER_MANAGED_CLASS = 'hover-managed';
+
 class CardHoverManager {
     constructor(container, { switchCooldownMs = HOVER_SWITCH_COOLDOWN_MS, now = () => performance.now() } = {}) {
         this.container = container;
@@ -29,6 +38,7 @@ class CardHoverManager {
         if (!this.enabled || !this.container) return false;
         this.onMouseMove = (event) => this.handleMouseMove(event);
         this.container.addEventListener('mousemove', this.onMouseMove, { passive: true });
+        this.container.classList.add(HOVER_MANAGED_CLASS);
         return true;
     }
 
@@ -37,6 +47,7 @@ class CardHoverManager {
             this.container.removeEventListener('mousemove', this.onMouseMove);
             this.onMouseMove = null;
         }
+        this.container.classList.remove(HOVER_MANAGED_CLASS);
         if (this.frameHandle !== null) {
             window.cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;

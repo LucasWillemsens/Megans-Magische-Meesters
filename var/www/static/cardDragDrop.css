@@ -145,7 +145,7 @@ ul.hologramRow .hologram:nth-child(15) { left: 21.4em; z-index: 15; }
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));
 }
-ul.hologramRow .hologram:hover {
+.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover {
     z-index: 100;
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
     opacity: 1;
@@ -209,7 +209,7 @@ div.drop-zone-active {
     opacity: 0.15;
 }
 
-ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
+.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }
 ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
