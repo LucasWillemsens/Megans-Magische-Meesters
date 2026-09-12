@@ -32,6 +32,7 @@ class CardHoverManager {
         this.pendingEvent = null;
         this.pendingTarget = null;
         this.pendingTimer = null;
+        this.pendingClearTimer = null;
         this.onMouseMove = null;
         this.applyPendingTarget = () => this.consumePendingTarget();
     }
@@ -56,6 +57,7 @@ class CardHoverManager {
         }
         this.pendingEvent = null;
         this.cancelPendingSwitch();
+        this.cancelPendingClear();
         this.clearHover();
     }
 
@@ -74,14 +76,22 @@ class CardHoverManager {
         const target = this.resolveHoverTarget(event.target);
         if (target === this.hoveredCard) {
             this.cancelPendingSwitch();
+            this.cancelPendingClear();
             return;
         }
 
         if (!target) {
+            // The pointer left every hoverable (or sits over the gap the
+            // hover lift just opened). Keep the current hover state for the
+            // rest of the hold window instead of dropping it right away —
+            // clearing immediately makes the card snap back down and flicker
+            // when the pointer rests near its bottom edge.
             this.cancelPendingSwitch();
-            this.clearHover();
+            this.schedulePendingClear();
             return;
         }
+
+        this.cancelPendingClear();
         const elapsed = this.now() - this.lastSwitchAt;
         if (elapsed < this.switchCooldownMs) {
             // Inside the cooldown window: don't drop the switch — apply it
@@ -119,6 +129,29 @@ class CardHoverManager {
         this.pendingTarget = null;
     }
 
+    /**
+     * Defer clearing the hover until the hold window (switchCooldownMs)
+     * has elapsed since the hover state was applied. If the pointer comes
+     * back over a hoverable before then, consumePendingTarget cancels the
+     * pending clear and the state is kept.
+     */
+    schedulePendingClear() {
+        if (this.pendingClearTimer !== null || !this.hoveredCard) return;
+        const elapsed = this.now() - this.lastSwitchAt;
+        const waitMs = Math.max(0, this.switchCooldownMs - elapsed);
+        this.pendingClearTimer = window.setTimeout(() => {
+            this.pendingClearTimer = null;
+            this.clearHover();
+        }, waitMs);
+    }
+
+    cancelPendingClear() {
+        if (this.pendingClearTimer !== null) {
+            window.clearTimeout(this.pendingClearTimer);
+            this.pendingClearTimer = null;
+        }
+    }
+
     resolveHoverTarget(target) {
         if (!target || typeof target.closest !== 'function') return null;
         const card = target.closest(CARD_HOVER_TARGET_SELECTOR);
@@ -134,6 +167,7 @@ class CardHoverManager {
 
     clearHover() {
         this.cancelPendingSwitch();
+        this.cancelPendingClear();
         if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
         this.hoveredCard = null;
     }

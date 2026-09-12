@@ -2014,6 +2014,16 @@ class BattleFlowTests(TestCase):
         self.assertIn('this.pendingTarget = target', hover_js)
         self.assertIn('this.pendingTimer = window.setTimeout', hover_js)
 
+        # The hovered card must HOLD its state for the cooldown window even
+        # when the pointer leaves it (e.g. the lift opens a gap under a
+        # pointer resting near the card's bottom edge): the clear is deferred
+        # until the same window expires, and re-entering the card cancels it.
+        self.assertIn('this.schedulePendingClear();', hover_js)
+        self.assertIn('schedulePendingClear()', hover_js)
+        self.assertIn('cancelPendingClear()', hover_js)
+        self.assertIn('this.pendingClearTimer = window.setTimeout', hover_js)
+        self.assertIn('this.pendingClearTimer = null', hover_js)
+
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
