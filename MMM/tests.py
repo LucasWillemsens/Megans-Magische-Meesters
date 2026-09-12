@@ -2024,6 +2024,19 @@ class BattleFlowTests(TestCase):
         self.assertIn('this.pendingClearTimer = window.setTimeout', hover_js)
         self.assertIn('this.pendingClearTimer = null', hover_js)
 
+        # Sticky hit-testing: while the pointer stays inside the hovered
+        # card's PRE-LIFT footprint, it still counts as hovering that card,
+        # so the lift can never move the card out from under the pointer and
+        # cause an up/down flicker loop. The footprint is recovered from the
+        # card's current rect plus the measured lift shift (scroll-safe).
+        self.assertIn('resolveHoverTarget(event)', hover_js)
+        self.assertIn('const beforeRect = card.getBoundingClientRect();', hover_js)
+        self.assertIn('this.hoverBounds = beforeRect', hover_js)
+        self.assertIn('this.hoverShiftX = afterRect.left - beforeRect.left', hover_js)
+        self.assertIn('this.hoverShiftY = afterRect.top - beforeRect.top', hover_js)
+        self.assertIn('event.clientX >= left && event.clientX <= right', hover_js)
+        self.assertIn('event.clientY >= top && event.clientY <= bottom', hover_js)
+
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))

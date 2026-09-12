@@ -33,6 +33,9 @@ class CardHoverManager {
         this.pendingTarget = null;
         this.pendingTimer = null;
         this.pendingClearTimer = null;
+        this.hoverBounds = null;
+        this.hoverShiftX = 0;
+        this.hoverShiftY = 0;
         this.onMouseMove = null;
         this.applyPendingTarget = () => this.consumePendingTarget();
     }
@@ -73,7 +76,7 @@ class CardHoverManager {
         this.pendingEvent = null;
         if (!event) return;
 
-        const target = this.resolveHoverTarget(event.target);
+        const target = this.resolveHoverTarget(event);
         if (target === this.hoveredCard) {
             this.cancelPendingSwitch();
             this.cancelPendingClear();
@@ -152,7 +155,34 @@ class CardHoverManager {
         }
     }
 
-    resolveHoverTarget(target) {
+    resolveHoverTarget(event) {
+        const hovered = this.hoveredCard;
+        if (hovered && this.hoverBounds) {
+            if (typeof hovered.isConnected === 'undefined' || hovered.isConnected) {
+                // Sticky hit-testing: the hover lift moves the card out from
+                // under the pointer (e.g. a pointer resting near the card's
+                // bottom edge). Keep treating the pointer as "on the card"
+                // while it stays inside the card's pre-lift footprint —
+                // recovered from the card's current rect so it stays correct
+                // after page scrolling. Without this, the hover clears the
+                // moment the card lifts, and the card snaps down, re-hovers,
+                // lifts, and drops again in a visible flicker loop.
+                const current = hovered.getBoundingClientRect();
+                const left = current.left - this.hoverShiftX;
+                const top = current.top - this.hoverShiftY;
+                const right = left + this.hoverBounds.width;
+                const bottom = top + this.hoverBounds.height;
+                if (
+                    event.clientX >= left && event.clientX <= right &&
+                    event.clientY >= top && event.clientY <= bottom
+                ) {
+                    return hovered;
+                }
+            } else {
+                this.clearHover();
+            }
+        }
+        const target = event.target;
         if (!target || typeof target.closest !== 'function') return null;
         const card = target.closest(CARD_HOVER_TARGET_SELECTOR);
         if (!card || card.closest(OWN_SIDE_EXCLUSION_SELECTOR)) return null;
@@ -161,7 +191,15 @@ class CardHoverManager {
 
     swapHover(card) {
         if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
+        // Capture the card's pre-lift footprint and how far the hover lift
+        // moves it, so sticky hit-testing above can reconstruct where the
+        // card sits when un-hovered.
+        const beforeRect = card.getBoundingClientRect();
         card.classList.add('card-hover');
+        const afterRect = card.getBoundingClientRect();
+        this.hoverBounds = beforeRect;
+        this.hoverShiftX = afterRect.left - beforeRect.left;
+        this.hoverShiftY = afterRect.top - beforeRect.top;
         this.hoveredCard = card;
     }
 
@@ -170,6 +208,9 @@ class CardHoverManager {
         this.cancelPendingClear();
         if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
         this.hoveredCard = null;
+        this.hoverBounds = null;
+        this.hoverShiftX = 0;
+        this.hoverShiftY = 0;
     }
 }
 
