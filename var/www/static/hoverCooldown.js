@@ -6,44 +6,49 @@ const CARD_HOVER_TARGET_SELECTOR = [
 
 const OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand';
 
-const HOVER_SWITCH_COOLDOWN_MS = 500;
+/**
+ * The hover state is removed only after this delay has elapsed since the
+ * cursor moved outside the hovered card (and its sticky resting footprint).
+ * Re-entering inside the window cancels the removal; switching to a
+ * different card is always immediate.
+ */
+const HOVER_REMOVE_DELAY_MS = 500;
 
 /**
  * Marker class applied to the managed container while the JS hover manager
  * is running. cards.css / cardDragDrop.css gate the own-side :hover rules
- * behind :not(.hover-managed) so the cooldown actually drives the visual
- * hover state (the :hover rules remain the no-JS / touch fallback, and
- * enemy-board hover stays instant).
+ * behind :not(.hover-managed) so a single .card-hover class drives the
+ * visual hover state (the :hover rules remain the no-JS / touch fallback,
+ * and enemy-board hover stays instant).
  */
 const HOVER_MANAGED_CLASS = 'hover-managed';
 
+const HOVER_CLASS = 'card-hover';
+
 class CardHoverManager {
-    constructor(container, { switchCooldownMs = HOVER_SWITCH_COOLDOWN_MS, now = () => performance.now() } = {}) {
+    constructor(container, { removeDelayMs = HOVER_REMOVE_DELAY_MS } = {}) {
         this.container = container;
-        this.switchCooldownMs = switchCooldownMs;
-        this.now = now;
+        this.removeDelayMs = removeDelayMs;
         // Reduced-motion choice: disable the JS hover manager entirely. The
         // plain :hover fallback rules stay active and the :focus-within styles
         // are pure CSS, so keyboard focus visuals are unaffected.
         this.enabled = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         this.hoveredCard = null;
-        this.lastSwitchAt = Number.NEGATIVE_INFINITY;
+        this.hoverFootprint = null;
         this.frameHandle = null;
         this.pendingEvent = null;
-        this.pendingTarget = null;
-        this.pendingTimer = null;
-        this.pendingClearTimer = null;
-        this.hoverBounds = null;
-        this.hoverShiftX = 0;
-        this.hoverShiftY = 0;
+        this.removeTimer = null;
         this.onMouseMove = null;
-        this.applyPendingTarget = () => this.consumePendingTarget();
+        this.onMouseLeave = null;
+        this.applyPendingEvent = () => this.consumePendingEvent();
     }
 
     start() {
         if (!this.enabled || !this.container) return false;
         this.onMouseMove = (event) => this.handleMouseMove(event);
+        this.onMouseLeave = () => this.handleMouseLeave();
         this.container.addEventListener('mousemove', this.onMouseMove, { passive: true });
+        this.container.addEventListener('mouseleave', this.onMouseLeave);
         this.container.classList.add(HOVER_MANAGED_CLASS);
         return true;
     }
@@ -53,24 +58,37 @@ class CardHoverManager {
             this.container.removeEventListener('mousemove', this.onMouseMove);
             this.onMouseMove = null;
         }
+        if (this.onMouseLeave) {
+            this.container.removeEventListener('mouseleave', this.onMouseLeave);
+            this.onMouseLeave = null;
+        }
         this.container.classList.remove(HOVER_MANAGED_CLASS);
         if (this.frameHandle !== null) {
             window.cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;
         }
         this.pendingEvent = null;
-        this.cancelPendingSwitch();
-        this.cancelPendingClear();
         this.clearHover();
     }
 
     handleMouseMove(event) {
         this.pendingEvent = event;
         if (this.frameHandle !== null) return;
-        this.frameHandle = window.requestAnimationFrame(this.applyPendingTarget);
+        this.frameHandle = window.requestAnimationFrame(this.applyPendingEvent);
     }
 
-    consumePendingTarget() {
+    handleMouseLeave() {
+        // The pointer left the screen: any queued mousemove is stale and must
+        // not cancel the deferred removal.
+        if (this.frameHandle !== null) {
+            window.cancelAnimationFrame(this.frameHandle);
+            this.frameHandle = null;
+        }
+        this.pendingEvent = null;
+        this.schedulePendingRemove();
+    }
+
+    consumePendingEvent() {
         this.frameHandle = null;
         const event = this.pendingEvent;
         this.pendingEvent = null;
@@ -78,108 +96,24 @@ class CardHoverManager {
 
         const target = this.resolveHoverTarget(event);
         if (target === this.hoveredCard) {
-            this.cancelPendingSwitch();
-            this.cancelPendingClear();
+            this.cancelPendingRemove();
             return;
         }
-
         if (!target) {
-            // The pointer left every hoverable (or sits over the gap the
-            // hover lift just opened). Keep the current hover state for the
-            // rest of the hold window instead of dropping it right away —
-            // clearing immediately makes the card snap back down and flicker
-            // when the pointer rests near its bottom edge.
-            this.cancelPendingSwitch();
-            this.schedulePendingClear();
+            this.schedulePendingRemove();
             return;
         }
-
-        this.cancelPendingClear();
-        const elapsed = this.now() - this.lastSwitchAt;
-        if (elapsed < this.switchCooldownMs) {
-            // Inside the cooldown window: don't drop the switch — apply it
-            // when the window expires, so the hover still lands on the card
-            // the pointer stopped on (a dropped event would leave the old
-            // card highlighted indefinitely).
-            this.schedulePendingSwitch(target, this.switchCooldownMs - elapsed);
-            return;
-        }
-
-        this.cancelPendingSwitch();
+        // Genuine cursor movement onto a different card switches immediately.
         this.swapHover(target);
-        this.lastSwitchAt = this.now();
-    }
-
-    schedulePendingSwitch(target, waitMs) {
-        this.cancelPendingSwitch();
-        this.pendingTarget = target;
-        this.pendingTimer = window.setTimeout(() => {
-            this.pendingTimer = null;
-            const pending = this.pendingTarget;
-            this.pendingTarget = null;
-            if (!pending || pending === this.hoveredCard) return;
-            if (typeof pending.isConnected !== 'undefined' && !pending.isConnected) return;
-            this.swapHover(pending);
-            this.lastSwitchAt = this.now();
-        }, waitMs);
-    }
-
-    cancelPendingSwitch() {
-        if (this.pendingTimer !== null) {
-            window.clearTimeout(this.pendingTimer);
-            this.pendingTimer = null;
-        }
-        this.pendingTarget = null;
-    }
-
-    /**
-     * Defer clearing the hover until the hold window (switchCooldownMs)
-     * has elapsed since the hover state was applied. If the pointer comes
-     * back over a hoverable before then, consumePendingTarget cancels the
-     * pending clear and the state is kept.
-     */
-    schedulePendingClear() {
-        if (this.pendingClearTimer !== null || !this.hoveredCard) return;
-        const elapsed = this.now() - this.lastSwitchAt;
-        const waitMs = Math.max(0, this.switchCooldownMs - elapsed);
-        this.pendingClearTimer = window.setTimeout(() => {
-            this.pendingClearTimer = null;
-            this.clearHover();
-        }, waitMs);
-    }
-
-    cancelPendingClear() {
-        if (this.pendingClearTimer !== null) {
-            window.clearTimeout(this.pendingClearTimer);
-            this.pendingClearTimer = null;
-        }
     }
 
     resolveHoverTarget(event) {
         const hovered = this.hoveredCard;
-        if (hovered && this.hoverBounds) {
-            if (typeof hovered.isConnected === 'undefined' || hovered.isConnected) {
-                // Sticky hit-testing: the hover lift moves the card out from
-                // under the pointer (e.g. a pointer resting near the card's
-                // bottom edge). Keep treating the pointer as "on the card"
-                // while it stays inside the card's pre-lift footprint —
-                // recovered from the card's current rect so it stays correct
-                // after page scrolling. Without this, the hover clears the
-                // moment the card lifts, and the card snaps down, re-hovers,
-                // lifts, and drops again in a visible flicker loop.
-                const current = hovered.getBoundingClientRect();
-                const left = current.left - this.hoverShiftX;
-                const top = current.top - this.hoverShiftY;
-                const right = left + this.hoverBounds.width;
-                const bottom = top + this.hoverBounds.height;
-                if (
-                    event.clientX >= left && event.clientX <= right &&
-                    event.clientY >= top && event.clientY <= bottom
-                ) {
-                    return hovered;
-                }
-            } else {
+        if (hovered) {
+            if (hovered.isConnected === false) {
                 this.clearHover();
+            } else if (this.isInsideHoverFootprint(event)) {
+                return hovered;
             }
         }
         const target = event.target;
@@ -189,28 +123,66 @@ class CardHoverManager {
         return card;
     }
 
+    /**
+     * Sticky hit-test against the hovered card's resting footprint, in page
+     * coordinates so it stays correct while the page scrolls. The hover lift
+     * is an animated transform, so the card can move out from under a
+     * stationary near-edge pointer; while the pointer stays inside the area
+     * the card occupies at rest it still counts as hovering, and the lift can
+     * never re-arm a leave/enter flicker loop.
+     */
+    isInsideHoverFootprint(event) {
+        const footprint = this.hoverFootprint;
+        if (!footprint) return false;
+        return (
+            event.pageX >= footprint.left && event.pageX <= footprint.right &&
+            event.pageY >= footprint.top && event.pageY <= footprint.bottom
+        );
+    }
+
+    /**
+     * Moves the hover state to another card. The class is removed from the
+     * previous holder before it is added to the new one, so exactly one
+     * element on screen carries it at any time.
+     */
     swapHover(card) {
-        if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
-        // Capture the card's pre-lift footprint and how far the hover lift
-        // moves it, so sticky hit-testing above can reconstruct where the
-        // card sits when un-hovered.
-        const beforeRect = card.getBoundingClientRect();
-        card.classList.add('card-hover');
-        const afterRect = card.getBoundingClientRect();
-        this.hoverBounds = beforeRect;
-        this.hoverShiftX = afterRect.left - beforeRect.left;
-        this.hoverShiftY = afterRect.top - beforeRect.top;
+        this.cancelPendingRemove();
+        if (this.hoveredCard === card) return;
+        if (this.hoveredCard) this.hoveredCard.classList.remove(HOVER_CLASS);
+        this.hoverFootprint = this.captureFootprint(card);
+        card.classList.add(HOVER_CLASS);
         this.hoveredCard = card;
     }
 
+    captureFootprint(card) {
+        // Captured before the class is applied: the rect is the card's
+        // resting position, untouched by the (transitioning) hover lift.
+        const rect = card.getBoundingClientRect();
+        const left = rect.left + window.scrollX;
+        const top = rect.top + window.scrollY;
+        return { left, top, right: left + rect.width, bottom: top + rect.height };
+    }
+
+    schedulePendingRemove() {
+        if (this.removeTimer !== null || !this.hoveredCard) return;
+        this.removeTimer = window.setTimeout(() => {
+            this.removeTimer = null;
+            this.clearHover();
+        }, this.removeDelayMs);
+    }
+
+    cancelPendingRemove() {
+        if (this.removeTimer !== null) {
+            window.clearTimeout(this.removeTimer);
+            this.removeTimer = null;
+        }
+    }
+
     clearHover() {
-        this.cancelPendingSwitch();
-        this.cancelPendingClear();
-        if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
+        this.cancelPendingRemove();
+        if (this.hoveredCard) this.hoveredCard.classList.remove(HOVER_CLASS);
         this.hoveredCard = null;
-        this.hoverBounds = null;
-        this.hoverShiftX = 0;
-        this.hoverShiftY = 0;
+        this.hoverFootprint = null;
     }
 }
 

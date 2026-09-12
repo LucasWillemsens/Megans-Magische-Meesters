@@ -1957,14 +1957,101 @@ class BattleFlowTests(TestCase):
         with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
             hover_js = js_file.read()
 
-        # cards.css .card-hover mirrors of the card :hover rules
-        self.assertIn('.playingCards li.cardContainer.card-hover {', cards_css)
+        # Own-side :hover lift rules stay gated behind :not(.hover-managed):
+        # they are the no-JS/touch fallback, while enemy hover stays instant.
+        self.assertIn('.playingCards:not(.hover-managed) li.cardContainer:hover', cards_css)
+        self.assertIn('.playingCards.hover-managed .enemyBoard li.cardContainer:hover', cards_css)
         self.assertIn(
-            'li.cardContainer:not(.blocked).card-hover {\n        z-index: 1000;',
+            '.playingCards:not(.hover-managed) ul.cardRow li.cardContainer:not(.blocked):hover',
+            cards_css,
+        )
+        self.assertIn('.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover', drag_css)
+        self.assertIn(
+            '.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover',
+            drag_css,
+        )
+        # Keyboard focus / mouse press lifts are independent of the manager.
+        self.assertIn(
+            '.playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,',
+            cards_css,
+        )
+
+        # The class-driven lift rides on --card-hover-lift (composed into the
+        # resting transforms, animated) instead of an instant margin-top jump;
+        # margin-top is zeroed so :active/:focus-within margins cannot stack
+        # with the lift into a double jump.
+        lift_block = cards_css[
+            cards_css.index('.playingCards li.cardContainer.card-hover,'):
+            cards_css.index('.playingCards li.cardContainer:focus-within:active')
+        ]
+        self.assertIn('.playingCards li.cardContainer.card-hover:focus-within:active', lift_block)
+        self.assertIn('--card-hover-lift: -30px;', lift_block)
+        self.assertIn('margin-top: 0;', lift_block)
+        self.assertNotIn('margin-top: -30px', lift_block)
+        self.assertNotIn(
+            '.playingCards li.cardContainer.card-hover {\n    margin-top: -30px;',
+            cards_css,
+        )
+
+        # Resting transforms compose the lift variable and transition it, so
+        # the lift animates on and off without shifting layout. Flight clones
+        # (.duplicate) are excluded and keep their own flight transition.
+        self.assertIn(
+            'transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));',
             cards_css,
         )
         self.assertIn(
-            '.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover',
+            'transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {\n'
+            '    transition: transform 0.15s ease-out;\n}',
+            cards_css,
+        )
+        self.assertIn(
+            'transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards ul.cardRow li.cardContainer:not(.duplicate) {\n'
+            '    transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;\n}',
+            cards_css,
+        )
+
+        # cardRow .card-hover / :focus-within lifts compose the variable too,
+        # keeping the old margin+translateY total and staying animated.
+        card_row_hover_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {'):
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {')
+        ]
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
+            card_row_hover_block,
+        )
+        self.assertIn(
+            'transition: transform 0.15s ease-out, filter 0.15s ease-out;',
+            card_row_hover_block,
+        )
+        card_row_focus_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {'):
+            cards_css.index('.playingCards:not(.hover-managed) ul.cardRow li.cardContainer.ghost:hover')
+        ]
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
+            card_row_focus_block,
+        )
+
+        # Hand card-hover mirrors keep the old hover look and pin z-index so
+        # stacking is stable while the lift animates.
+        hand_hover_block = cards_css[
+            cards_css.index('.playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{'):
+            cards_css.index('.playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{')
+        ]
+        self.assertIn('opacity: 1 !important;', hand_hover_block)
+        self.assertIn('z-index: 1000;', hand_hover_block)
+        self.assertIn(
+            'li.cardContainer.blocked.card-hover {\n        opacity: 0.55 !important;\n        z-index: 999;',
             cards_css,
         )
         self.assertIn(
@@ -1976,7 +2063,7 @@ class BattleFlowTests(TestCase):
             cards_css,
         )
         self.assertIn(
-            'li.cardContainer.blocked.card-hover {\n        opacity: 0.55 !important;',
+            'li.cardContainer:not(.blocked).card-hover {\n        z-index: 1000;',
             cards_css,
         )
         self.assertIn(
@@ -1984,18 +2071,39 @@ class BattleFlowTests(TestCase):
             cards_css,
         )
 
-        # cardDragDrop.css .card-hover mirrors (hologram lift + hand morph)
-        self.assertIn('ul.hologramRow .hologram.card-hover', drag_css)
+        # cardDragDrop.css: hologram lift animates on AND off (rest rule
+        # transitions too), and the hand morph stays class-driven.
+        hologram_rest_block = drag_css[
+            drag_css.index('ul.hologramRow .hologram {'):
+            drag_css.index('.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover')
+        ]
+        self.assertIn(
+            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            hologram_rest_block,
+        )
+        hologram_hover_block = drag_css[
+            drag_css.index('ul.hologramRow .hologram.card-hover {'):
+            drag_css.index('ul.hologramRow .hologram:focus-within {')
+        ]
+        self.assertIn(
+            'transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));',
+            hologram_hover_block,
+        )
+        self.assertIn(
+            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            hologram_hover_block,
+        )
         self.assertIn(
             'ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard',
             drag_css,
         )
 
-        # manager stays passive and cooldown-driven
+        # manager stays passive; the 500ms window applies to REMOVAL only.
         self.assertIn('class CardHoverManager', hover_js)
-        self.assertIn('HOVER_SWITCH_COOLDOWN_MS = 500', hover_js)
+        self.assertIn('HOVER_REMOVE_DELAY_MS = 500', hover_js)
         self.assertIn("addEventListener('mousemove'", hover_js)
         self.assertIn('{ passive: true }', hover_js)
+        self.assertIn("addEventListener('mouseleave', this.onMouseLeave)", hover_js)
         self.assertIn(
             "OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand'",
             hover_js,
@@ -2003,39 +2111,99 @@ class BattleFlowTests(TestCase):
         self.assertIn('prefers-reduced-motion', hover_js)
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
+        self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
 
-        # Switches that land inside the cooldown window must not be dropped:
-        # the pending target is applied when the window expires, so the hover
-        # reaches the card the pointer stopped on even without further
-        # mousemove events.
-        self.assertIn('schedulePendingSwitch(target, this.switchCooldownMs - elapsed)', hover_js)
-        self.assertIn('schedulePendingSwitch(target, waitMs)', hover_js)
-        self.assertIn('cancelPendingSwitch()', hover_js)
-        self.assertIn('this.pendingTarget = target', hover_js)
-        self.assertIn('this.pendingTimer = window.setTimeout', hover_js)
+        # No cooldown-delayed switching remains: genuine cursor movement onto
+        # a different card swaps the class immediately.
+        self.assertNotIn('HOVER_SWITCH_COOLDOWN_MS', hover_js)
+        self.assertNotIn('schedulePendingSwitch', hover_js)
+        self.assertNotIn('pendingTarget', hover_js)
+        self.assertNotIn('lastSwitchAt', hover_js)
+        consume_block = hover_js[
+            hover_js.index('consumePendingEvent() {'):
+            hover_js.index('resolveHoverTarget(event) {')
+        ]
+        self.assertIn('this.swapHover(target);', consume_block)
+        self.assertNotIn('setTimeout', consume_block)
+        # Leaving (or the pointer exiting the screen) schedules the deferred
+        # removal; staying on the card cancels it.
+        self.assertIn('this.schedulePendingRemove();', consume_block)
+        self.assertIn('this.cancelPendingRemove();', consume_block)
+        self.assertIn('this.schedulePendingRemove();', hover_js[
+            hover_js.index('handleMouseLeave() {'):
+            hover_js.index('consumePendingEvent() {')
+        ])
 
-        # The hovered card must HOLD its state for the cooldown window even
-        # when the pointer leaves it (e.g. the lift opens a gap under a
-        # pointer resting near the card's bottom edge): the clear is deferred
-        # until the same window expires, and re-entering the card cancels it.
-        self.assertIn('this.schedulePendingClear();', hover_js)
-        self.assertIn('schedulePendingClear()', hover_js)
-        self.assertIn('cancelPendingClear()', hover_js)
-        self.assertIn('this.pendingClearTimer = window.setTimeout', hover_js)
-        self.assertIn('this.pendingClearTimer = null', hover_js)
+        # The class is removed only after the 500ms delay elapsed since the
+        # cursor moved outside; the timer is scheduled once per leave, so
+        # further movement outside does not keep postponing the removal.
+        schedule_block = hover_js[
+            hover_js.index('schedulePendingRemove() {'):
+            hover_js.index('cancelPendingRemove() {')
+        ]
+        self.assertIn(
+            'if (this.removeTimer !== null || !this.hoveredCard) return;',
+            schedule_block,
+        )
+        self.assertIn('this.removeTimer = window.setTimeout', schedule_block)
+        self.assertIn('this.removeDelayMs);', schedule_block)
+        self.assertIn('window.clearTimeout(this.removeTimer);', hover_js)
+
+        # Singleton: the class is removed from the previous holder BEFORE it
+        # is added to the new one, and clearHover/stop strip it as well, so
+        # exactly one element on screen carries it at any time.
+        swap_block = hover_js[
+            hover_js.index('swapHover(card) {'):
+            hover_js.index('captureFootprint(card) {')
+        ]
+        self.assertIn('this.hoveredCard.classList.remove(HOVER_CLASS);', swap_block)
+        self.assertIn('card.classList.add(HOVER_CLASS);', swap_block)
+        self.assertLess(
+            swap_block.index('this.hoveredCard.classList.remove(HOVER_CLASS);'),
+            swap_block.index('card.classList.add(HOVER_CLASS);'),
+        )
+        self.assertLess(
+            swap_block.index('this.hoverFootprint = this.captureFootprint(card);'),
+            swap_block.index('card.classList.add(HOVER_CLASS);'),
+        )
+        clear_block = hover_js[hover_js.index('clearHover() {'):]
+        self.assertIn('this.hoveredCard.classList.remove(HOVER_CLASS);', clear_block)
+        self.assertIn('this.cancelPendingRemove();', clear_block)
+        stop_block = hover_js[
+            hover_js.index('stop() {'):
+            hover_js.index('handleMouseMove(event) {')
+        ]
+        self.assertIn("removeEventListener('mousemove'", stop_block)
+        self.assertIn("removeEventListener('mouseleave'", stop_block)
+        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', stop_block)
+        self.assertIn('this.clearHover();', stop_block)
 
         # Sticky hit-testing: while the pointer stays inside the hovered
-        # card's PRE-LIFT footprint, it still counts as hovering that card,
-        # so the lift can never move the card out from under the pointer and
-        # cause an up/down flicker loop. The footprint is recovered from the
-        # card's current rect plus the measured lift shift (scroll-safe).
-        self.assertIn('resolveHoverTarget(event)', hover_js)
-        self.assertIn('const beforeRect = card.getBoundingClientRect();', hover_js)
-        self.assertIn('this.hoverBounds = beforeRect', hover_js)
-        self.assertIn('this.hoverShiftX = afterRect.left - beforeRect.left', hover_js)
-        self.assertIn('this.hoverShiftY = afterRect.top - beforeRect.top', hover_js)
-        self.assertIn('event.clientX >= left && event.clientX <= right', hover_js)
-        self.assertIn('event.clientY >= top && event.clientY <= bottom', hover_js)
+        # card's resting footprint (captured in page coordinates BEFORE the
+        # lift class is applied, so scroll and the lift transition can never
+        # skew it), the pointer still counts as being on the card — the
+        # animated lift cannot move the card out from under a near-edge
+        # pointer and re-arm a leave/enter flicker loop.
+        self.assertIn('isInsideHoverFootprint(event)', hover_js)
+        footprint_block = hover_js[
+            hover_js.index('isInsideHoverFootprint(event) {'):
+            hover_js.index('swapHover(card) {')
+        ]
+        self.assertIn(
+            'event.pageX >= footprint.left && event.pageX <= footprint.right',
+            footprint_block,
+        )
+        self.assertIn(
+            'event.pageY >= footprint.top && event.pageY <= footprint.bottom',
+            footprint_block,
+        )
+        capture_block = hover_js[
+            hover_js.index('captureFootprint(card) {'):
+            hover_js.index('schedulePendingRemove() {')
+        ]
+        self.assertIn('card.getBoundingClientRect();', capture_block)
+        self.assertIn('rect.left + window.scrollX', capture_block)
+        self.assertIn('rect.top + window.scrollY', capture_block)
 
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))

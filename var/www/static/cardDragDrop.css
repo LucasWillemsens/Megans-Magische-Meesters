@@ -144,6 +144,8 @@ ul.hologramRow .hologram:nth-child(15) { left: 21.4em; z-index: 15; }
 
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));
+    /* Lets the .card-hover lift animate off as well as on. */
+    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
 }
 .playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover {
     z-index: 100;

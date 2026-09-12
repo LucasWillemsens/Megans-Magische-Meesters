@@ -51,9 +51,15 @@
 }
 
 /* .card-hover mirrors of the card :hover rules are driven by
-   hoverCooldown.js; the :hover originals stay for touch/no-JS fallback. */
-.playingCards li.cardContainer.card-hover {
-    margin-top: -30px;
+   hoverCooldown.js; the :hover originals stay for touch/no-JS fallback.
+   The lift rides on --card-hover-lift, which the resting transform rules
+   compose into, so it is layout-stable and animates via transition.
+   margin-top is zeroed so the :active / :focus-within margin lifts cannot
+   stack with the class-driven lift into a double jump. */
+.playingCards li.cardContainer.card-hover,
+.playingCards li.cardContainer.card-hover:focus-within:active {
+    --card-hover-lift: -30px;
+    margin-top: 0;
 }
     .playingCards li.cardContainer:focus-within:active
     {
@@ -118,13 +124,13 @@
     }
     .playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {
         z-index: 1000;
-        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+        transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
         transition: transform 0.15s ease-out, filter 0.15s ease-out;
     }
     .playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {
         z-index: 999;
-        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
+        transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
     }
     .playingCards:not(.hover-managed) ul.cardRow li.cardContainer.ghost:hover {
         z-index: 999;
@@ -163,6 +169,7 @@
     }
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{
         opacity: 1 !important;
+        z-index: 1000;
     }
 
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
@@ -175,6 +182,7 @@
     }
     .playerScreen .deckHand .hand li.cardContainer.blocked.card-hover {
         opacity: 0.55 !important;
+        z-index: 999;
     }
     li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
         background: var(--card-background-highlight);
@@ -700,12 +708,18 @@
 
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer,
 .playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) {
-    transform: translate(var(--hand-tx), var(--hand-ty)) rotate(var(--hand-rot));
+    transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
+}
+
+/* The hover lift animates on fan cards. Flight clones are excluded so they
+   keep the longer .duplicate transition instead of this one. */
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {
+    transition: transform 0.15s ease-out;
 }
 
 /* Ghost cards in hand sit slightly higher so the player sees the card below. Might need adjustment */
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
-    transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2)) rotate(var(--hand-rot));
+    transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
 }
 
 /* deck */
@@ -1257,7 +1271,15 @@ ul.cardRow{
 }
 
 .playingCards ul.cardRow li.cardContainer {
-    transform: rotate(var(--card-rotation, 0deg));
+    transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
+}
+
+/* The hover lift animates both on and off. The filter/box-shadow legs keep
+   .card-highlight's 0.3s fades alive (its `transition: all` has lower
+   specificity than this rule). Flight clones are excluded so they keep the
+   longer .duplicate transition instead of this one. */
+.playingCards ul.cardRow li.cardContainer:not(.duplicate) {
+    transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;
 }
 
 /* Offsets extend past MAX_CARDS_PER_ROW in laneStacking.js as defense against JS cap changes. */
