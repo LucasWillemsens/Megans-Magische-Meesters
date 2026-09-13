@@ -1643,7 +1643,10 @@ class BattleFlowTests(TestCase):
             'button.draw:not(.blocked):not(:disabled)'
         )
         self.assertIn(drawable_draw, cards_css)
-        self.assertIn(drawable_draw + ':hover', cards_css)
+        # The draw button is itself a card element: it reacts to hover only
+        # through the JS-managed .card-hover class, never a native rule.
+        self.assertNotIn(drawable_draw + ':hover', cards_css)
+        self.assertIn(drawable_draw + '.card-hover', cards_css)
         self.assertIn(drawable_draw + ':focus-visible', cards_css)
         self.assertIn('transition: transform 0.15s ease-out', cards_css)
         self.assertIn('transform: rotate(', cards_css)
@@ -1947,6 +1950,14 @@ class BattleFlowTests(TestCase):
         self.assertNotIn("removeAttribute('tabindex')", deck_branch)
 
     def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
+        """Cards react to hover ONLY via the JS-managed .card-hover class.
+
+        Native :hover rules bypass hoverCooldown.js's sticky-footprint and
+        cooldown logic: the animated lift can move a card out from under a
+        near-edge pointer, which re-arms a leave/enter flicker loop. The card
+        stylesheets therefore must not contain :hover at all, and every hover
+        visual rides on the .card-hover mirrors.
+        """
         import os
 
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
@@ -1957,19 +1968,34 @@ class BattleFlowTests(TestCase):
         with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
             hover_js = js_file.read()
 
-        # Own-side :hover lift rules stay gated behind :not(.hover-managed):
-        # they are the no-JS/touch fallback, while enemy hover stays instant.
-        self.assertIn('.playingCards:not(.hover-managed) li.cardContainer:hover', cards_css)
-        self.assertIn('.playingCards.hover-managed .enemyBoard li.cardContainer:hover', cards_css)
+        # Core regression guard: no native hover pseudo-class anywhere in the
+        # card stylesheets or the manager module, and no dead JS gating class.
+        self.assertNotIn(':hover', cards_css)
+        self.assertNotIn(':hover', drag_css)
+        self.assertNotIn(':hover', hover_js)
+        self.assertNotIn('hover-managed', cards_css)
+        self.assertNotIn('hover-managed', drag_css)
+        self.assertNotIn('hover-managed', hover_js)
+
+        # The manager covers every card surface that reacts to hover: own
+        # hand, own board rows, holograms, the enemy board (now managed like
+        # the own side instead of excluded) and the deck draw button, which
+        # is itself the deck's top card.
+        target_selector_block = hover_js[
+            hover_js.index('const CARD_HOVER_TARGET_SELECTOR'):
+            hover_js.index("].join(', ');")
+        ]
+        self.assertIn('.playerScreen .deckHand .hand li.cardContainer', target_selector_block)
+        self.assertIn('.playerBoard ul.cardRow li.cardContainer', target_selector_block)
+        self.assertIn('.playerBoard ul.hologramRow .hologram', target_selector_block)
+        self.assertIn('.enemyBoard li.cardContainer', target_selector_block)
         self.assertIn(
-            '.playingCards:not(.hover-managed) ul.cardRow li.cardContainer:not(.blocked):hover',
-            cards_css,
+            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            'button.draw:not(.blocked):not(:disabled)',
+            target_selector_block,
         )
-        self.assertIn('.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover', drag_css)
-        self.assertIn(
-            '.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover',
-            drag_css,
-        )
+        self.assertNotIn('OWN_SIDE_EXCLUSION_SELECTOR', hover_js)
+
         # Keyboard focus / mouse press lifts are independent of the manager.
         self.assertIn(
             '.playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,',
@@ -2035,12 +2061,29 @@ class BattleFlowTests(TestCase):
         )
         card_row_focus_block = cards_css[
             cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {'):
-            cards_css.index('.playingCards:not(.hover-managed) ul.cardRow li.cardContainer.ghost:hover')
+            cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover')
         ]
         self.assertIn(
             'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
             card_row_focus_block,
         )
+
+        # The deleted pseudo-class rules survive as class-driven mirrors: a
+        # hovered card that turns into a drag ghost loses the lift, and
+        # pressing a hovered card drops its shadow.
+        ghost_mirror_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover'):
+        ]
+        ghost_mirror_block = ghost_mirror_block[:ghost_mirror_block.index('}')]
+        self.assertIn('z-index: 999;', ghost_mirror_block)
+        self.assertIn('transform: none;', ghost_mirror_block)
+        self.assertIn('filter: none;', ghost_mirror_block)
+        active_mirror_block = cards_css[
+            cards_css.index('li.cardContainer:not(.blocked).card-hover:active'):
+        ]
+        active_mirror_block = active_mirror_block[:active_mirror_block.index('}')]
+        self.assertIn('box-shadow: unset;', active_mirror_block)
+        self.assertIn('filter: none;', active_mirror_block)
 
         # Hand card-hover mirrors keep the old hover look and pin z-index so
         # stacking is stable while the lift animates.
@@ -2071,11 +2114,27 @@ class BattleFlowTests(TestCase):
             cards_css,
         )
 
+        # Blocked board cards keep their hover stacking/shadow through the
+        # class (cursor: not-allowed already lives on the static .blocked
+        # rule), and the draw button — itself the deck's top card — rotates
+        # through the class instead of a native rule.
+        blocked_mirror_block = cards_css[
+            cards_css.index('.playerScreen li.cardContainer.blocked.card-hover'):
+        ]
+        blocked_mirror_block = blocked_mirror_block[:blocked_mirror_block.index('}')]
+        self.assertIn('z-index: 999;', blocked_mirror_block)
+        self.assertIn('box-shadow: none;', blocked_mirror_block)
+        self.assertIn(
+            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            'button.draw:not(.blocked):not(:disabled).card-hover',
+            cards_css,
+        )
+
         # cardDragDrop.css: hologram lift animates on AND off (rest rule
         # transitions too), and the hand morph stays class-driven.
         hologram_rest_block = drag_css[
             drag_css.index('ul.hologramRow .hologram {'):
-            drag_css.index('.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover')
+            drag_css.index('ul.hologramRow .hologram.card-hover {')
         ]
         self.assertIn(
             'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
@@ -2104,14 +2163,33 @@ class BattleFlowTests(TestCase):
         self.assertIn("addEventListener('mousemove'", hover_js)
         self.assertIn('{ passive: true }', hover_js)
         self.assertIn("addEventListener('mouseleave', this.onMouseLeave)", hover_js)
-        self.assertIn(
-            "OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand'",
-            hover_js,
-        )
-        self.assertIn('prefers-reduced-motion', hover_js)
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
         self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
+
+        # Reduced motion no longer disables the manager (the native fallback
+        # it relied on is gone): the manager runs unconditionally and CSS
+        # media blocks strip the animations from the class-driven hover
+        # state, so the feedback still shows — instantly.
+        self.assertNotIn('matchMedia', hover_js)
+        cards_motion_block = cards_css[
+            cards_css.rindex('@media (prefers-reduced-motion: reduce)'):
+        ]
+        self.assertIn('transition: none;', cards_motion_block)
+        self.assertIn(
+            '.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover',
+            cards_motion_block,
+        )
+        drag_motion_block = drag_css[
+            drag_css.rindex('@media (prefers-reduced-motion: reduce)'):
+        ]
+        self.assertIn('ul.hologramRow .hologram.card-hover', drag_motion_block)
+        self.assertIn('transition: none;', drag_motion_block)
+        self.assertIn(
+            'ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard',
+            drag_motion_block,
+        )
+        self.assertIn('animation: none;', drag_motion_block)
 
         # No cooldown-delayed switching remains: genuine cursor movement onto
         # a different card swaps the class immediately.

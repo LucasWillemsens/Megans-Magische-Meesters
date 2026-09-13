@@ -1,10 +1,10 @@
 const CARD_HOVER_TARGET_SELECTOR = [
     '.playerScreen .deckHand .hand li.cardContainer',
+    '.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled)',
     '.playerBoard ul.cardRow li.cardContainer',
     '.playerBoard ul.hologramRow .hologram',
+    '.enemyBoard li.cardContainer',
 ].join(', ');
-
-const OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand';
 
 /**
  * The hover state is removed only after this delay has elapsed since the
@@ -15,24 +15,18 @@ const OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand';
 const HOVER_REMOVE_DELAY_MS = 500;
 
 /**
- * Marker class applied to the managed container while the JS hover manager
- * is running. cards.css / cardDragDrop.css gate the own-side :hover rules
- * behind :not(.hover-managed) so a single .card-hover class drives the
- * visual hover state (the :hover rules remain the no-JS / touch fallback,
- * and enemy-board hover stays instant).
+ * Single source of hover truth: the stylesheets carry no native pseudo-class
+ * hover rules for cards, so this managed class is the only way a card reacts
+ * to the pointer. Reduced-motion users get the same state with its animations
+ * stripped by @media (prefers-reduced-motion: reduce) blocks in cards.css and
+ * cardDragDrop.css, which is why the manager runs unconditionally.
  */
-const HOVER_MANAGED_CLASS = 'hover-managed';
-
 const HOVER_CLASS = 'card-hover';
 
 class CardHoverManager {
     constructor(container, { removeDelayMs = HOVER_REMOVE_DELAY_MS } = {}) {
         this.container = container;
         this.removeDelayMs = removeDelayMs;
-        // Reduced-motion choice: disable the JS hover manager entirely. The
-        // plain :hover fallback rules stay active and the :focus-within styles
-        // are pure CSS, so keyboard focus visuals are unaffected.
-        this.enabled = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         this.hoveredCard = null;
         this.hoverFootprint = null;
         this.frameHandle = null;
@@ -44,12 +38,11 @@ class CardHoverManager {
     }
 
     start() {
-        if (!this.enabled || !this.container) return false;
+        if (!this.container) return false;
         this.onMouseMove = (event) => this.handleMouseMove(event);
         this.onMouseLeave = () => this.handleMouseLeave();
         this.container.addEventListener('mousemove', this.onMouseMove, { passive: true });
         this.container.addEventListener('mouseleave', this.onMouseLeave);
-        this.container.classList.add(HOVER_MANAGED_CLASS);
         return true;
     }
 
@@ -62,7 +55,6 @@ class CardHoverManager {
             this.container.removeEventListener('mouseleave', this.onMouseLeave);
             this.onMouseLeave = null;
         }
-        this.container.classList.remove(HOVER_MANAGED_CLASS);
         if (this.frameHandle !== null) {
             window.cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;
@@ -118,9 +110,7 @@ class CardHoverManager {
         }
         const target = event.target;
         if (!target || typeof target.closest !== 'function') return null;
-        const card = target.closest(CARD_HOVER_TARGET_SELECTOR);
-        if (!card || card.closest(OWN_SIDE_EXCLUSION_SELECTOR)) return null;
-        return card;
+        return target.closest(CARD_HOVER_TARGET_SELECTOR);
     }
 
     /**

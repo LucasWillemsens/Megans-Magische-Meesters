@@ -42,20 +42,17 @@
     user-select: none;
 }
 
-.playingCards:not(.hover-managed) li.cardContainer:hover,
-.playingCards.hover-managed .enemyBoard li.cardContainer:hover,
 .playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,
-.playingCards label.cardContainer:hover,
 .playingCards strong .cardContainer {
     margin-top: -30px;
 }
 
-/* .card-hover mirrors of the card :hover rules are driven by
-   hoverCooldown.js; the :hover originals stay for touch/no-JS fallback.
-   The lift rides on --card-hover-lift, which the resting transform rules
-   compose into, so it is layout-stable and animates via transition.
-   margin-top is zeroed so the :active / :focus-within margin lifts cannot
-   stack with the class-driven lift into a double jump. */
+/* The .card-hover class applied by hoverCooldown.js is the only hover state
+   for cards; no native pseudo-class rules exist. The lift rides on
+   --card-hover-lift, which the resting transform rules compose into, so it
+   is layout-stable and animates via transition. margin-top is zeroed so the
+   :active / :focus-within margin lifts cannot stack with the class-driven
+   lift into a double jump. */
 .playingCards li.cardContainer.card-hover,
 .playingCards li.cardContainer.card-hover:focus-within:active {
     --card-hover-lift: -30px;
@@ -78,33 +75,6 @@
         box-shadow: none;
         filter: none;
     }   
-    li.cardContainer:not(.blocked):hover {
-        z-index: 1000;
-        box-shadow: none;
-        filter: drop-shadow(0.1em 0.1em 0.15em #333);
-    }
-    /* While the JS hover manager drives own-side hover visuals, the raw
-       :hover shadow is suppressed (enemy boards stay instant). The z-index
-       from the original rule stays: stacking must not change during the
-       cooldown window. */
-    .playerScreen.hover-managed li.cardContainer:not(.blocked):hover {
-        box-shadow: unset;
-        filter: none;
-    }
-    .playerScreen.hover-managed .enemyBoard li.cardContainer:not(.blocked):hover {
-        z-index: 1000;
-        box-shadow: none;
-        filter: drop-shadow(0.1em 0.1em 0.15em #333);
-    }
-    li.cardContainer:not(.blocked):focus-within:hover {
-        z-index: 1000;
-        box-shadow: .1em .1em 0.15em #333;
-        filter: none;
-    }
-    .playerScreen.hover-managed li.cardContainer:not(.blocked):focus-within:hover {
-        box-shadow: unset;
-        filter: none;
-    }
     li.cardContainer:not(.blocked).card-hover {
         z-index: 1000;
         box-shadow: none;
@@ -114,13 +84,6 @@
         z-index: 1000;
         box-shadow: .1em .1em 0.15em #333;
         filter: none;
-    }
-    .playingCards:not(.hover-managed) ul.cardRow li.cardContainer:not(.blocked):hover,
-    .playingCards.hover-managed .enemyBoard ul.cardRow li.cardContainer:not(.blocked):hover {
-        z-index: 1000;
-        transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
-        filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
-        transition: transform 0.15s ease-out, filter 0.15s ease-out;
     }
     .playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {
         z-index: 1000;
@@ -132,12 +95,12 @@
         z-index: 999;
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
     }
-    .playingCards:not(.hover-managed) ul.cardRow li.cardContainer.ghost:hover {
+    .playingCards ul.cardRow li.cardContainer.ghost.card-hover {
         z-index: 999;
         transform: none;
         filter: none;
     }
-     li.cardContainer:not(.blocked):hover:active {
+    li.cardContainer:not(.blocked).card-hover:active {
         box-shadow: unset;
         filter: none;
     }
@@ -150,8 +113,7 @@
         margin-left:-10px; */
     }
 
-    .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:hover *, li.cardContainer:focus-within *),
-    .playerScreen:not(.hover-managed) .deckHand .hand:hover :not(li.cardContainer:hover *, li.cardContainer:focus-within *)
+    .playerScreen .deckHand .hand:focus-within :not(li.cardContainer:focus-within *)
        {
         opacity: 0.6;
         filter:none;
@@ -164,9 +126,6 @@
         ul.hand li.cardContainer.blocked::after{
         cursor: not-allowed !important;
     }
-    .playerScreen:not(.hover-managed) .deckHand .hand li.cardContainer:not(.blocked):hover{
-        opacity: 1 !important;
-    }
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{
         opacity: 1 !important;
         z-index: 1000;
@@ -177,24 +136,9 @@
         z-index: 2;
     }
 
-    .playerScreen:not(.hover-managed) .deckHand .hand li.cardContainer.blocked:hover {
-        opacity: 0.55 !important;
-    }
     .playerScreen .deckHand .hand li.cardContainer.blocked.card-hover {
         opacity: 0.55 !important;
         z-index: 999;
-    }
-    li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
-        background: var(--card-background-highlight);
-    }
-    .playerScreen.hover-managed li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
-        background: var(--card-background);
-    }
-    .playerScreen.hover-managed .enemyBoard li.cardContainer:not(.blocked):not(.faceDown):hover > .smallCard{
-        background: var(--card-background-highlight);
-    }
-    li.cardContainer:not(.blocked):not(.faceDown):hover:active > .smallCard{
-        background: var(--card-background-highlight);
     }
     li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard{
         background: var(--card-background-highlight);
@@ -1134,8 +1078,11 @@ button.draw{
     transition: transform 0.15s ease-out;
 }
 
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):hover,
 .playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
+    transform: rotate(3deg);
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled).card-hover {
     transform: rotate(3deg);
 }
 
@@ -1490,16 +1437,6 @@ li.cardContainer > .smallCard a, li.cardContainer > .smallCard p:is(:not(.cardTy
     margin-block-end: 0;
 }
 
-.playerScreen:not(.hover-managed) li.cardContainer:hover > .smallCard a::after{
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    border-radius: 0.5rem;
-    background-color: rgba(255, 255, 255, 0.3);
-}
-
 .playerScreen li.cardContainer.card-hover > .smallCard a::after{
     position: absolute;
     width: 100%;
@@ -1576,16 +1513,9 @@ ul.hand li.cardContainer > .card.smallCard::after{
     cursor: not-allowed;
 }
 
-.playerScreen li.cardContainer.blocked:hover {
+.playerScreen li.cardContainer.blocked.card-hover {
     z-index: 999;
-    cursor: not-allowed !important;
     box-shadow: none;
-}
-
-.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard::after {
-    right: 80%;
-    top: 80%;
-    filter: drop-shadow(4px 4px 4px #000);
 }
 
 .playerScreen ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard::after {
@@ -1749,4 +1679,19 @@ ul.hand li.cardContainer > .card.smallCard::after{
 
 .playingCards .card.back .suit::after {
     content: none !important;
+}
+
+/* Reduced motion: hoverCooldown.js always manages .card-hover (it is the only
+   hover state cards have), so the hover feedback must survive with motion
+   stripped — lift, z-index, shadow, opacity and highlight apply instantly.
+   Selectors mirror the transition-carrying hover rules above; this block must
+   stay last so it wins on source order at equal specificity. */
+@media (prefers-reduced-motion: reduce) {
+    .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate),
+    .playingCards ul.cardRow li.cardContainer:not(.duplicate),
+    .playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover,
+    .playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled),
+    ul.hand li.cardContainer > .card.smallCard::after {
+        transition: none;
+    }
 }
