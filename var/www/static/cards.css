@@ -1680,18 +1680,3 @@ ul.hand li.cardContainer > .card.smallCard::after{
 .playingCards .card.back .suit::after {
     content: none !important;
 }
-
-/* Reduced motion: hoverCooldown.js always manages .card-hover (it is the only
-   hover state cards have), so the hover feedback must survive with motion
-   stripped — lift, z-index, shadow, opacity and highlight apply instantly.
-   Selectors mirror the transition-carrying hover rules above; this block must
-   stay last so it wins on source order at equal specificity. */
-@media (prefers-reduced-motion: reduce) {
-    .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate),
-    .playingCards ul.cardRow li.cardContainer:not(.duplicate),
-    .playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover,
-    .playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled),
-    ul.hand li.cardContainer > .card.smallCard::after {
-        transition: none;
-    }
-}

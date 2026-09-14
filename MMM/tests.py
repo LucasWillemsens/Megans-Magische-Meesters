@@ -2157,9 +2157,9 @@ class BattleFlowTests(TestCase):
             drag_css,
         )
 
-        # manager stays passive; the 500ms window applies to REMOVAL only.
+        # manager stays passive; the 120ms debounce applies to REMOVAL only.
         self.assertIn('class CardHoverManager', hover_js)
-        self.assertIn('HOVER_REMOVE_DELAY_MS = 500', hover_js)
+        self.assertIn('HOVER_REMOVE_DELAY_MS = 120', hover_js)
         self.assertIn("addEventListener('mousemove'", hover_js)
         self.assertIn('{ passive: true }', hover_js)
         self.assertIn("addEventListener('mouseleave', this.onMouseLeave)", hover_js)
@@ -2167,29 +2167,23 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('stopPropagation', hover_js)
         self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
 
-        # Reduced motion no longer disables the manager (the native fallback
-        # it relied on is gone): the manager runs unconditionally and CSS
-        # media blocks strip the animations from the class-driven hover
-        # state, so the feedback still shows — instantly.
+        # The manager runs unconditionally and the hover transitions always
+        # animate: no reduced-motion special-casing remains for card hover.
+        # The only reduced-motion block left in cardDragDrop.css is the
+        # pre-existing shortcut-hold one.
         self.assertNotIn('matchMedia', hover_js)
-        cards_motion_block = cards_css[
-            cards_css.rindex('@media (prefers-reduced-motion: reduce)'):
-        ]
-        self.assertIn('transition: none;', cards_motion_block)
-        self.assertIn(
-            '.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover',
-            cards_motion_block,
-        )
+        self.assertNotIn('prefers-reduced-motion', cards_css)
+        self.assertNotIn('prefers-reduced-motion', hover_js)
+        self.assertNotIn('transition: none', cards_css)
+        self.assertEqual(drag_css.count('@media (prefers-reduced-motion: reduce)'), 1)
         drag_motion_block = drag_css[
-            drag_css.rindex('@media (prefers-reduced-motion: reduce)'):
+            drag_css.index('@media (prefers-reduced-motion: reduce)'):
+            drag_css.index('ul.hologramRow {')
         ]
-        self.assertIn('ul.hologramRow .hologram.card-hover', drag_motion_block)
-        self.assertIn('transition: none;', drag_motion_block)
-        self.assertIn(
-            'ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard',
-            drag_motion_block,
-        )
-        self.assertIn('animation: none;', drag_motion_block)
+        self.assertIn('.shortcut-hold-loading', drag_motion_block)
+        self.assertNotIn('hologram', drag_motion_block)
+        self.assertNotIn('card-hover', drag_motion_block)
+        self.assertNotIn('morphCard', drag_motion_block)
 
         # No cooldown-delayed switching remains: genuine cursor movement onto
         # a different card swaps the class immediately.
@@ -2203,16 +2197,20 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn('this.swapHover(target);', consume_block)
         self.assertNotIn('setTimeout', consume_block)
-        # Leaving (or the pointer exiting the screen) schedules the deferred
-        # removal; staying on the card cancels it.
+        # Moving outside the sticky footprint schedules the deferred removal;
+        # staying on the card cancels it.
         self.assertIn('this.schedulePendingRemove();', consume_block)
         self.assertIn('this.cancelPendingRemove();', consume_block)
-        self.assertIn('this.schedulePendingRemove();', hover_js[
+        # The pointer exiting the whole screen removes the class immediately:
+        # with the pointer gone no hover re-arm loop is possible.
+        leave_block = hover_js[
             hover_js.index('handleMouseLeave() {'):
             hover_js.index('consumePendingEvent() {')
-        ])
+        ]
+        self.assertIn('this.clearHover();', leave_block)
+        self.assertNotIn('schedulePendingRemove', leave_block)
 
-        # The class is removed only after the 500ms delay elapsed since the
+        # The class is removed only after the 120ms debounce elapsed since the
         # cursor moved outside; the timer is scheduled once per leave, so
         # further movement outside does not keep postponing the removal.
         schedule_block = hover_js[

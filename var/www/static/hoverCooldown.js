@@ -7,19 +7,19 @@ const CARD_HOVER_TARGET_SELECTOR = [
 ].join(', ');
 
 /**
- * The hover state is removed only after this delay has elapsed since the
- * cursor moved outside the hovered card (and its sticky resting footprint).
- * Re-entering inside the window cancels the removal; switching to a
- * different card is always immediate.
+ * Short debounce for genuine leaves: the hover state is removed only after
+ * this delay has elapsed since the cursor moved outside the hovered card
+ * (and its sticky resting footprint). The sticky-footprint hit-test is what
+ * prevents the lift/leave flicker loop. Re-entering inside the window
+ * cancels the removal; switching to a different card is always immediate.
  */
-const HOVER_REMOVE_DELAY_MS = 500;
+const HOVER_REMOVE_DELAY_MS = 120;
 
 /**
  * Single source of hover truth: the stylesheets carry no native pseudo-class
  * hover rules for cards, so this managed class is the only way a card reacts
- * to the pointer. Reduced-motion users get the same state with its animations
- * stripped by @media (prefers-reduced-motion: reduce) blocks in cards.css and
- * cardDragDrop.css, which is why the manager runs unconditionally.
+ * to the pointer. The manager runs unconditionally and the hover transitions
+ * always animate; there is no reduced-motion special-casing.
  */
 const HOVER_CLASS = 'card-hover';
 
@@ -70,14 +70,15 @@ class CardHoverManager {
     }
 
     handleMouseLeave() {
-        // The pointer left the screen: any queued mousemove is stale and must
-        // not cancel the deferred removal.
+        // The pointer left the whole screen: any queued mousemove is stale,
+        // and with the pointer gone no hover re-arm loop is possible, so the
+        // class comes off immediately.
         if (this.frameHandle !== null) {
             window.cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;
         }
         this.pendingEvent = null;
-        this.schedulePendingRemove();
+        this.clearHover();
     }
 
     consumePendingEvent() {
