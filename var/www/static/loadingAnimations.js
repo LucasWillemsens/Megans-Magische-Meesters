@@ -214,7 +214,7 @@ class loadingAnimationsSystem {
         window.location.href = this._nextUrl || fallbackPath;
     }
 
-    Animate(classSelector = 'loading', delay = 1200) {
+    Animate(classSelector = 'loading', delay = 500) {
         const animationsElements = Array.from(document.getElementsByClassName(classSelector));
         const phase = document.getElementById('turnPhase')?.dataset.phase ?? '';
         const nextUrl = document.getElementById('boardNext')?.dataset.nextUrl ?? '';

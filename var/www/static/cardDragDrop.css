@@ -37,15 +37,11 @@
     position: absolute;
 }
 
-/* Ghost style for source cards (hand ghost, flipped lane card) */
 li.cardContainer.ghost {
     opacity: 0.4;
     filter: grayscale(0.3);
 }
 
-/* Selection marker for JS/tests; selected cards also receive DOM focus, so this
-   mirrors li.cardContainer:focus-within (cards.css) rather than restyling. Identical
-   values mean both selectors matching at once cannot paint a second outline. */
 li.cardContainer.keyboard-selected {
     outline: 3px solid;
     outline-offset: 4px;

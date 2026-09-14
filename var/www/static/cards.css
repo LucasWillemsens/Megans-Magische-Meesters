@@ -47,12 +47,6 @@
     margin-top: -30px;
 }
 
-/* The .card-hover class applied by hoverCooldown.js is the only hover state
-   for cards; no native pseudo-class rules exist. The lift rides on
-   --card-hover-lift, which the resting transform rules compose into, so it
-   is layout-stable and animates via transition. margin-top is zeroed so the
-   :active / :focus-within margin lifts cannot stack with the class-driven
-   lift into a double jump. */
 .playingCards li.cardContainer.card-hover,
 .playingCards li.cardContainer.card-hover:focus-within:active {
     --card-hover-lift: -30px;
@@ -435,17 +429,6 @@
 .playingCards.faceImages .card.joker {
     background-repeat: no-repeat;
     background-position: -1em 0;
-    /* @change: smaller cards: more negative distance from the left
-       bigger cards: 0 or more positive distance from the left */
-
-    /* for a centered full background image:
-    background-position: .35em 0;
-    -moz-background-size: contain;
-    -o-background-size: contain;
-    -webkit-background-size: contain;
-    -khtml-background-size: contain;
-    background-size: contain;
-    */
 }
 
 .playingCards.faceImages .card.rank-j.diams  { background-image: url(faces/JD.gif); }
@@ -637,8 +620,6 @@
 .playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(8)  { left: 7.7em; }
 .playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(9)  { left: 8.8em; }
 
-/* Per-position transforms are scoped to each fan so every group repeats the
-   same readable rotation pattern. */
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(1),
 .playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(2) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
@@ -655,18 +636,14 @@
     transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
 }
 
-/* The hover lift animates on fan cards. Flight clones are excluded so they
-   keep the longer .duplicate transition instead of this one. */
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {
     transition: transform 0.15s ease-out;
 }
 
-/* Ghost cards in hand sit slightly higher so the player sees the card below. Might need adjustment */
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
     transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
 }
 
-/* deck */
 .playingCards ul.deck li:nth-child(1)  { left: 0;    bottom: 0; }
 .playingCards ul.deck li:nth-child(2)  { left: 2px;  bottom: 1px; }
 .playingCards ul.deck li:nth-child(3)  { left: 4px;  bottom: 2px; }
@@ -760,9 +737,6 @@
     height: 1.15rem;
 }
 
-/* Inert deck blocks render as small card-back chips overlapping at the
-   bottom-left of the deck stack; the active deck shifts right per chip
-   via --deck-indicator-count so nothing leaves the stack. */
 .deck-indicator-face {
     display: block;
     width: 100%;
@@ -812,9 +786,6 @@ div.playerScreen{
         pointer-events:none;
     }
 
-    /* Lanes share one flex line: stretch keeps all four equally tall even
-       when laneStacking.js splits an overflowing lane into extra rows.
-       li.lane must keep height auto or stretch is disabled. */
     ul.lanes {
         align-self: center;
         justify-self: center;
@@ -872,7 +843,6 @@ div.playerScreen{
                 margin-top: 5px;
             }
 
-    /* Keep player hand cards and the deck on one bottom edge. */
     .playerScreen .deckHand {
         --hand-row-height: 8em;
         z-index: 1;
@@ -924,10 +894,6 @@ div.playerScreen{
         box-sizing: border-box;
         min-width: 0;
         max-width: 100%;
-    }
-
-    .playerScreen .deckHand {
-        /* overflow-x: hidden; */
     }
 
     ul.enemyBoards li.enemyBoard {
@@ -1221,15 +1187,10 @@ ul.cardRow{
     transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
 }
 
-/* The hover lift animates both on and off. The filter/box-shadow legs keep
-   .card-highlight's 0.3s fades alive (its `transition: all` has lower
-   specificity than this rule). Flight clones are excluded so they keep the
-   longer .duplicate transition instead of this one. */
 .playingCards ul.cardRow li.cardContainer:not(.duplicate) {
     transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;
 }
 
-/* Offsets extend past MAX_CARDS_PER_ROW in laneStacking.js as defense against JS cap changes. */
 .playingCards ul.cardRow li.cardContainer:nth-child(1) { left: 0; z-index: 1; }
 .playingCards ul.cardRow li.cardContainer:nth-child(2) { left: 3.2em; z-index: 2; }
 .playingCards ul.cardRow li.cardContainer:nth-child(3) { left: 4.6em; z-index: 3; }
@@ -1469,8 +1430,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     will-change: transform;
 }
 
-/* Deck-flight clones live on document.body, outside every .playingCards
-   subtree, so they must carry their own card sizing and back pattern. */
 .duplicate-deck-flight {
     overflow: hidden;
 }
@@ -1588,7 +1547,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* Enemy-turn / timeline pause indicator (W/Space pauses, E/Enter/Escape skips). */
 .pauseIndicator {
     display: none;
     position: fixed;
@@ -1627,20 +1585,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     display: inline-block;
     width: 4.25rem;
     height: 6rem;
-}
-
-.playingCards .spotlight.playing-card-spotlight.card {
-    /* position: relative;
-    display: flex;
-    width: 14rem;
-    height: 14rem;
-    align-items: center;
-    justify-content: center;
-    background: var(--card-background);
-    border: 3px solid black;
-    border-radius: 0.5rem;
-    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
-    font-size: 2.5em; */
 }
 
 .spotlight.playing-card-spotlight .rank,
