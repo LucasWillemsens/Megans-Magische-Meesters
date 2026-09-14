@@ -85,7 +85,7 @@
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
         transition: transform 0.15s ease-out, filter 0.15s ease-out;
     }
-    .playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {
+    .playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
         z-index: 999;
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
     }
@@ -137,7 +137,7 @@
     li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard{
         background: var(--card-background-highlight);
     }
-    li.cardContainer:not(.blocked):focus-within
+    li.cardContainer:not(.blocked):not(.faceDown):focus-within
     {
         & .smallCard{
             background: var(--card-background-highlight);
@@ -823,8 +823,14 @@ div.playerScreen{
         }
 
             ul.lanes li.lane > p {
-                align-self: center;
-                justify-self: center;
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 5;
+                pointer-events: none;
+                margin: 0;
+                padding: 0 .5em;
             }
             ul.lanes li.lane > p::before{
                 content: "";
@@ -1218,6 +1224,24 @@ ul.cardRow{
 
 .playingCards ul.hologramRow + ul.hologramRow.overflow-row {
     margin-top: 0.5rem;
+}
+
+/* Bottom-to-top lane stacking: overflow rows are inserted in document order
+   as [overflow-row-1, overflow-row-2, ..., source-row]. We anchor the source
+   row visually on top and the overflow rows stack below it, each offset by
+   one row height + the gap. The lane <p> indicator stays absolutely
+   positioned so it does not shift when rows are added. */
+ul.lanes li.lane > ul.cardRow,
+ul.lanes li.lane > ul.hologramRow {
+    position: relative;
+}
+
+ul.lanes li.lane > ul.cardRow.overflow-row,
+ul.lanes li.lane > ul.hologramRow.overflow-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% - var(--lane-row-height, 7.5rem) * var(--overflow-row-index, 1));
 }
 
 .playingCards ul.cardRow .card {

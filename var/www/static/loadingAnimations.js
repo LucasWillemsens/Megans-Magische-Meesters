@@ -316,6 +316,14 @@ class loadingAnimationsSystem {
             if (deckHand) {
                 deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
+            const endTurnBtn = document.querySelector(
+                '.playerScreen .deckHand .end-turn'
+            );
+            if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+                requestAnimationFrame(() => {
+                    endTurnBtn.focus({ preventScroll: false });
+                });
+            }
             return;
         }
 

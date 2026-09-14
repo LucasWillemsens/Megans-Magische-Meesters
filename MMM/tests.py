@@ -1861,8 +1861,8 @@ class BattleFlowTests(TestCase):
             affordances_code.index('if (remaining.draws <= 0)', restore_branch_end):
         ]
         self.assertIn("querySelector('button.draw')", deck_branch)
-        self.assertNotIn("setAttribute('tabindex'", deck_branch)
-        self.assertNotIn("removeAttribute('tabindex')", deck_branch)
+        self.assertIn("deck.setAttribute('inert', '')", deck_branch)
+        self.assertIn("drawBtn.setAttribute('tabindex', '-1')", deck_branch)
 
     def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
         """Cards react to hover ONLY via the JS-managed .card-hover class."""
@@ -1888,7 +1888,8 @@ class BattleFlowTests(TestCase):
             hover_js.index("].join(', ');")
         ]
         self.assertIn('.playerScreen .deckHand .hand li.cardContainer', target_selector_block)
-        self.assertIn('.playerBoard ul.cardRow li.cardContainer', target_selector_block)
+        self.assertIn('.playerBoard ul.cardRow[title="cards"] li.cardContainer', target_selector_block)
+        self.assertNotIn('ul.cardRow[title="trustedCards"]', hover_js)
         self.assertIn('.playerBoard ul.hologramRow .hologram', target_selector_block)
         self.assertIn('.enemyBoard li.cardContainer', target_selector_block)
         self.assertIn(
@@ -1942,7 +1943,7 @@ class BattleFlowTests(TestCase):
 
         card_row_hover_block = cards_css[
             cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {'):
-            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {')
+            cards_css.index('.playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {')
         ]
         self.assertIn(
             'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
@@ -1953,7 +1954,7 @@ class BattleFlowTests(TestCase):
             card_row_hover_block,
         )
         card_row_focus_block = cards_css[
-            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {'):
+            cards_css.index('.playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {'):
             cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover')
         ]
         self.assertIn(
@@ -2011,6 +2012,16 @@ class BattleFlowTests(TestCase):
         self.assertIn(
             '.playerScreen .deckHand .active-deck:not(.blocked) '
             'button.draw:not(.blocked):not(:disabled).card-hover',
+            cards_css,
+        )
+
+        # Bug 6: the focus-within background highlight must exclude .faceDown cards.
+        self.assertIn(
+            'li.cardContainer:not(.blocked):not(.faceDown):focus-within',
+            cards_css,
+        )
+        self.assertNotIn(
+            'li.cardContainer:not(.blocked):focus-within {\n        & .smallCard{',
             cards_css,
         )
 
@@ -2073,6 +2084,11 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('card-hover', drag_motion_block)
         self.assertNotIn('morphCard', drag_motion_block)
 
+        # The hover manager is intentionally minimal: a single mousemove-driven
+        # .card-hover toggle with a 500 ms cooldown. Earlier complexity
+        # (episodes, swapHover, removeHoverNow, cancelAnimationFrame) was
+        # reverted; the contract below only covers what the simplified file
+        # actually exports.
         self.assertNotIn('HOVER_SWITCH_COOLDOWN_MS', hover_js)
         self.assertNotIn('schedulePendingSwitch', hover_js)
         self.assertNotIn('pendingTarget', hover_js)
@@ -2080,92 +2096,40 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('schedulePendingRemove', hover_js)
         self.assertNotIn('cancelPendingRemove', hover_js)
         self.assertNotIn('this.removeTimer', hover_js)
-        self.assertIn('this.episodes = new Map();', hover_js)
-        consume_block = hover_js[
-            hover_js.index('consumePendingEvent() {'):
-            hover_js.index('resolveHoverTarget(event) {')
-        ]
+        self.assertNotIn('this.episodes', hover_js)
+        self.assertNotIn('consumePendingEvent', hover_js)
+        self.assertNotIn('resolveHoverTarget', hover_js)
+        self.assertNotIn('swapHover', hover_js)
+        self.assertNotIn('removeHoverNow', hover_js)
+        self.assertNotIn('cancelScheduledRemove', hover_js)
+        self.assertNotIn('frameHandle', hover_js)
+        self.assertNotIn('pendingEvent', hover_js)
+        self.assertNotIn('cancelAnimationFrame', hover_js)
 
-        self.assertIn('if (target === this.hoveredCard) return;', consume_block)
-        self.assertIn('this.swapHover(target);', consume_block)
-        self.assertIn('this.releaseHover(this.hoveredCard);', consume_block)
-        self.assertNotIn('setTimeout', consume_block)
-
-        self.assertIn('performance.now()', hover_js)
-        self.assertNotIn('startedAt', consume_block)
-        self.assertNotIn('episodes.set', consume_block)
-        resolve_block = hover_js[
-            hover_js.index('resolveHoverTarget(event) {'):
-            hover_js.index('swapHover(card) {')
-        ]
-        self.assertNotIn('startedAt', resolve_block)
-        self.assertNotIn('episodes.set', resolve_block)
-        self.assertIn('this.removeHoverNow(hovered);', resolve_block)
-        self.assertIn("typeof target.closest !== 'function'", resolve_block)
-        self.assertIn('return target.closest(CARD_HOVER_TARGET_SELECTOR);', resolve_block)
         apply_block = hover_js[
             hover_js.index('applyHover(card) {'):
-            hover_js.index('releaseHover(card) {')
+            hover_js.index('releaseHover() {')
         ]
-        self.assertIn('this.cancelScheduledRemove(episode);', apply_block)
-        self.assertIn('startedAt: performance.now()', apply_block)
+        self.assertIn('this.hoveredCard = card;', apply_block)
         self.assertIn('card.classList.add(HOVER_CLASS);', apply_block)
-        self.assertLess(
-            apply_block.index('this.cancelScheduledRemove(episode);'),
-            apply_block.index('startedAt: performance.now()'),
-        )
-        self.assertLess(
-            apply_block.index('startedAt: performance.now()'),
-            apply_block.index('card.classList.add(HOVER_CLASS);'),
-        )
+        self.assertIn('this.startedAt = Date.now();', apply_block)
 
         release_block = hover_js[
-            hover_js.index('releaseHover(card) {'):
-            hover_js.index('removeHoverNow(card) {')
+            hover_js.index('releaseHover() {'):
+            hover_js.index('clearAllHover() {')
         ]
-        self.assertIn('if (!episode || episode.timerId !== null) return;', release_block)
         self.assertIn(
-            'episode.startedAt + HOVER_REMOVE_COOLDOWN_MS - performance.now()',
+            'this.startedAt + HOVER_REMOVE_COOLDOWN_MS - Date.now()',
             release_block,
         )
         self.assertIn('if (remainingMs <= 0)', release_block)
-        self.assertIn('this.removeHoverNow(card);', release_block)
-        self.assertIn(
-            'window.setTimeout(() => this.removeHoverNow(card), remainingMs);',
-            release_block,
-        )
+        self.assertIn('window.setTimeout(() => this.clearAllHover(), remainingMs);', release_block)
 
         leave_block = hover_js[
             hover_js.index('handleMouseLeave() {'):
-            hover_js.index('consumePendingEvent() {')
-        ]
-        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', leave_block)
-        self.assertIn('this.pendingEvent = null;', leave_block)
-        self.assertIn('this.releaseHover(this.hoveredCard);', leave_block)
-        self.assertNotIn('clearAllHover', leave_block)
-        self.assertNotIn('clearHover', leave_block)
-
-        swap_block = hover_js[
-            hover_js.index('swapHover(card) {'):
-            hover_js.index('applyHover(card) {')
-        ]
-        self.assertIn('this.releaseHover(this.hoveredCard);', swap_block)
-        self.assertIn('this.applyHover(card);', swap_block)
-        self.assertIn('this.hoveredCard = card;', swap_block)
-        self.assertNotIn('classList.remove', swap_block)
-
-        remove_block = hover_js[
-            hover_js.index('removeHoverNow(card) {'):
-            hover_js.index('cancelScheduledRemove(episode) {')
-        ]
-        self.assertIn('this.episodes.delete(card);', remove_block)
-        self.assertIn('card.classList.remove(HOVER_CLASS);', remove_block)
-        self.assertIn('if (this.hoveredCard === card) this.hoveredCard = null;', remove_block)
-        cancel_block = hover_js[
-            hover_js.index('cancelScheduledRemove(episode) {'):
             hover_js.index('clearAllHover() {')
         ]
-        self.assertIn('window.clearTimeout(episode.timerId);', cancel_block)
+        self.assertIn('this.releaseHover();', leave_block)
 
         stop_block = hover_js[
             hover_js.index('stop() {'):
@@ -2173,15 +2137,13 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("removeEventListener('mousemove'", stop_block)
         self.assertIn("removeEventListener('mouseleave'", stop_block)
-        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', stop_block)
         self.assertIn('this.clearAllHover();', stop_block)
         teardown_block = hover_js[
             hover_js.index('clearAllHover() {'):
             hover_js.index("document.addEventListener('DOMContentLoaded'")
         ]
-        self.assertIn('this.removeHoverNow(card);', teardown_block)
-        self.assertIn('this.episodes.clear();', teardown_block)
         self.assertIn('this.hoveredCard = null;', teardown_block)
+        self.assertIn('HOVER_CLASS', teardown_block)
 
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -2310,6 +2272,26 @@ class BattleFlowTests(TestCase):
         ]
         self.assertNotIn('ensureSingleRow', split_code)
         self.assertIn('OVERFLOW_ROW_CLASS', split_code)
+        # NEW (Bug 7): overflow rows are inserted BEFORE the source row, not after.
+        self.assertIn('insertBefore(rows[i], sourceRow)', split_code)
+        self.assertNotIn('sourceRow.nextElementSibling', split_code)
+        # The overflow rows carry a --overflow-row-index so CSS can stack them.
+        self.assertIn('--overflow-row-index', split_code)
+
+        # NEW (Bug 7): CSS positions overflow rows absolutely with the index,
+        # and the lane <p> indicator is absolutely positioned so it does not
+        # shift when rows are added.
+        self.assertIn(
+            'ul.lanes li.lane > ul.cardRow.overflow-row',
+            cards_css,
+        )
+        self.assertIn('--overflow-row-index', cards_css)
+        lane_indicator_match = re.search(
+            r'ul\.lanes li\.lane\s*>\s*p[^{]*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(lane_indicator_match)
+        self.assertIn('position: absolute', lane_indicator_match.group(0))
 
         find_code = loading_js[
             loading_js.index('function findCardRowForOrdinal('):
@@ -2523,6 +2505,192 @@ class BattleFlowTests(TestCase):
             drag_js.index('    createDropZones() {')
         ]
         self.assertIn("!card.classList.contains('ghost')", affordances_code)
+
+        # NEW (Bug 3): split predicate so flipped ghosts remain countable.
+        self.assertIn('_isStagedGhost', drag_js)
+        self.assertIn('_isOrderableKeyboardCard', drag_js)
+        orderable_code = drag_js[
+            drag_js.index('    _isOrderableKeyboardCard(card) {'):
+            drag_js.index('    _isGhostFlipCandidate(card)')
+        ]
+        self.assertIn('this._isPlayableKeyboardCard(card)', orderable_code)
+        self.assertIn('this._isStagedGhost(card)', orderable_code)
+        self.assertNotIn('this._isGhostFlipCandidate(card)', orderable_code)
+        staged_code = drag_js[
+            drag_js.index('    _isStagedGhost(card) {'):
+            drag_js.index('    _isOrderableKeyboardCard(card)')
+        ]
+        self.assertNotIn('stagedFlipped', staged_code)
+        self.assertIn("classList.contains('ghost')", staged_code)
+        ghost_flip_code = drag_js[
+            drag_js.index('    _isGhostFlipCandidate(card) {'):
+            drag_js.index('    _stagedLaneForGhost')
+        ]
+        self.assertIn("stagedFlipped", ghost_flip_code)
+        select_ordered = drag_js[
+            drag_js.index('    selectOrderedCard(card'):
+            drag_js.index('    flipKeyboardFocusedCard')
+        ]
+        self.assertIn("stagedFlipped === 'true'", select_ordered)
+
+    def test_trusted_cards_have_no_focus_or_hover_styling(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
+            hover_js = js_file.read()
+
+        self.assertNotIn(
+            'ul.cardRow[title="trustedCards"] li.cardContainer:focus-within',
+            cards_css,
+        )
+        self.assertNotIn(
+            'ul.cardRow[title="trustedCards"] li.cardContainer:not(.blocked):focus-within',
+            cards_css,
+        )
+        self.assertNotIn('ul.cardRow[title="trustedCards"]', hover_js)
+        self.assertNotIn(
+            '.playerScreen ul.cardRow[title="trustedCards"] li.cardContainer',
+            hover_js,
+        )
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        own_board = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL,
+        )
+        self.assertIsNotNone(own_board)
+        own_board_markup = own_board.group(0)
+        trusted_tags = re.findall(
+            r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
+            own_board_markup, re.DOTALL,
+        )
+        self.assertTrue(trusted_tags)
+        for tag in trusted_tags:
+            for li_tag in re.findall(r'<li class="cardContainer[^>]*>', tag):
+                self.assertNotIn('faceDown', li_tag)
+                self.assertNotIn('tabindex', li_tag)
+                self.assertNotIn('draggable="true"', li_tag)
+
+    def test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertIn('orderableKeyboardCards()', drag_js)
+        self.assertIn('_isOrderableKeyboardCard', drag_js)
+        staged = drag_js[
+            drag_js.index('    _isStagedGhost(card) {'):
+            drag_js.index('    _isOrderableKeyboardCard(card)')
+        ]
+        self.assertNotIn('stagedFlipped', staged)
+        self.assertIn("classList.contains('ghost')", staged)
+
+    def test_add_hover_arrow_binds_focus_and_mouse_events(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        arrow_helper = drag_js[
+            drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+            drag_js.index('    _createCurvedArrow')
+        ]
+        self.assertIn("addEventListener('mouseenter'", arrow_helper)
+        self.assertIn("addEventListener('mouseleave'", arrow_helper)
+        self.assertIn("addEventListener('focusin'", arrow_helper)
+        self.assertIn("addEventListener('focusout'", arrow_helper)
+
+    def test_lane_face_down_card_hover_arrow_binds_to_focus(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        on_face_down = drag_js[
+            drag_js.index('    onFaceDownCardClick(e, laneValue) {'):
+            drag_js.index('    createupdateCookie(cardId, laneValue, flipFaceUp')
+        ]
+        self.assertIn('_addHoverArrow(card, flipHologram)', on_face_down)
+        self.assertIn("flipHologram.classList.add('hologram')", on_face_down)
+        arrow_helper = drag_js[
+            drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+            drag_js.index('    _createCurvedArrow')
+        ]
+        self.assertIn("'focusin'", arrow_helper)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        own_board = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL,
+        )
+        self.assertIsNotNone(own_board)
+        own_board_markup = own_board.group(0)
+        flippable_tags = re.findall(
+            r'<ul class="cardRow" title="cards">(.*?)</ul>',
+            own_board_markup, re.DOTALL,
+        )
+        self.assertTrue(flippable_tags)
+        for row in flippable_tags:
+            for li_tag in re.findall(r'<li class="cardContainer[^>]*>', row):
+                if 'faceDown' in li_tag:
+                    self.assertIn('tabindex="0"', li_tag)
+
+    def test_focus_within_background_excludes_face_down_cards(self):
+        import os
+        css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')
+        with open(css_path) as css_file:
+            cards_css = css_file.read()
+        self.assertNotIn(
+            'li.cardContainer:not(.blocked):focus-within {\n        & .smallCard{',
+            cards_css,
+        )
+        self.assertIn(
+            'li.cardContainer:not(.blocked):not(.faceDown):focus-within',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards li.cardContainer:focus-within{\n        outline-offset: 4px;\n        outline: 3px solid;',
+            cards_css,
+        )
+
+    def test_lane_indicator_keeps_position_when_rows_split(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'laneStacking.js')) as js_file:
+            stacking_js = js_file.read()
+        self.assertRegex(cards_css, r'ul\.lanes li\.lane\s*>\s*p[^{]*\{[^}]*position:\s*absolute')
+        self.assertIn('translate(-50%, -50%)', cards_css)
+        self.assertNotIn('lane-indicator', stacking_js)
+
+    def test_player_phase_focuses_end_turn_button_after_scroll(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+        player_branch = _extract_js_brace_block(loading_js, "if (phase === 'player')")
+        self.assertIn('.playerScreen .deckHand .end-turn', player_branch)
+        self.assertIn('endTurnBtn.focus', player_branch)
+        self.assertIn('requestAnimationFrame', player_branch)
+        self.assertIn("autofocus", open(
+            os.path.join(os.path.dirname(__file__), '..', 'MMM', 'jinja2', 'MMM', 'battle', 'viewBoard.jinja2')
+        ).read())
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        self.assertContains(response, 'class="end-turn"')
+        self.assertRegex(response.content.decode(), r'<button[^>]*class="end-turn"[^>]*autofocus')
 
 
 def _extract_js_brace_block(source, opener):

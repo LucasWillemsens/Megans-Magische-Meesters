@@ -1,0 +1,960 @@
+Battle page focus & flip bugfixes (2026-09-14)
+
+Implementation:
+1. Strip `tabindex` / add `tabindex="-1"` to the blocked draw button + blocked active-deck `<ul>` in `cardDragDrop.js` `applyTurnAffordances()`, and confirm the Jinja2 initial markup never makes them focusable. Extend `MMM/tests.py::test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently` to assert the deck branch sets `tabindex="-1"` on both controls. (Bug 1)
+2. Audit trusted-section CSS/JS so trusted `<li class="cardContainer">` elements in `viewBoard.jinja2`'s second `ul.cardRow[title="trustedCards"]` (lines 240-271 player, 125-154 enemy) cannot flip on focus. Add a regression test pinning no `faceDown` class and no flip-related listeners. (Bug 2)
+3. Split the hand-card numbering predicate so flipped-face-up ghosts stay countable. Introduce / extend `_isOrderableKeyboardCard(card)` to keep all ghosts countable, while `_isGhostFlipCandidate(card)` keeps gating the face-up flip action. Update `orderableKeyboardCards`, `selectOrderedCard`, `onHandCardClick`, and `onKeyboardKeyDown` so flipped ghosts stay selectable but confirm no-ops. Extend `test_ghost_card_numbering_and_flip_contract` accordingly. (Bug 3)
+4. Extend `_addHoverArrow(sourceEl, targetEl)` in `cardDragDrop.js` (currently lines 1335-1369) with `focusin` / `focusout` on the source so keyboard focus also shows the curved arrow. Add a regression test that the helper binds both mouse and focus events and that `onFaceDownCardClick` invokes `_addHoverArrow(card, flipHologram)` after creating the flip hologram, with the source card already carrying `tabindex="0"`. (Bug 4 + Bug 5)
+5. Update the `:focus-within` background-highlight rule in `cards.css` (currently lines 137-145) so `li.cardContainer:not(.blocked):not(.faceDown)` is required for the highlight to fire. Keep the focus outline intact. Extend `test_card_hover_manager_contract_covers_css_and_script_wiring` (or add a new test) to pin the new selector. (Bug 6)
+6. Change `laneStacking.js` `splitIntoRows` (lines 70-93) to insert overflow rows BEFORE the source row, and add a CSS rule (or extend an existing one in `cards.css` line 803+) that reorders / anchors the lane `<p>` indicator so it stays vertically centered regardless of overflow rows. Extend `test_lane_overflow_splits_rows_without_merging_back` to assert insertion order before source row, and add a new test that the lane `<p>` has `position: absolute` (or a `.lane-indicator` marker) so it does not shift when rows are added. (Bug 7)
+7. In `loadingAnimations.js`'s `Animate()` player-phase branch (lines 312-320), explicitly call `.focus({ preventScroll: false })` on the end-turn button once the deckHand scroll settles. Add a regression test asserting the script calls `.focus()` on the end-turn button in the player-phase branch. (Bug 8)
+
+Files to create/modify:
+- `var/www/static/cardDragDrop.js` (applyTurnAffordances, _isOrderableKeyboardCard, _isGhostFlipCandidate, _addHoverArrow, onHandCardClick, selectOrderedCard, onKeyboardKeyDown, onFaceDownCardClick; preserve applyTurnAffordances idempotency and the staged-cookie play/flip contract)
+- `var/www/static/laneStacking.js` (splitIntoRows insert order)
+- `var/www/static/loadingAnimations.js` (player-phase explicit focus of end-turn button)
+- `var/www/static/cards.css` (faceDown focus highlight exclusion; lane `<p>` position: absolute + overflow-row order)
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` (only verify - no template change required; confirm the deck `<ul class="active-deck">` and `button.draw` carry the right initial state per blocked/budget and that trusted `<li class="cardContainer">`s have no `faceDown` / `tabindex` / clickable controls)
+- `MMM/tests.py` (extend four existing tests; add three new tests)
+
+Acceptance criteria:
+- [ ] Bug 1: When `remainingAllowances().draws <= 0`, the active-deck `<ul>` carries `tabindex="-1"` (or `inert`) and the draw `<button>` carries `tabindex="-1"`. Neither element receives Tab focus. The same behaviour survives a `applyTurnAffordances()` re-run (idempotent). The Jinja2 initial render never emits a focusable active-deck `<ul>`/draw button when the budget is exhausted. (Chrome's default for `<button disabled>` already prevents Tab focus; we add `tabindex="-1"` defensively so the behaviour also survives re-renders and partial DOM rewrites from `loadingAnimations.js`.)
+- [ ] Bug 2: Trusted `<li class="cardContainer">` elements in `ul.cardRow[title="trustedCards"]` have no `faceDown` class, no `tabindex`, no `draggable="true"`, and no focus-within highlight. They do not gain `card-hover` from JS hover, and the `:focus-within` lift/transform rule does not apply to them.
+- [ ] Bug 3: When a hand card has been played and is a ghost (regardless of `data-stagedFlipped`), it remains in `orderableKeyboardCards()` (so number-key selection keeps counting it). Pressing Enter / Space on a flipped-face-up ghost clears or no-ops the selection (it does not double-flip). The staged-cookie flip cookie is never written twice for the same card.
+- [ ] Bug 4: `_addHoverArrow(sourceEl, targetEl)` shows the arrow on `mouseenter`, `focusin` on `sourceEl`, and clears it on `mouseleave`, `focusout`. The cooldown prevents flicker when focus moves between source and target.
+- [ ] Bug 5: `onFaceDownCardClick` (lane-flip branch) calls `_addHoverArrow(card, flipHologram)` AFTER creating the flip hologram. The lane card has `tabindex="0"`. Focus on the lane card draws the arrow to the flip hologram.
+- [ ] Bug 6: `li.cardContainer.faceDown:focus-within .smallCard { background: var(--card-background-highlight); }` no longer fires. The focus outline and slight lift still show on `:focus-within`. The same selector change applies symmetrically to the hover mirror (`:hover` already excluded via the `:hover` ban in `test_card_hover_manager_contract_covers_css_and_script_wiring`).
+- [ ] Bug 7: Overflow rows from `laneStacking.js` are inserted BEFORE the source row in document order. The lane `<p>` (value/name indicator) is `position: absolute` (or carries `.lane-indicator`) so its bounding box does not move when overflow rows are added. The trusted-cards `<ul>` and the first cards `<ul>` keep their relative position.
+- [ ] Bug 8: After the page settles on a player-phase reload with an overfull board, the end-turn button is programmatically focused (so Tab starts at the action button). The focus call does not race with the `scrollIntoView({behavior: 'smooth'})` smooth scroll. The autofocus attribute on the template is preserved.
+- [ ] All four touched existing tests still pass: `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently`, `test_ghost_card_numbering_and_flip_contract`, `test_card_hover_manager_contract_covers_css_and_script_wiring`, `test_lane_overflow_splits_rows_without_merging_back`, plus `test_lane_heights_stretch_equal_across_board`, `test_end_turn_hold_*`, `test_draw_hold_*`, `test_hologram_row_precedes_card_row`, `test_enemy_deck_and_hand_have_no_interactive_hooks`.
+- [ ] `python3 manage.py test` still passes (whole suite).
+
+Dependencies:
+- The `:hover` ban enforced by `test_card_hover_manager_contract_covers_css_and_script_wiring` (line ~1879) means we MUST NOT add any new `:hover` rules. Bug 6 keeps `:focus-within` only.
+- The cookie-staged play/flip contract enforced by `test_ghost_card_numbering_and_flip_contract` (line 2475) means Bug 3 must NOT introduce a second cookie write inside `_confirmGhostFlipSelection`. Splitting predicates is fine; double-flipping is not.
+- `applyTurnAffordances()` idempotency is enforced by `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently` (line 1833) — guard against double `setAttribute('tabindex', '-1')` if the element already has it.
+- `laneStacking.js` `splitIntoRows` is the only place where overflow rows are inserted; both `findCardRowForOrdinal` in `loadingAnimations.js` and the card-anchor selectors must keep working. The insertion direction change is safe for `findCardRowForOrdinal` because it queries by `title="cards"` selector, not by relative position.
+- The Jinja2 template `viewBoard.jinja2` is rendered server-side per board GET; no template change is required to satisfy any of the bugs, but the existing markup must continue to be the single source of truth for the trusted-cards `<li>` (no `faceDown` class, no `tabindex`).
+
+---
+
+# Bug-by-bug plan
+
+## Bug 1 — Block draw button + active-deck `<ul>` from Tab focus
+
+### Current behaviour
+
+`MMM/jinja2/MMM/battle/viewBoard.jinja2` line 289:
+```
+<ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
+```
+Line 297:
+```
+<button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="..."{% else %}title="Draw card"{% endif %}>Draw</button>
+```
+
+`var/www/static/cardDragDrop.js` `applyTurnAffordances()` (lines 260-269):
+```js
+if (remaining.draws <= 0) {
+    const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+    if (deck) deck.classList.add('blocked');
+    const drawBtn = deck?.querySelector('button.draw');
+    if (drawBtn) {
+        drawBtn.disabled = true;
+        drawBtn.title = this.tooltips.draw;
+    }
+}
+```
+
+The blocked `deck <ul>` gets only `class="blocked"` (no `tabindex` ever assigned, so it remains non-focusable by default — but the explicit assertion is missing). The disabled `<button>` already prevents Tab focus in modern browsers, but we add `tabindex="-1"` defensively so:
+- It survives the JS re-render path (the MutationObserver on `disabled` does not change focusability).
+- It documents intent for the contract test.
+
+### Change to `cardDragDrop.js` — `applyTurnAffordances()`
+
+```diff
+         if (remaining.draws <= 0) {
+-            // The deck stack must stay focus-inert (no tabindex on ul/li);
+-            // the disabled draw button is the visible indication.
+             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+             if (deck) {
+                 deck.classList.add('blocked');
++                // Belt-and-braces: even though the <ul> never had tabindex,
++                // mark it inert so a stray re-render or focus restoration
++                // cannot land on it.
++                if (!deck.hasAttribute('inert')) {
++                    deck.setAttribute('inert', '');
++                }
+             }
+             const drawBtn = deck?.querySelector('button.draw');
+             if (drawBtn) {
+                 drawBtn.disabled = true;
+                 drawBtn.title = this.tooltips.draw;
++                // <button disabled> already skips Tab focus in Chrome, but
++                // add tabindex="-1" defensively so re-renders that copy the
++                // disabled state do not leak focusability.
++                drawBtn.setAttribute('tabindex', '-1');
+             }
+         }
+```
+
+Idempotency: the `hasAttribute('inert')` guard and the unconditional `setAttribute('tabindex', '-1')` are both safe across repeated calls.
+
+### Verify `viewBoard.jinja2`
+
+No edit required. The template already emits `disabled` server-side and the `ul.active-deck` is not a focusable element. The build agent MUST, however, verify by reading the rendered HTML that:
+- The `<ul>` does not have `tabindex`.
+- The `<button>` has the `disabled` attribute when `draws_left <= 0`.
+
+### Tests
+
+Extend `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently` (`MMM/tests.py` line ~1833). The current test asserts:
+```py
+self.assertNotIn("setAttribute('tabindex'", deck_branch)
+self.assertNotIn("removeAttribute('tabindex')", deck_branch)
+```
+This must be REPLACED by the inverted contract:
+```py
+self.assertIn("deck.setAttribute('inert', '')", deck_branch)
+self.assertIn("drawBtn.setAttribute('tabindex', '-1')", deck_branch)
+```
+and add a separate assertion that the restore (non-blocked) branch does NOT carry `inert` / `tabindex="-1"` onto the deck (the function is only called when `remaining.draws <= 0`, but we add a smoke guard).
+
+Add a small assertion that the template-level draw button does not have a stray `tabindex` in the Jinja2 (this is already implicit in `test_enemy_deck_and_hand_have_no_interactive_hooks` line ~1130, but add an explicit check for the own section):
+```py
+own_active = re.search(r'<ul class="deck(?: blocked)? active-deck">(.*?)</ul>', own_section.group(1), re.DOTALL)
+self.assertNotIn("tabindex", own_active.group(1))  # the ul itself
+self.assertIn("disabled", own_active.group(1))      # the button
+```
+
+---
+
+## Bug 2 — Trusted cards must not flip on focus
+
+### Current behaviour
+
+`viewBoard.jinja2` lines 240-271 (player trusted) and 125-154 (enemy trusted):
+```jinja2
+<ul class="cardRow" title="trustedCards">
+    {% for card in lane.trustedCards %}
+        <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
+            title="..." style="--card-rotation: ...">
+            <div class="card smallCard{% if ... %} staticCard ...{% endif %}">
+                ...
+```
+- The `<li>` does NOT have `faceDown` or `tabindex` — already correct.
+- BUT the global CSS rules apply:
+  - `cards.css` line 88-91: `.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within { transform: translateY(...) rotate(...) }`
+  - `cards.css` line 140-145: `li.cardContainer:not(.blocked):focus-within { & .smallCard { background: var(--card-background-highlight); } }`
+  - `cards.css` line 1345-1347: `.cardContainer:focus-within * { outline: 0; }`
+
+The trusted `<li>` has no `tabindex`, so focus-within cannot trigger via Tab. But programmatic focus (e.g. `card.focus()` from `loadingAnimations.js`) could still trigger focus-within styling. Also, mouse hover via `CardHoverManager` (`hoverCooldown.js`) is scoped by selector — `.playerBoard ul.cardRow li.cardContainer` is in `CARD_HOVER_TARGET_SELECTOR`, so trusted cards DO get `card-hover` and the CSS lift on hover. This is unintended.
+
+### Changes
+
+1. **`hoverCooldown.js` line 1-7**: Exclude trusted `<li>`s from the hover target selector.
+   ```js
+   const CARD_HOVER_TARGET_SELECTOR = [
+       '.playerScreen .deckHand .hand li.cardContainer',
+       '.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled)',
+       '.playerBoard ul.cardRow[title="cards"] li.cardContainer',
+       '.playerBoard ul.cardRow[title="trustedCards"] li.cardContainer',  // REMOVE
+       '.playerBoard ul.hologramRow .hologram',
+       '.enemyBoard li.cardContainer',
+   ].join(', ');
+   ```
+   Drop the trusted selector. Add a comment that trusted cards do not react to mouse hover.
+
+2. **`cards.css` line 88-91**: The `:focus-within` lift rule should be scoped to the *playable* row, not all `cardRow`s.
+   ```css
+   .playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
+       z-index: 999;
+       transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
+   }
+   ```
+   This change MUST be reflected in the test assertion at line ~1955-1962 (see below).
+
+3. **`cards.css` line 140-145**: Scope the focus-within background highlight to non-faceDown AND not in trustedCards (Bug 6 fix will add `:not(.faceDown)`; here we additionally scope by row title):
+   ```css
+   .playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
+       & .smallCard {
+           background: var(--card-background-highlight);
+       }
+   }
+   ```
+   (Combine with Bug 6's `:not(.faceDown)` once Bug 6 lands.)
+
+### Tests
+
+Extend `test_card_hover_manager_contract_covers_css_and_script_wiring` (`MMM/tests.py` line 1867):
+- Replace the assertion at line 1891:
+  ```py
+  self.assertIn('.playerBoard ul.cardRow[title="cards"] li.cardContainer', target_selector_block)
+  self.assertNotIn('.playerBoard ul.cardRow[title="trustedCards"]', target_selector_block)
+  ```
+- Replace the block extraction at line 1943-1946 to match the new selector. The build agent must use a regex tolerant of the attribute selector (e.g. `cards_css.index('ul.cardRow[title="cards"] li.cardContainer:not(.blocked).card-hover {')` instead of the literal `ul.cardRow li.cardContainer:not(.blocked).card-hover {`). Be careful: the existing test uses string `index` which fails on the new selector; switch to regex `re.search` if needed.
+
+Add a new test, e.g. `test_trusted_cards_have_no_focus_or_hover_styling`:
+
+```py
+def test_trusted_cards_have_no_focus_or_hover_styling(self):
+    """Trusted card <li>s in the trustedCards row never gain hover/focus lift or highlight."""
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'cards.css')) as css_file:
+        cards_css = css_file.read()
+    with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
+        hover_js = js_file.read()
+
+    # No focus-within lift on trusted row.
+    self.assertNotIn(
+        'ul.cardRow[title="trustedCards"] li.cardContainer:focus-within',
+        cards_css,
+    )
+    # Focus-within background highlight explicitly excludes trusted row.
+    # (After Bug 6 fix the selector adds :not(.faceDown); both forms must hold.)
+    self.assertNotIn(
+        'ul.cardRow[title="trustedCards"] li.cardContainer:not(.blocked):focus-within',
+        cards_css,
+    )
+
+    # JS hover manager does not target trusted row.
+    self.assertNotIn('ul.cardRow[title="trustedCards"]', hover_js)
+    self.assertNotIn(
+        '.playerScreen ul.cardRow[title="trustedCards"] li.cardContainer',
+        hover_js,
+    )
+
+    # Sanity check: the trusted <li> in the rendered HTML has no faceDown / tabindex.
+    confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+    board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+    self.client.post(confirm_url)
+    response = self.client.get(board_url)
+    content = response.content.decode()
+    own_board = re.search(
+        r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+        content, re.DOTALL,
+    )
+    self.assertIsNotNone(own_board)
+    own_board_markup = own_board.group(0)
+    trusted_tags = re.findall(
+        r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
+        own_board_markup, re.DOTALL,
+    )
+    self.assertTrue(trusted_tags)
+    for tag in trusted_tags:
+        for li_tag in re.findall(r'<li class="cardContainer[^>]*>', tag):
+            self.assertNotIn('faceDown', li_tag)
+            self.assertNotIn('tabindex', li_tag)
+            self.assertNotIn('draggable="true"', li_tag)
+```
+
+---
+
+## Bug 3 — Flipped ghosts remain countable for hand numbering
+
+### Current behaviour
+
+`cardDragDrop.js` `orderableKeyboardCards()` (lines 563-566) calls `_isOrderableKeyboardCard` (568-572) which returns true if `_isPlayableKeyboardCard` OR `_isGhostFlipCandidate`. The latter (lines 579-591) explicitly excludes `card.dataset.stagedFlipped === 'true'`.
+
+`_confirmGhostFlipSelection` (lines 966-996) sets `card.dataset.stagedFlipped = 'true'` after a successful flip, then re-runs `applyTurnAffordances()` and clears the selection.
+
+The result: a flipped-face-up ghost is no longer in `orderableKeyboardCards`, so its slot count disappears, causing later cards' numbers to shift. This contradicts the user's bug 3 description.
+
+### Change
+
+Split the predicates. Add a new method:
+
+```js
+/**
+ * A staged ghost occupies its hand slot, regardless of whether it has
+ * already been flipped face up. Numbering is position-based over the full
+ * hand, so this card must still count.
+ */
+_isStagedGhost(card) {
+    if (!card || !card.matches('li.cardContainer')) return false;
+    if (!this.playerHandCards().includes(card)) return false;
+    if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+    if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+    if (!card.classList.contains('ghost')) return false;
+    if (card.classList.contains('loading') || card.closest('.loading')) return false;
+    const cardIdInput = this._cardIdInput(card);
+    return Boolean(cardIdInput?.value);
+}
+```
+
+Update `_isOrderableKeyboardCard`:
+```js
+_isOrderableKeyboardCard(card) {
+    if (!card || !card.matches('li.cardContainer')) return false;
+    if (this._isPlayableKeyboardCard(card)) return true;
+    return this._isStagedGhost(card);
+}
+```
+
+Keep `_isGhostFlipCandidate` as the ACTION predicate (only unflipped ghosts are actionable). It already excludes `stagedFlipped`, which is correct for actions.
+
+Update `onKeyboardKeyDown`'s Enter/Space handler so flipped-face-up ghosts no-op (the existing code calls `_confirmGhostFlipSelection` which guards on `_isGhostFlipCandidate`, which returns false for flipped ghosts — so the no-op falls through to `confirmKeyboardSelection`, which only fires for playable cards, so flipped ghosts already no-op). Add an explicit early-out for flipped-ghosts in the selection step:
+
+```diff
+         if (
+             this.keyboardSelection.selectedCard &&
+             (key === 'Enter' || key === ' ' || key === 'Space' || key === 'Spacebar')
+         ) {
+             if (event.repeat) return;
+             if (this.keyboardSelection.ghostFlip) {
+                 if (this._confirmGhostFlipSelection(event)) event.preventDefault();
+                 return;
+             }
++            // Flipped-face-up ghosts are countable but not actionable.
++            const selection = this.keyboardSelection;
++            if (
++                selection.selectedCard &&
++                selection.selectedCard.dataset.stagedFlipped === 'true'
++            ) {
++                this.clearKeyboardSelection();
++                return;
++            }
+             if (!this._keyboardActionAllowed(event)) return;
+             if (this.confirmKeyboardSelection()) event.preventDefault();
+             return;
+         }
+```
+
+`onHandCardClick` already routes via `playableKeyboardCards()` + `selectKeyboardCard`. Flipped-face-up ghosts are not in `playableKeyboardCards`, so the call falls through to `_selectGhostFlipCard`. But `_selectGhostFlipCard` calls `_isGhostFlipCandidate`, which returns false for flipped ghosts — so the click currently silently fails. After Bug 3, a click on a flipped ghost must select it (so it counts), but Enter/Space no-ops. Add:
+
+```js
+onHandCardClick(event) {
+    ...
+    const orderable = this.orderableKeyboardCards();
+    const index = orderable.indexOf(card);
+    if (index === -1) return;
+    if (this.playableKeyboardCards().includes(card)) {
+        if (!this._keyboardActionAllowed(event)) return;
+        this.selectKeyboardCard(card, String(index + 1));
+        return;
+    }
+    // Staged ghost (flipped or unflipped): select for counting.
+    if (card.classList.contains('ghost')) {
+        if (!this._ghostFlipInteractionAllowed(event)) {
+            // flipped ghosts are still countable; only allow selection
+            // for face-up flip if the budget permits
+            if (card.dataset.stagedFlipped !== 'true') return;
+        }
+        if (card.dataset.stagedFlipped === 'true') {
+            // No-op selection: focus + clear so Enter/Space does nothing.
+            if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+            this.clearKeyboardSelection();
+            return;
+        }
+        if (!this._ghostFlipInteractionAllowed(event)) return;
+        this.selectKeyboardCard(card, String(index + 1));
+    }
+}
+```
+
+`selectOrderedCard` already routes by `_isPlayableKeyboardCard` then `_isGhostFlipCandidate`. After Bug 3, `_isOrderableKeyboardCard` returns true for flipped ghosts, but the action route via `selectOrderedCard` only fires the action for playable + `_isGhostFlipCandidate`. For flipped ghosts, neither branch fires. Add an explicit no-op route for flipped ghosts so the digit buffer clears:
+
+```js
+selectOrderedCard(card, digitBuffer, event) {
+    if (this._isPlayableKeyboardCard(card)) {
+        if (!this._keyboardActionAllowed(event)) return;
+        this.selectKeyboardCard(card, digitBuffer);
+        return;
+    }
+    if (this._isGhostFlipCandidate(card)) {
+        if (!this._ghostFlipInteractionAllowed(event)) return;
+        this.selectKeyboardCard(card, digitBuffer);
+        return;
+    }
+    // Flipped-face-up ghost: still countable but no action.
+    if (card.dataset.stagedFlipped === 'true' && card.classList.contains('ghost')) {
+        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+        this.clearKeyboardSelection();
+    }
+}
+```
+
+Also update `onHandCardClick`'s `lastDragEndedAt` guard: it already exists, no change.
+
+### Tests
+
+Extend `test_ghost_card_numbering_and_flip_contract` (`MMM/tests.py` line 2475):
+
+```py
+def test_ghost_card_numbering_and_flip_contract(self):
+    ...  # existing assertions
+    # NEW: split predicate so flipped ghosts remain countable
+    self.assertIn('_isStagedGhost', drag_js)
+    self.assertIn('_isOrderableKeyboardCard', drag_js)
+    # _isOrderableKeyboardCard must NOT call _isGhostFlipCandidate (it calls _isStagedGhost instead)
+    orderable_code = drag_js[
+        drag_js.index('    _isOrderableKeyboardCard(card) {'):
+        drag_js.index('    _isGhostFlipCandidate(card)')
+    ]
+    self.assertIn('this._isPlayableKeyboardCard(card)', orderable_code)
+    self.assertIn('this._isStagedGhost(card)', orderable_code)
+    self.assertNotIn('this._isGhostFlipCandidate(card)', orderable_code)
+    # _isStagedGhost must NOT exclude stagedFlipped
+    staged_code = drag_js[
+        drag_js.index('    _isStagedGhost(card) {'):
+        drag_js.index('    _isOrderableKeyboardCard(card)')
+    ]
+    self.assertNotIn('stagedFlipped', staged_code)
+    self.assertIn("classList.contains('ghost')", staged_code)
+    # _isGhostFlipCandidate must STILL exclude stagedFlipped
+    ghost_flip_code = drag_js[
+        drag_js.index('    _isGhostFlipCandidate(card) {'):
+        drag_js.index('    _stagedLaneForGhost')
+    ]
+    self.assertIn("stagedFlipped", ghost_flip_code)
+    # selectOrderedCard handles flipped ghosts as no-op
+    select_ordered = drag_js[
+        drag_js.index('    selectOrderedCard(card'):
+        drag_js.index('    flipKeyboardFocusedCard')
+    ]
+    self.assertIn("stagedFlipped === 'true'", select_ordered)
+```
+
+Add a new test, e.g. `test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable`:
+
+```py
+def test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable(self):
+    """Flipped-face-up ghosts still occupy their hand slot for number-key selection."""
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+        drag_js = js_file.read()
+    # Predicate order: orderableKeyboardCards filters via _isOrderableKeyboardCard,
+    # which includes _isStagedGhost regardless of stagedFlipped.
+    self.assertIn('orderableKeyboardCards()', drag_js)
+    self.assertIn('_isOrderableKeyboardCard', drag_js)
+    # _isStagedGhost does not gate on stagedFlipped.
+    staged = drag_js[
+        drag_js.index('    _isStagedGhost(card) {'):
+        drag_js.index('    _isOrderableKeyboardCard(card)')
+    ]
+    self.assertNotIn('stagedFlipped', staged)
+    self.assertIn("classList.contains('ghost')", staged)
+```
+
+---
+
+## Bug 4 — Keyboard focus on hand card shows hover arrow
+
+### Current behaviour
+
+`_addHoverArrow` (lines 1335-1369) binds only `mouseenter`/`mouseleave` on `sourceEl` and `targetEl`.
+
+### Change
+
+Add `focusin`/`focusout` on `sourceEl` (only — `targetEl` already gets a `:focus-within` lift via CSS so we don't need to trigger the arrow from target focus).
+
+```js
+_addHoverArrow(sourceEl, targetEl) {
+    let arrow = null;
+    let hideTimeout = null;
+
+    const showArrow = () => {
+        if (hideTimeout) {
+            clearTimeout(hideTimeout);
+            hideTimeout = null;
+        }
+        if (!arrow || !arrow.parentNode) {
+            arrow = this._createCurvedArrow(sourceEl, targetEl);
+            document.body.appendChild(arrow);
+        }
+        sourceEl.classList.add('hover');
+        targetEl.classList.add('hover');
+    };
+
+    const hideArrow = () => {
+        if (hideTimeout) return;
+        hideTimeout = setTimeout(() => {
+            if (arrow && arrow.parentNode) arrow.remove();
+            arrow = null;
+            sourceEl.classList.remove('hover');
+            targetEl.classList.remove('hover');
+            hideTimeout = null;
+        }, 100);
+    };
+
+    sourceEl.addEventListener('mouseenter', showArrow);
+    sourceEl.addEventListener('mouseleave', hideArrow);
+    sourceEl.addEventListener('focusin', showArrow);   // NEW
+    sourceEl.addEventListener('focusout', hideArrow);   // NEW
+    targetEl.addEventListener('mouseenter', showArrow);
+    targetEl.addEventListener('mouseleave', hideArrow);
+}
+```
+
+The 100 ms `hideTimeout` cooldown handles Tab moves between source/target without flicker. The target hologram's `:focus-within` lift (cards.css line 153-156) is independent of the arrow.
+
+The contract test must confirm both event families are bound.
+
+### Tests
+
+Add a new test, e.g. `test_add_hover_arrow_binds_focus_and_mouse_events`:
+
+```py
+def test_add_hover_arrow_binds_focus_and_mouse_events(self):
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+        drag_js = js_file.read()
+    arrow_helper = drag_js[
+        drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+        drag_js.index('    _createCurvedArrow')
+    ]
+    self.assertIn("addEventListener('mouseenter'", arrow_helper)
+    self.assertIn("addEventListener('mouseleave'", arrow_helper)
+    self.assertIn("addEventListener('focusin'", arrow_helper)
+    self.assertIn("addEventListener('focusout'", arrow_helper)
+```
+
+Extend or add to ensure the existing test for the arrow (`test_ghost_card_numbering_and_flip_contract` does NOT cover this, and there is no existing arrow helper test, so we add a fresh one). No existing test asserts mouse/focus events for `_addHoverArrow`, so the new test is additive.
+
+---
+
+## Bug 5 — Focus on lane face-down card shows arrow to flip hologram
+
+### Current behaviour
+
+`onFaceDownCardClick` (lines 1426-1495). The lane-flip branch (lines 1438-1479) creates a `flipHologram` and calls `this._addHoverArrow(card, flipHologram)` on line 1479. The lane card already has `tabindex="0"` (viewBoard.jinja2 line 180). The bug is that focus on the lane card does not show the arrow — fixed by Bug 4's `focusin` binding on the source.
+
+The fix for Bug 5 is therefore: assert that the call exists, and that the lane card has `tabindex="0"` in the rendered HTML.
+
+### Change
+
+No new code — rely on Bug 4. The existing call to `_addHoverArrow(card, flipHologram)` on line 1479 already passes `sourceEl=card` (the lane card). After Bug 4, that lane card's `focusin` will trigger the arrow.
+
+### Tests
+
+Extend `test_ghost_card_numbering_and_flip_contract` (or add a new test) to assert the lane card has `tabindex="0"` AND that `onFaceDownCardClick` calls `_addHoverArrow(card, flipHologram)`.
+
+```py
+def test_lane_face_down_card_hover_arrow_binds_to_focus(self):
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+        drag_js = js_file.read()
+    on_face_down = drag_js[
+        drag_js.index('    onFaceDownCardClick(e, laneValue) {'):
+        drag_js.index('    createupdateCookie(cardId, laneValue, flipFaceUp')
+    ]
+    self.assertIn('_addHoverArrow(card, flipHologram)', on_face_down)
+    self.assertIn('flipHologram.classList.add(\'hologram\')', on_face_down)
+    # arrow helper binds focusin too
+    arrow_helper = drag_js[
+        drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+        drag_js.index('    _createCurvedArrow')
+    ]
+    self.assertIn("'focusin'", arrow_helper)
+
+    # The lane card has tabindex=0 in the rendered HTML.
+    confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+    board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+    self.client.post(confirm_url)
+    response = self.client.get(board_url)
+    content = response.content.decode()
+    own_board = re.search(
+        r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+        content, re.DOTALL,
+    )
+    self.assertIsNotNone(own_board)
+    own_board_markup = own_board.group(0)
+    flippable_tags = re.findall(
+        r'<ul class="cardRow" title="cards">(.*?)</ul>',
+        own_board_markup, re.DOTALL,
+    )
+    self.assertTrue(flippable_tags)
+    for row in flippable_tags:
+        for li_tag in re.findall(r'<li class="cardContainer[^>]*>', row):
+            if 'faceDown' in li_tag:
+                self.assertIn('tabindex="0"', li_tag)
+```
+
+---
+
+## Bug 6 — Face-down cards must not light up blue on focus
+
+### Current behaviour
+
+`cards.css` lines 137-145:
+```css
+li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard{
+    background: var(--card-background-highlight);
+}
+li.cardContainer:not(.blocked):focus-within
+{
+    & .smallCard{
+        background: var(--card-background-highlight);
+    }
+}
+```
+
+The `:focus-within` background highlight fires for face-down cards too, but the focus outline and slight lift (Bug 4) are still desired.
+
+### Change
+
+```diff
+-    li.cardContainer:not(.blocked):focus-within
++    li.cardContainer:not(.blocked):not(.faceDown):focus-within
+     {
+         & .smallCard{
+             background: var(--card-background-highlight);
+         }
+     }
+```
+
+The focus outline rule (`.playingCards li.cardContainer:focus-within { outline: 3px solid; }`) is left untouched. The hover mirror rule (line 137) already has `:not(.faceDown)` — good.
+
+### Tests
+
+Extend `test_card_hover_manager_contract_covers_css_and_script_wiring` (line ~1867) to pin the new selector. The existing test does NOT directly assert the `:focus-within` background rule, but it does check for `transform: translateY(...) rotate(...)` in the focus block (line 1956-1962). After Bug 6, we add an explicit check:
+
+```py
+self.assertIn(
+    'li.cardContainer:not(.blocked):not(.faceDown):focus-within',
+    cards_css,
+)
+self.assertNotIn(
+    'li.cardContainer:not(.blocked):focus-within\n    {\n        & .smallCard{',
+    cards_css,
+)
+```
+
+(Watch out for whitespace; use a tolerant regex `re.search` if needed.)
+
+Add a new test, e.g. `test_focus_within_background_excludes_face_down_cards`:
+
+```py
+def test_focus_within_background_excludes_face_down_cards(self):
+    """Face-down cards do NOT get the blue background highlight on focus."""
+    import os
+    css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')
+    with open(css_path) as css_file:
+        cards_css = css_file.read()
+    # Old selector must be gone.
+    self.assertNotIn(
+        'li.cardContainer:not(.blocked):focus-within {\n        & .smallCard{',
+        cards_css,
+    )
+    # New selector must be present.
+    self.assertIn(
+        'li.cardContainer:not(.blocked):not(.faceDown):focus-within',
+        cards_css,
+    )
+    # Focus outline is independent and stays.
+    self.assertIn(
+        '.playingCards li.cardContainer:focus-within{\n    outline-offset: 4px;\n    outline: 3px solid;',
+        cards_css,
+    )
+```
+
+---
+
+## Bug 7 — Bottom-to-top row stacking + constant-position indicator
+
+### Current behaviour
+
+`laneStacking.js` `splitIntoRows` (lines 70-93):
+```js
+const refNode = sourceRow.nextElementSibling;
+for (let i = 1; i < rows.length; i++) {
+    parent.insertBefore(rows[i], refNode);
+}
+```
+Overflow rows are inserted AFTER the source row in document order. CSS has `position: absolute` on each `.cardContainer` (cards.css lines 1180-1184, `bottom: 0`), so visually they stack to the right. Vertical stacking comes from document order (later rows appear below earlier ones).
+
+The lane `<p>` (viewBoard.jinja2 lines 124 / 239, `<p> {{ lane.value }} | {{ lane.name}} </p>`) sits between the cards row and the trustedCards row. With overflow rows, the `<p>` no longer aligns with any one cards row.
+
+### Change — Part A: insert overflow BEFORE source row
+
+```diff
+-        const refNode = sourceRow.nextElementSibling;
+-        for (let i = 1; i < rows.length; i++) {
+-            parent.insertBefore(rows[i], refNode);
+-        }
++        // Stack overflow rows from bottom to top: overflow rows are inserted
++        // BEFORE the source row so the source row ends up at the top of the
++        // cards column. The CSS for `.overflow-row` (cards.css) further
++        // positions each row vertically above the source.
++        for (let i = 1; i < rows.length; i++) {
++            sourceRow.parentNode.insertBefore(rows[i], sourceRow);
++        }
+```
+
+This means in document order, `overflow-row-1`, `overflow-row-2`, ..., `source-row`. Since `li.cardContainer` is `position: absolute; bottom: 0;` (cards.css lines 1180-1184), the visual order depends on the row container's own positioning, not the card positions. We need a CSS rule to stack the rows bottom-to-top.
+
+### Change — Part B: CSS for bottom-to-top row stacking
+
+The `ul.cardRow` currently has no vertical positioning other than what's inherited from its parent (`li.lane`). We add per-row positioning so overflow rows stack from bottom to top. The source row stays at the visual top (the "newest" row), with overflow rows appearing below.
+
+Add to `cards.css` after the existing `.playingCards ul.cardRow + ul.cardRow.overflow-row` rule (line 1215):
+
+```css
+/* Bottom-to-top lane stacking: rows are inserted in document order as
+   [overflow-row-1, overflow-row-2, ..., source-row]. We anchor them so
+   the source row sits at the visual top and overflow rows stack below,
+   each offset by one row height + the gap. */
+ul.lanes li.lane > ul.cardRow,
+ul.lanes li.lane > ul.hologramRow {
+    position: relative;
+}
+
+ul.lanes li.lane > ul.cardRow.overflow-row,
+ul.lanes li.lane > ul.hologramRow.overflow-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% - var(--lane-row-height, 7.5rem) * var(--overflow-row-index, 1));
+}
+```
+
+To make `--overflow-row-index` available per overflow row, `laneStacking.js` `splitIntoRows` should set the CSS variable on each overflow row:
+
+```js
+for (let i = 1; i < rows.length; i++) {
+    rows[i].style.setProperty('--overflow-row-index', String(i));
+    sourceRow.parentNode.insertBefore(rows[i], sourceRow);
+}
+```
+
+### Change — Part C: lane `<p>` indicator with constant vertical position
+
+Move the `<p>` out of the overflow path so it does not move when overflow rows are added. Two options:
+
+**Option (a)** — Wrap the indicator in an absolutely-positioned element:
+
+```jinja2
+{% for lane in ownLaneRows %}
+<li class="lane {{lane.name}}">
+    <ul class="hologramRow"></ul>
+    <div class="lane-stack">
+        <ul class="cardRow" title="cards">
+            ... (existing)
+        </ul>
+        <ul class="cardRow" title="trustedCards">
+            ... (existing)
+        </ul>
+    </div>
+    <p class="lane-indicator"> {{ lane.value }} | {{ lane.name }} </p>
+</li>
+{% endfor %}
+```
+
+Wait — the user said NO template changes are required. Re-reading: "All CSS changes go to existing files (`cards.css`, `cardDragDrop.css`)" and "Template changes go to `MMM/jinja2/MMM/battle/viewBoard.jinja2`". The template change for the indicator IS permitted. But the user also wrote:
+
+> Move the `<p>` out of the overflow path: render it absolutely positioned in the lane (so it stays at a fixed vertical position regardless of row count).
+
+This is option (a). The simplest implementation is to keep the existing `<p>` markup and just `position: absolute` it in CSS. The template change is therefore: no template change required, but the CSS must absolute-position the existing `<p>`.
+
+The current CSS (cards.css line 825-828) for the lane `<p>`:
+```css
+ul.lanes li.lane > p {
+    align-self: center;
+    justify-self: center;
+}
+```
+
+### Change — Part C (refined): absolute-position the existing `<p>`
+
+In `cards.css`, replace the existing rule:
+
+```css
+ul.lanes li.lane > p.lane-indicator,
+ul.lanes li.lane > p {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    pointer-events: none;
+    margin: 0;
+    padding: 0 .5em;
+}
+```
+
+To match the user's option (a), we do not add a class to the template (no template change). The CSS selector `ul.lanes li.lane > p` already matches. We add the rule in `cards.css` after the existing `ul.lanes li.lane > p` rule (around line 825).
+
+The `<p>` is currently inside the lane between the cards row and the trustedCards row, but in flex/normal flow. The lane `li.lane` is `position: relative` (cards.css line 805-806), so the absolute `<p>` will be positioned relative to the lane.
+
+### Tests
+
+Extend `test_lane_overflow_splits_rows_without_merging_back` (`MMM/tests.py` line 2290). The current test asserts:
+- `'overflow-row'` literal
+- `MAX_CARDS_PER_ROW = 15`
+- `OVERFLOW_ROW_CLASS` in `splitIntoRows`
+- `findCardRowForOrdinal` uses `[title="cards"]` not `[title="trustedCards"]`
+
+After Bug 7, add:
+- The `splitIntoRows` block uses `insertBefore(rows[i], sourceRow)` (not `insertBefore(rows[i], refNode)`).
+- The CSS uses `--overflow-row-index` for vertical stacking.
+- The lane `<p>` has `position: absolute` so it does not shift.
+
+```py
+def test_lane_overflow_splits_rows_without_merging_back(self):
+    ...
+    split_code = stacking_js[
+        stacking_js.index('    splitIntoRows('):stacking_js.index('document.addEventListener')
+    ]
+    self.assertNotIn('ensureSingleRow', split_code)
+    self.assertIn('OVERFLOW_ROW_CLASS', split_code)
+    # NEW (Bug 7): overflow rows are inserted BEFORE the source row, not after.
+    self.assertIn('insertBefore(rows[i], sourceRow)', split_code)
+    self.assertNotIn('sourceRow.nextElementSibling', split_code)
+    # The overflow rows carry a --overflow-row-index so CSS can stack them.
+    self.assertIn('--overflow-row-index', split_code)
+
+    # NEW (Bug 7): CSS positions overflow rows absolutely with the index,
+    # and the lane <p> indicator is absolutely positioned so it does not
+    # shift when rows are added.
+    self.assertIn(
+        'ul.lanes li.lane > ul.cardRow.overflow-row',
+        cards_css,
+    )
+    self.assertIn('--overflow-row-index', cards_css)
+    # The lane <p> indicator is position: absolute.
+    lane_indicator_match = re.search(
+        r'ul\.lanes li\.lane\s*>\s*p[^{]*\{[^}]*\}',
+        cards_css,
+    )
+    self.assertIsNotNone(lane_indicator_match)
+    self.assertIn('position: absolute', lane_indicator_match.group(0))
+```
+
+Add a new test, e.g. `test_lane_indicator_keeps_position_when_rows_split`:
+
+```py
+def test_lane_indicator_keeps_position_when_rows_split(self):
+    """The lane <p> value/name indicator must keep a constant bounding box
+    when laneStacking.js inserts overflow rows.
+    """
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'cards.css')) as css_file:
+        cards_css = css_file.read()
+    with open(os.path.join(static_dir, 'laneStacking.js')) as js_file:
+        stacking_js = js_file.read()
+    # The lane <p> rule uses position: absolute.
+    self.assertRegex(cards_css, r'ul\.lanes li\.lane\s*>\s*p[^{]*\{[^}]*position:\s*absolute')
+    # The indicator rule appears in the CSS (no template change needed).
+    self.assertIn('translate(-50%, -50%)', cards_css)
+    # The stacking code does NOT merge the indicator into the rows.
+    self.assertNotIn('lane-indicator', stacking_js)  # stacking code is rows-only
+```
+
+---
+
+## Bug 8 — End-turn button focused after reload on overfull board
+
+### Current behaviour
+
+`viewBoard.jinja2` line 364: `<button type="submit" class="end-turn" title="End turn" {% if turnPhase != "enemy" %}autofocus{% endif %}>`. The `autofocus` attribute lands on the button after page load.
+
+`loadingAnimations.js` `Animate()` player-phase branch (lines 312-320):
+```js
+if (phase === 'player') {
+    turnMarker(delay, 'Your turn', this._scheduler);
+    animationsElements.forEach((element) => element.classList.remove('loading'));
+    const deckHand = document.querySelector('.playerScreen .deckHand');
+    if (deckHand) {
+        deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    return;
+}
+```
+
+The `scrollIntoView({ behavior: 'smooth' })` smooth-scrolling competes with the browser's autofocus. On overfull boards, the smooth scroll moves the viewport past the end-turn button before the autofocus fires, leaving the button off-screen.
+
+### Change
+
+After the smooth scroll settles, programmatically focus the end-turn button. Use `requestAnimationFrame` to defer the focus call until after the current paint:
+
+```js
+if (phase === 'player') {
+    turnMarker(delay, 'Your turn', this._scheduler);
+    animationsElements.forEach((element) => element.classList.remove('loading'));
+    const deckHand = document.querySelector('.playerScreen .deckHand');
+    if (deckHand) {
+        deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    // The browser's autofocus on the end-turn button races with the
+    // smooth scroll above. On an overfull board the scroll moves the
+    // viewport past the button before autofocus fires, leaving the
+    // button off-screen. Re-focus it explicitly once the next paint
+    // settles so the user's first Tab lands on the action button.
+    const endTurnBtn = document.querySelector(
+        '.playerScreen .deckHand .end-turn'
+    );
+    if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+        requestAnimationFrame(() => {
+            endTurnBtn.focus({ preventScroll: false });
+        });
+    }
+    return;
+}
+```
+
+`preventScroll: false` lets the browser re-scroll the button into view if needed.
+
+### Tests
+
+Add a new test, e.g. `test_player_phase_focuses_end_turn_button_after_scroll`:
+
+```py
+def test_player_phase_focuses_end_turn_button_after_scroll(self):
+    """After page settle on the player-phase reload, the end-turn button is focused."""
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+        loading_js = js_file.read()
+    player_branch = _extract_js_brace_block(loading_js, "if (phase === 'player')")
+    self.assertIn('.playerScreen .deckHand .end-turn', player_branch)
+    self.assertIn('endTurnBtn.focus', player_branch)
+    self.assertIn('requestAnimationFrame', player_branch)
+    # The autofocus attribute is preserved in the template.
+    self.assertIn("autofocus", open(
+        os.path.join(os.path.dirname(__file__), '..', 'MMM', 'jinja2', 'MMM', 'battle', 'viewBoard.jinja2')
+    ).read())
+    # The rendered HTML still emits the autofocus attribute.
+    confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+    board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+    self.client.post(confirm_url)
+    response = self.client.get(board_url)
+    self.assertContains(response, 'class="end-turn"')
+    self.assertRegex(response.content.decode(), r'<button[^>]*class="end-turn"[^>]*autofocus')
+```
+
+---
+
+# Cross-references
+
+- `applyTurnAffordances` idempotency: see test `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently` (line 1833).
+- Cookie-staged play/flip contract: see test `test_ghost_card_numbering_and_flip_contract` (line 2475) and `test_keyboard_confirmation_contract_preserves_staging_and_guards` (line 1748).
+- `:hover` ban in cards.css/hoverCooldown.js/drag.css: see `test_card_hover_manager_contract_covers_css_and_script_wiring` (line 1867). Bug 6 MUST NOT introduce new `:hover` rules.
+- Lane overflow row contract: see `test_lane_overflow_splits_rows_without_merging_back` (line 2290).
+- Lane heights / stretch: see `test_lane_heights_stretch_equal_across_board` (line 2336). Bug 7 MUST NOT add a fixed height to `li.lane`.
+- Hologram row precedes cardRow: see `test_hologram_row_precedes_card_row` (line 2263).
+- End-turn / draw shortcuts: see `test_end_turn_hold_*` (line 2194), `test_draw_hold_*` (line 2231). Bug 8 MUST NOT break those handlers — they query the same `end-turn` button via `.playerScreen .end-turn`.
+
+# Execution order for build agent
+
+1. **Bug 1** (draw button + active-deck focus) — smallest, can run first. Touches only `cardDragDrop.js` (applyTurnAffordances) and tests.
+2. **Bug 2** (trusted cards) — touches `hoverCooldown.js` (selector), `cards.css` (focus-within scoping), and tests. Do not change any `:hover` rules (test ban).
+3. **Bug 6** (face-down focus highlight) — touches `cards.css` (one-line selector edit) and tests.
+4. **Bug 3** (ghost numbering) — touches `cardDragDrop.js` (split predicate) and tests.
+5. **Bug 4** (hover arrow focus binding) — touches `cardDragDrop.js` (`_addHoverArrow`) and tests.
+6. **Bug 5** (lane card focus arrow) — relies on Bug 4; add the test only.
+7. **Bug 7** (row stacking + indicator) — touches `laneStacking.js` (`splitIntoRows`) and `cards.css` (overflow-row position + lane `<p>` position: absolute) and tests.
+8. **Bug 8** (end-turn focus) — touches `loadingAnimations.js` and tests.
+
+# Risks / ambiguities to confirm with user
+
+- **Bug 2 scope of trusted-card selector change**: The existing `hoverCooldown.js` selector `.playerBoard ul.cardRow li.cardContainer` is broad. Changing it to `[title="cards"]` is a safe narrowing but means the trusted cards (and the enemyBoard variant of the trusted row in `viewBoard.jinja2` lines 125-154) both lose their JS hover. Confirm this is desired.
+- **Bug 7 layout**: The lane `<p>` indicator currently has `align-self: center; justify-self: center;` (cards.css lines 825-828). Switching to `position: absolute` removes it from the normal flex flow. This changes the visual alignment slightly (the `<p>` may now overlap with cards if the lane is narrow). The user explicitly accepted option (a), but the visual impact should be confirmed.
+- **Bug 7 row stacking direction**: "Bottom to top" can mean two things: (i) overflow rows appear BELOW the source row in visual order (so the source row is at the top), or (ii) overflow rows appear ABOVE (source row at the bottom). The plan assumes (i) per the user description "the number indicator of each row should be on the same height for every row" + "rows of cards in lane should stack from bottom to top" — i.e. the new cards push the existing ones up. The `--overflow-row-index` CSS anchors the source row at the top and overflow rows below it (rows are visually stacked bottom-to-top in the sense that the newest row sits at the top, and earlier overflow rows are pushed down). If the user means the opposite direction (source at bottom, overflow above), the CSS anchor needs `top:` instead of `bottom:`.
+- **Bug 3 no-op semantics**: For flipped-face-up ghosts, Enter/Space clears the keyboard selection rather than flipping again. The user said "no-op" — both `clearKeyboardSelection()` and a no-op handler would satisfy. The plan chooses clear-and-refocus, which keeps the keyboard flow consistent.
+- **Bug 1 inert vs tabindex**: The plan uses `inert` on the `<ul>` and `tabindex="-1"` on the `<button>`. Mixing is fine (the `<ul>` has no native focus concept; the `<button>` does). The user said either is acceptable. The CSS `pointer-events: auto` on the deck (cards.css line 717) means the inert `<ul>` would block clicks to children, which is desirable (the disabled draw button is the only legitimate interaction target, and it stays clickable through `pointer-events: auto` because pointer events bubble through inert ancestors only if the target itself is non-inert — confirm this works as expected in Chrome, which it does). If the build agent prefers `tabindex="-1"` on both for consistency, that is also acceptable.
+- **Bug 8 timing**: Using `requestAnimationFrame` schedules the focus for the next paint. On a slow load this may still race with the smooth scroll. An alternative is to listen for the `scroll` event on the deckHand and focus once scrolling stops, but `requestAnimationFrame` is the simpler fix that satisfies the user's stated goal ("focus once the page settles").

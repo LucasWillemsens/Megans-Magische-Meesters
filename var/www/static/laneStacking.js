@@ -85,10 +85,10 @@ class LaneCardStacking {
             const rowIndex = Math.min(Math.floor(index / cardsPerRow), rows.length - 1);
             rows[rowIndex].appendChild(child);
         });
-        
-        const refNode = sourceRow.nextElementSibling;
+
         for (let i = 1; i < rows.length; i++) {
-            parent.insertBefore(rows[i], refNode);
+            rows[i].style.setProperty('--overflow-row-index', String(i));
+            sourceRow.parentNode.insertBefore(rows[i], sourceRow);
         }
     }
 }
