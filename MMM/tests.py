@@ -1952,11 +1952,15 @@ class BattleFlowTests(TestCase):
     def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
         """Cards react to hover ONLY via the JS-managed .card-hover class.
 
-        Native :hover rules bypass hoverCooldown.js's sticky-footprint and
-        cooldown logic: the animated lift can move a card out from under a
-        near-edge pointer, which re-arms a leave/enter flicker loop. The card
-        stylesheets therefore must not contain :hover at all, and every hover
-        visual rides on the .card-hover mirrors.
+        Native :hover rules would bypass hoverCooldown.js entirely, so the
+        card stylesheets must not contain :hover at all and every hover
+        visual rides on the .card-hover mirrors. The manager anchors each
+        hover episode at the moment the class is first applied: a deliberate
+        leave (after the 120ms cooldown window expired) removes the class
+        instantly, while a quick pass-over — the flicker case, where the
+        animated lift just moved the card out from under the pointer — keeps
+        the class only until first hover + 120ms. Mouse movement over the
+        element never refreshes the window.
         """
         import os
 
@@ -2157,15 +2161,28 @@ class BattleFlowTests(TestCase):
             drag_css,
         )
 
-        # manager stays passive; the 120ms debounce applies to REMOVAL only.
+        # manager stays passive; hover-in is never delayed and the anchored
+        # cooldown applies to REMOVAL only.
         self.assertIn('class CardHoverManager', hover_js)
-        self.assertIn('HOVER_REMOVE_DELAY_MS = 120', hover_js)
+        self.assertIn('HOVER_REMOVE_COOLDOWN_MS = 120', hover_js)
+        self.assertNotIn('HOVER_REMOVE_DELAY_MS', hover_js)
         self.assertIn("addEventListener('mousemove'", hover_js)
         self.assertIn('{ passive: true }', hover_js)
         self.assertIn("addEventListener('mouseleave', this.onMouseLeave)", hover_js)
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
         self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
+
+        # The sticky footprint experiment is gone completely: no rect
+        # capture, no page-coordinate state — hit-testing is pure closest().
+        self.assertNotIn('hoverFootprint', hover_js)
+        self.assertNotIn('captureFootprint', hover_js)
+        self.assertNotIn('isInsideHoverFootprint', hover_js)
+        self.assertNotIn('footprint', hover_js)
+        self.assertNotIn('footprint', hover_js.lower())
+        self.assertNotIn('getBoundingClientRect', hover_js)
+        self.assertNotIn('pageX', hover_js)
+        self.assertNotIn('pageY', hover_js)
 
         # The manager runs unconditionally and the hover transitions always
         # animate: no reduced-motion special-casing remains for card hover.
@@ -2185,66 +2202,137 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('card-hover', drag_motion_block)
         self.assertNotIn('morphCard', drag_motion_block)
 
-        # No cooldown-delayed switching remains: genuine cursor movement onto
-        # a different card swaps the class immediately.
+        # Hover-in is never delayed: genuine cursor movement onto a different
+        # card applies the class immediately (no dwell/hover-intent gate), and
+        # pending removals are tracked per element so a fast sweep can carry
+        # independent trails for each abandoned card.
         self.assertNotIn('HOVER_SWITCH_COOLDOWN_MS', hover_js)
         self.assertNotIn('schedulePendingSwitch', hover_js)
         self.assertNotIn('pendingTarget', hover_js)
         self.assertNotIn('lastSwitchAt', hover_js)
+        self.assertNotIn('schedulePendingRemove', hover_js)
+        self.assertNotIn('cancelPendingRemove', hover_js)
+        self.assertNotIn('this.removeTimer', hover_js)
+        self.assertIn('this.episodes = new Map();', hover_js)
         consume_block = hover_js[
             hover_js.index('consumePendingEvent() {'):
             hover_js.index('resolveHoverTarget(event) {')
         ]
+        # Movement over the same element is a no-op: the episode is left
+        # untouched, so the cooldown window can never refresh on movement.
+        self.assertIn('if (target === this.hoveredCard) return;', consume_block)
         self.assertIn('this.swapHover(target);', consume_block)
+        # Moving onto the background releases the hovered card through the
+        # window rule; the consumer itself never schedules timers directly.
+        self.assertIn('this.releaseHover(this.hoveredCard);', consume_block)
         self.assertNotIn('setTimeout', consume_block)
-        # Moving outside the sticky footprint schedules the deferred removal;
-        # staying on the card cancels it.
-        self.assertIn('this.schedulePendingRemove();', consume_block)
-        self.assertIn('this.cancelPendingRemove();', consume_block)
-        # The pointer exiting the whole screen removes the class immediately:
-        # with the pointer gone no hover re-arm loop is possible.
+
+        # Episodes are anchored at FIRST application of the class: the
+        # timestamp is stamped via performance.now() exactly where the class
+        # is added, and neither the batched-event consumer nor the pure
+        # hit-tester ever re-stamps it.
+        self.assertIn('performance.now()', hover_js)
+        self.assertNotIn('startedAt', consume_block)
+        self.assertNotIn('episodes.set', consume_block)
+        resolve_block = hover_js[
+            hover_js.index('resolveHoverTarget(event) {'):
+            hover_js.index('swapHover(card) {')
+        ]
+        self.assertNotIn('startedAt', resolve_block)
+        self.assertNotIn('episodes.set', resolve_block)
+        # resolveHoverTarget is pure hit-testing again; its only statefulness
+        # is cleaning up a hovered card that left the DOM (removed from the
+        # episode map, no timer leak).
+        self.assertIn('hovered.isConnected === false', resolve_block)
+        self.assertIn('this.removeHoverNow(hovered);', resolve_block)
+        self.assertIn("typeof target.closest !== 'function'", resolve_block)
+        self.assertIn('return target.closest(CARD_HOVER_TARGET_SELECTOR);', resolve_block)
+        apply_block = hover_js[
+            hover_js.index('applyHover(card) {'):
+            hover_js.index('releaseHover(card) {')
+        ]
+        self.assertIn('this.cancelScheduledRemove(episode);', apply_block)
+        self.assertIn('startedAt: performance.now()', apply_block)
+        self.assertIn('card.classList.add(HOVER_CLASS);', apply_block)
+        # Returning to a card whose class is still on (trailing hold) resumes
+        # the SAME episode: its pending removal is cancelled and the original
+        # stamp survives, because the resume branch returns before the stamp.
+        self.assertLess(
+            apply_block.index('this.cancelScheduledRemove(episode);'),
+            apply_block.index('startedAt: performance.now()'),
+        )
+        self.assertLess(
+            apply_block.index('startedAt: performance.now()'),
+            apply_block.index('card.classList.add(HOVER_CLASS);'),
+        )
+
+        # Release rule: once the window anchored at first hover has expired,
+        # the leave is deliberate and the class comes off IMMEDIATELY; inside
+        # the window (quick pass-over — the lift just moved the card out from
+        # under the pointer) removal is scheduled ONCE for the remaining
+        # window time, so it always lands at most 120ms after first hover and
+        # later movement outside never postpones it.
+        release_block = hover_js[
+            hover_js.index('releaseHover(card) {'):
+            hover_js.index('removeHoverNow(card) {')
+        ]
+        self.assertIn('if (!episode || episode.timerId !== null) return;', release_block)
+        self.assertIn(
+            'episode.startedAt + HOVER_REMOVE_COOLDOWN_MS - performance.now()',
+            release_block,
+        )
+        self.assertIn('if (remainingMs <= 0)', release_block)
+        self.assertIn('this.removeHoverNow(card);', release_block)
+        self.assertIn(
+            'window.setTimeout(() => this.removeHoverNow(card), remainingMs);',
+            release_block,
+        )
+
+        # The pointer exiting the whole screen keeps the stale rAF/pending
+        # event cancellation and routes the hovered card through the same
+        # release rule (instant when its window expired, anchored trailing
+        # removal otherwise) — no unconditional teardown special case.
         leave_block = hover_js[
             hover_js.index('handleMouseLeave() {'):
             hover_js.index('consumePendingEvent() {')
         ]
-        self.assertIn('this.clearHover();', leave_block)
-        self.assertNotIn('schedulePendingRemove', leave_block)
+        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', leave_block)
+        self.assertIn('this.pendingEvent = null;', leave_block)
+        self.assertIn('this.releaseHover(this.hoveredCard);', leave_block)
+        self.assertNotIn('clearAllHover', leave_block)
+        self.assertNotIn('clearHover', leave_block)
 
-        # The class is removed only after the 120ms debounce elapsed since the
-        # cursor moved outside; the timer is scheduled once per leave, so
-        # further movement outside does not keep postponing the removal.
-        schedule_block = hover_js[
-            hover_js.index('schedulePendingRemove() {'):
-            hover_js.index('cancelPendingRemove() {')
-        ]
-        self.assertIn(
-            'if (this.removeTimer !== null || !this.hoveredCard) return;',
-            schedule_block,
-        )
-        self.assertIn('this.removeTimer = window.setTimeout', schedule_block)
-        self.assertIn('this.removeDelayMs);', schedule_block)
-        self.assertIn('window.clearTimeout(this.removeTimer);', hover_js)
-
-        # Singleton: the class is removed from the previous holder BEFORE it
-        # is added to the new one, and clearHover/stop strip it as well, so
-        # exactly one element on screen carries it at any time.
+        # Relaxed singleton: at most one ACTIVE hovered card, plus trailing
+        # holds of at most 120ms for cards abandoned inside their window. On
+        # a swap the new card gets the class immediately; the abandoned card
+        # goes through the window rule instead of an unconditional
+        # remove-before-add.
         swap_block = hover_js[
             hover_js.index('swapHover(card) {'):
-            hover_js.index('captureFootprint(card) {')
+            hover_js.index('applyHover(card) {')
         ]
-        self.assertIn('this.hoveredCard.classList.remove(HOVER_CLASS);', swap_block)
-        self.assertIn('card.classList.add(HOVER_CLASS);', swap_block)
-        self.assertLess(
-            swap_block.index('this.hoveredCard.classList.remove(HOVER_CLASS);'),
-            swap_block.index('card.classList.add(HOVER_CLASS);'),
-        )
-        self.assertLess(
-            swap_block.index('this.hoverFootprint = this.captureFootprint(card);'),
-            swap_block.index('card.classList.add(HOVER_CLASS);'),
-        )
-        clear_block = hover_js[hover_js.index('clearHover() {'):]
-        self.assertIn('this.hoveredCard.classList.remove(HOVER_CLASS);', clear_block)
-        self.assertIn('this.cancelPendingRemove();', clear_block)
+        self.assertIn('this.releaseHover(this.hoveredCard);', swap_block)
+        self.assertIn('this.applyHover(card);', swap_block)
+        self.assertIn('this.hoveredCard = card;', swap_block)
+        self.assertNotIn('classList.remove', swap_block)
+
+        # Removal itself ends the episode: class off, map entry deleted, any
+        # scheduled timer cleared.
+        remove_block = hover_js[
+            hover_js.index('removeHoverNow(card) {'):
+            hover_js.index('cancelScheduledRemove(episode) {')
+        ]
+        self.assertIn('this.episodes.delete(card);', remove_block)
+        self.assertIn('card.classList.remove(HOVER_CLASS);', remove_block)
+        self.assertIn('if (this.hoveredCard === card) this.hoveredCard = null;', remove_block)
+        cancel_block = hover_js[
+            hover_js.index('cancelScheduledRemove(episode) {'):
+            hover_js.index('clearAllHover() {')
+        ]
+        self.assertIn('window.clearTimeout(episode.timerId);', cancel_block)
+
+        # stop() cancels every pending timer and strips the class from every
+        # element still in the episode map, trailing holds included.
         stop_block = hover_js[
             hover_js.index('stop() {'):
             hover_js.index('handleMouseMove(event) {')
@@ -2252,34 +2340,14 @@ class BattleFlowTests(TestCase):
         self.assertIn("removeEventListener('mousemove'", stop_block)
         self.assertIn("removeEventListener('mouseleave'", stop_block)
         self.assertIn('window.cancelAnimationFrame(this.frameHandle);', stop_block)
-        self.assertIn('this.clearHover();', stop_block)
-
-        # Sticky hit-testing: while the pointer stays inside the hovered
-        # card's resting footprint (captured in page coordinates BEFORE the
-        # lift class is applied, so scroll and the lift transition can never
-        # skew it), the pointer still counts as being on the card — the
-        # animated lift cannot move the card out from under a near-edge
-        # pointer and re-arm a leave/enter flicker loop.
-        self.assertIn('isInsideHoverFootprint(event)', hover_js)
-        footprint_block = hover_js[
-            hover_js.index('isInsideHoverFootprint(event) {'):
-            hover_js.index('swapHover(card) {')
+        self.assertIn('this.clearAllHover();', stop_block)
+        teardown_block = hover_js[
+            hover_js.index('clearAllHover() {'):
+            hover_js.index("document.addEventListener('DOMContentLoaded'")
         ]
-        self.assertIn(
-            'event.pageX >= footprint.left && event.pageX <= footprint.right',
-            footprint_block,
-        )
-        self.assertIn(
-            'event.pageY >= footprint.top && event.pageY <= footprint.bottom',
-            footprint_block,
-        )
-        capture_block = hover_js[
-            hover_js.index('captureFootprint(card) {'):
-            hover_js.index('schedulePendingRemove() {')
-        ]
-        self.assertIn('card.getBoundingClientRect();', capture_block)
-        self.assertIn('rect.left + window.scrollX', capture_block)
-        self.assertIn('rect.top + window.scrollY', capture_block)
+        self.assertIn('this.removeHoverNow(card);', teardown_block)
+        self.assertIn('this.episodes.clear();', teardown_block)
+        self.assertIn('this.hoveredCard = null;', teardown_block)
 
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))

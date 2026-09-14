@@ -7,13 +7,15 @@ const CARD_HOVER_TARGET_SELECTOR = [
 ].join(', ');
 
 /**
- * Short debounce for genuine leaves: the hover state is removed only after
- * this delay has elapsed since the cursor moved outside the hovered card
- * (and its sticky resting footprint). The sticky-footprint hit-test is what
- * prevents the lift/leave flicker loop. Re-entering inside the window
- * cancels the removal; switching to a different card is always immediate.
+ * Removal cooldown for quick pass-overs, anchored at the moment the hover
+ * class is first applied to an element. Leaving after the window has expired
+ * means the hover was deliberate, so the class comes off immediately with no
+ * timer. Leaving inside the window is the flicker case (the animated lift
+ * just moved the card out from under the pointer), so the class stays on
+ * only until the anchored deadline: removal happens at most this long after
+ * first hover. Movement over the element never refreshes the window.
  */
-const HOVER_REMOVE_DELAY_MS = 120;
+const HOVER_REMOVE_COOLDOWN_MS = 120;
 
 /**
  * Single source of hover truth: the stylesheets carry no native pseudo-class
@@ -23,15 +25,22 @@ const HOVER_REMOVE_DELAY_MS = 120;
  */
 const HOVER_CLASS = 'card-hover';
 
+/**
+ * Applies the managed hover class to whatever card surface the pointer is on.
+ * Each element carries a hover episode that starts when the class is first
+ * applied (stamped via performance.now()) and ends when the class is actually
+ * removed. At most one element is actively hovered; cards abandoned inside
+ * their cooldown window keep the class for the remainder of that window, so
+ * a quick pass-over trails for at most HOVER_REMOVE_COOLDOWN_MS after its
+ * first hover while a deliberate hover disappears the instant it is left.
+ */
 class CardHoverManager {
-    constructor(container, { removeDelayMs = HOVER_REMOVE_DELAY_MS } = {}) {
+    constructor(container) {
         this.container = container;
-        this.removeDelayMs = removeDelayMs;
         this.hoveredCard = null;
-        this.hoverFootprint = null;
+        this.episodes = new Map();
         this.frameHandle = null;
         this.pendingEvent = null;
-        this.removeTimer = null;
         this.onMouseMove = null;
         this.onMouseLeave = null;
         this.applyPendingEvent = () => this.consumePendingEvent();
@@ -60,7 +69,7 @@ class CardHoverManager {
             this.frameHandle = null;
         }
         this.pendingEvent = null;
-        this.clearHover();
+        this.clearAllHover();
     }
 
     handleMouseMove(event) {
@@ -70,15 +79,17 @@ class CardHoverManager {
     }
 
     handleMouseLeave() {
-        // The pointer left the whole screen: any queued mousemove is stale,
-        // and with the pointer gone no hover re-arm loop is possible, so the
-        // class comes off immediately.
+        // The pointer left the whole screen, so any queued mousemove is
+        // stale; the hovered card goes through the normal release rule.
         if (this.frameHandle !== null) {
             window.cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;
         }
         this.pendingEvent = null;
-        this.clearHover();
+        if (this.hoveredCard) {
+            this.releaseHover(this.hoveredCard);
+            this.hoveredCard = null;
+        }
     }
 
     consumePendingEvent() {
@@ -88,26 +99,21 @@ class CardHoverManager {
         if (!event) return;
 
         const target = this.resolveHoverTarget(event);
-        if (target === this.hoveredCard) {
-            this.cancelPendingRemove();
-            return;
-        }
+        if (target === this.hoveredCard) return;
         if (!target) {
-            this.schedulePendingRemove();
+            if (this.hoveredCard) {
+                this.releaseHover(this.hoveredCard);
+                this.hoveredCard = null;
+            }
             return;
         }
-        // Genuine cursor movement onto a different card switches immediately.
         this.swapHover(target);
     }
 
     resolveHoverTarget(event) {
         const hovered = this.hoveredCard;
-        if (hovered) {
-            if (hovered.isConnected === false) {
-                this.clearHover();
-            } else if (this.isInsideHoverFootprint(event)) {
-                return hovered;
-            }
+        if (hovered && hovered.isConnected === false) {
+            this.removeHoverNow(hovered);
         }
         const target = event.target;
         if (!target || typeof target.closest !== 'function') return null;
@@ -115,65 +121,71 @@ class CardHoverManager {
     }
 
     /**
-     * Sticky hit-test against the hovered card's resting footprint, in page
-     * coordinates so it stays correct while the page scrolls. The hover lift
-     * is an animated transform, so the card can move out from under a
-     * stationary near-edge pointer; while the pointer stays inside the area
-     * the card occupies at rest it still counts as hovering, and the lift can
-     * never re-arm a leave/enter flicker loop.
-     */
-    isInsideHoverFootprint(event) {
-        const footprint = this.hoverFootprint;
-        if (!footprint) return false;
-        return (
-            event.pageX >= footprint.left && event.pageX <= footprint.right &&
-            event.pageY >= footprint.top && event.pageY <= footprint.bottom
-        );
-    }
-
-    /**
-     * Moves the hover state to another card. The class is removed from the
-     * previous holder before it is added to the new one, so exactly one
-     * element on screen carries it at any time.
+     * Moves the hover to another card: the new card gets the class
+     * immediately (hover-in is never delayed) and the abandoned card is
+     * released by the cooldown rule — instantly when it was hovered
+     * deliberately, as a short trail when it was only passed over.
      */
     swapHover(card) {
-        this.cancelPendingRemove();
         if (this.hoveredCard === card) return;
-        if (this.hoveredCard) this.hoveredCard.classList.remove(HOVER_CLASS);
-        this.hoverFootprint = this.captureFootprint(card);
-        card.classList.add(HOVER_CLASS);
+        if (this.hoveredCard) this.releaseHover(this.hoveredCard);
+        this.applyHover(card);
         this.hoveredCard = card;
     }
 
-    captureFootprint(card) {
-        // Captured before the class is applied: the rect is the card's
-        // resting position, untouched by the (transitioning) hover lift.
-        const rect = card.getBoundingClientRect();
-        const left = rect.left + window.scrollX;
-        const top = rect.top + window.scrollY;
-        return { left, top, right: left + rect.width, bottom: top + rect.height };
+    /**
+     * Starts an episode by stamping it and adding the class, or resumes a
+     * trailing one: a card whose class is still on keeps its original stamp
+     * and only has its pending removal cancelled.
+     */
+    applyHover(card) {
+        const episode = this.episodes.get(card);
+        if (episode) {
+            this.cancelScheduledRemove(episode);
+            return;
+        }
+        this.episodes.set(card, { startedAt: performance.now(), timerId: null });
+        card.classList.add(HOVER_CLASS);
     }
 
-    schedulePendingRemove() {
-        if (this.removeTimer !== null || !this.hoveredCard) return;
-        this.removeTimer = window.setTimeout(() => {
-            this.removeTimer = null;
-            this.clearHover();
-        }, this.removeDelayMs);
+    /**
+     * Ends the active hover of a card that was just left. Once its anchored
+     * window has expired the class comes off immediately; inside the window
+     * the removal is scheduled once for the remaining time, and further
+     * movement outside never postpones it.
+     */
+    releaseHover(card) {
+        const episode = this.episodes.get(card);
+        if (!episode || episode.timerId !== null) return;
+        const remainingMs = episode.startedAt + HOVER_REMOVE_COOLDOWN_MS - performance.now();
+        if (remainingMs <= 0) {
+            this.removeHoverNow(card);
+            return;
+        }
+        episode.timerId = window.setTimeout(() => this.removeHoverNow(card), remainingMs);
     }
 
-    cancelPendingRemove() {
-        if (this.removeTimer !== null) {
-            window.clearTimeout(this.removeTimer);
-            this.removeTimer = null;
+    removeHoverNow(card) {
+        const episode = this.episodes.get(card);
+        if (episode) this.cancelScheduledRemove(episode);
+        this.episodes.delete(card);
+        card.classList.remove(HOVER_CLASS);
+        if (this.hoveredCard === card) this.hoveredCard = null;
+    }
+
+    cancelScheduledRemove(episode) {
+        if (episode.timerId !== null) {
+            window.clearTimeout(episode.timerId);
+            episode.timerId = null;
         }
     }
 
-    clearHover() {
-        this.cancelPendingRemove();
-        if (this.hoveredCard) this.hoveredCard.classList.remove(HOVER_CLASS);
+    clearAllHover() {
+        for (const card of Array.from(this.episodes.keys())) {
+            this.removeHoverNow(card);
+        }
+        this.episodes.clear();
         this.hoveredCard = null;
-        this.hoverFootprint = null;
     }
 }
 
