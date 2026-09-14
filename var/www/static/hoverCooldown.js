@@ -6,18 +6,15 @@ const CARD_HOVER_TARGET_SELECTOR = [
     '.enemyBoard li.cardContainer',
 ].join(', ');
 
-const HOVER_REMOVE_COOLDOWN_MS = 300;
+const HOVER_REMOVE_COOLDOWN_MS = 500;
 const HOVER_CLASS = 'card-hover';
 
 class CardHoverManager {
     constructor(container) {
         this.container = container;
         this.hoveredCard = null;
-        this.frameHandle = null;
-        this.pendingEvent = null;
         this.onMouseMove = null;
         this.onMouseLeave = null;
-        this.applyPendingEvent = () => this.consumePendingEvent();
     }
 
     start() {
@@ -38,58 +35,30 @@ class CardHoverManager {
             this.container.removeEventListener('mouseleave', this.onMouseLeave);
             this.onMouseLeave = null;
         }
-        if (this.frameHandle !== null) {
-            window.cancelAnimationFrame(this.frameHandle);
-            this.frameHandle = null;
-        }
-        this.pendingEvent = null;
         this.clearAllHover();
     }
 
     handleMouseMove(event) {
-        this.pendingEvent = event;
-        if (this.frameHandle !== null) return;
-        this.frameHandle = window.requestAnimationFrame(this.applyPendingEvent);
+        const OnCoolDown = this.startedAt && (this.startedAt + HOVER_REMOVE_COOLDOWN_MS > Date.now());
+        if (this.hoveredCard && !OnCoolDown) {
+            if (this.hoveredCard !== event.target.closest(CARD_HOVER_TARGET_SELECTOR)) {
+                this.releaseHover();
+            }
+        }
+        let target = event.target;
+        if (!target || typeof target.closest !== 'function') 
+        {
+            return;
+        }
+        if (!OnCoolDown) this.applyHover(target.closest(CARD_HOVER_TARGET_SELECTOR));
     }
 
     handleMouseLeave() {
-        if (this.frameHandle !== null) {
-            window.cancelAnimationFrame(this.frameHandle);
-            this.frameHandle = null;
-        }
-        this.pendingEvent = null;
-        if (this.hoveredCard) {
-            this.releaseHover();
-        }
-    }
-
-    consumePendingEvent() {
-        this.frameHandle = null;
-        const event = this.pendingEvent;
-        this.pendingEvent = null;
-        if (!event) return;
-
-        const target = this.resolveHoverTarget(event);
-        if (!target) {
-            if (this.hoveredCard) {
-                this.releaseHover();
-            }
-            return;
-        }
-        this.applyHover(target);
-    }
-
-    resolveHoverTarget(event) {
-        let target = this.hoveredCard;
-        if (!target || this.startedAt + HOVER_REMOVE_COOLDOWN_MS <= Date.now()) {
-            target = event.target;
-        }
-        if (!target || typeof target.closest !== 'function') return null;
-        return target.closest(CARD_HOVER_TARGET_SELECTOR);
+        this.releaseHover();
     }
 
     applyHover(card) {
-        if (this.hoveredCard) { return;}
+        if (this.hoveredCard === card) return;
         card.classList.add(HOVER_CLASS);
         this.hoveredCard = card;
         this.startedAt = Date.now();
@@ -99,6 +68,7 @@ class CardHoverManager {
         const remainingMs = this.startedAt + HOVER_REMOVE_COOLDOWN_MS - Date.now();
         if (remainingMs <= 0) {
             this.clearAllHover();
+            return;
         }
         window.setTimeout(() => this.clearAllHover(), remainingMs);
     }
