@@ -28,8 +28,7 @@ Define the prototype target for the project: a reliable 1v1 demo with clear visu
 
 ### Top priority: Battle page polish
 
-Polish the battle page to make the game feel responsive, readable, and exciting.
-
+- [ ] Battle page focus & flip bugfixes (2026-09-14)
 - [x] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.
 
 #### Defer Enemy Turn Calculation

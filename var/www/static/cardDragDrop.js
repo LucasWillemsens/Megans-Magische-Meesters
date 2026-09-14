@@ -258,14 +258,18 @@ class CardDragDropSystem {
         }
 
         if (remaining.draws <= 0) {
-            // The deck stack must stay focus-inert (no tabindex on ul/li);
-            // the disabled draw button is the visible indication.
             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
-            if (deck) deck.classList.add('blocked');
+            if (deck) {
+                deck.classList.add('blocked');
+                if (!deck.hasAttribute('inert')) {
+                    deck.setAttribute('inert', '');
+                }
+            }
             const drawBtn = deck?.querySelector('button.draw');
             if (drawBtn) {
                 drawBtn.disabled = true;
                 drawBtn.title = this.tooltips.draw;
+                drawBtn.setAttribute('tabindex', '-1');
             }
         }
     }
@@ -555,6 +559,22 @@ class CardDragDropSystem {
     }
 
     /**
+     * A staged ghost occupies its hand slot, regardless of whether it has
+     * already been flipped face up. Numbering is position-based over the full
+     * hand, so this card must still count.
+     */
+    _isStagedGhost(card) {
+        if (!card || !card.matches('li.cardContainer')) return false;
+        if (!this.playerHandCards().includes(card)) return false;
+        if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+        if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+        if (!card.classList.contains('ghost')) return false;
+        if (card.classList.contains('loading') || card.closest('.loading')) return false;
+        const cardIdInput = this._cardIdInput(card);
+        return Boolean(cardIdInput?.value);
+    }
+
+    /**
      * Hand cards in fan order that can receive a number-key selection:
      * playable cards plus staged ghosts (which keep their hand slot).
      * Numbering is position-based over the full hand, so a ghost in the
@@ -568,7 +588,7 @@ class CardDragDropSystem {
     _isOrderableKeyboardCard(card) {
         if (!card || !card.matches('li.cardContainer')) return false;
         if (this._isPlayableKeyboardCard(card)) return true;
-        return this._isGhostFlipCandidate(card);
+        return this._isStagedGhost(card);
     }
 
     /**
@@ -815,6 +835,14 @@ class CardDragDropSystem {
                 if (this._confirmGhostFlipSelection(event)) event.preventDefault();
                 return;
             }
+            const selection = this.keyboardSelection;
+            if (
+                selection.selectedCard &&
+                selection.selectedCard.dataset.stagedFlipped === 'true'
+            ) {
+                this.clearKeyboardSelection();
+                return;
+            }
             if (!this._keyboardActionAllowed(event)) return;
             if (this.confirmKeyboardSelection()) event.preventDefault();
             return;
@@ -895,6 +923,11 @@ class CardDragDropSystem {
         if (this._isGhostFlipCandidate(card)) {
             if (!this._ghostFlipInteractionAllowed(event)) return;
             this.selectKeyboardCard(card, digitBuffer);
+            return;
+        }
+        if (card.dataset.stagedFlipped === 'true' && card.classList.contains('ghost')) {
+            if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+            this.clearKeyboardSelection();
         }
     }
 
@@ -1170,9 +1203,20 @@ class CardDragDropSystem {
         if (index === -1) return;
         if (this.playableKeyboardCards().includes(card)) {
             if (!this._keyboardActionAllowed(event)) return;
-        } else if (!this._ghostFlipInteractionAllowed(event)) {
+            this.selectKeyboardCard(card, String(index + 1));
             return;
         }
+        if (!card.classList.contains('ghost')) {
+            if (!this._ghostFlipInteractionAllowed(event)) return;
+            this.selectKeyboardCard(card, String(index + 1));
+            return;
+        }
+        if (card.dataset.stagedFlipped === 'true') {
+            if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+            this.clearKeyboardSelection();
+            return;
+        }
+        if (!this._ghostFlipInteractionAllowed(event)) return;
         this.selectKeyboardCard(card, String(index + 1));
     }
 
@@ -1364,6 +1408,8 @@ class CardDragDropSystem {
 
         sourceEl.addEventListener('mouseenter', showArrow);
         sourceEl.addEventListener('mouseleave', hideArrow);
+        sourceEl.addEventListener('focusin', showArrow);
+        sourceEl.addEventListener('focusout', hideArrow);
         targetEl.addEventListener('mouseenter', showArrow);
         targetEl.addEventListener('mouseleave', hideArrow);
     }
