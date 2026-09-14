@@ -1,44 +1,28 @@
 const CARD_HOVER_TARGET_SELECTOR = [
     '.playerScreen .deckHand .hand li.cardContainer',
+    '.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled)',
     '.playerBoard ul.cardRow li.cardContainer',
     '.playerBoard ul.hologramRow .hologram',
+    '.enemyBoard li.cardContainer',
 ].join(', ');
 
-const OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand';
-
-const HOVER_SWITCH_COOLDOWN_MS = 500;
-
-/**
- * Marker class applied to the managed container while the JS hover manager
- * is running. cards.css / cardDragDrop.css gate the own-side :hover rules
- * behind :not(.hover-managed) so the cooldown actually drives the visual
- * hover state (the :hover rules remain the no-JS / touch fallback, and
- * enemy-board hover stays instant).
- */
-const HOVER_MANAGED_CLASS = 'hover-managed';
+const HOVER_REMOVE_COOLDOWN_MS = 500;
+const HOVER_CLASS = 'card-hover';
 
 class CardHoverManager {
-    constructor(container, { switchCooldownMs = HOVER_SWITCH_COOLDOWN_MS, now = () => performance.now() } = {}) {
+    constructor(container) {
         this.container = container;
-        this.switchCooldownMs = switchCooldownMs;
-        this.now = now;
-        // Reduced-motion choice: disable the JS hover manager entirely. The
-        // plain :hover fallback rules stay active and the :focus-within styles
-        // are pure CSS, so keyboard focus visuals are unaffected.
-        this.enabled = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         this.hoveredCard = null;
-        this.lastSwitchAt = Number.NEGATIVE_INFINITY;
-        this.frameHandle = null;
-        this.pendingEvent = null;
         this.onMouseMove = null;
-        this.applyPendingTarget = () => this.consumePendingTarget();
+        this.onMouseLeave = null;
     }
 
     start() {
-        if (!this.enabled || !this.container) return false;
+        if (!this.container) return false;
         this.onMouseMove = (event) => this.handleMouseMove(event);
+        this.onMouseLeave = () => this.handleMouseLeave();
         this.container.addEventListener('mousemove', this.onMouseMove, { passive: true });
-        this.container.classList.add(HOVER_MANAGED_CLASS);
+        this.container.addEventListener('mouseleave', this.onMouseLeave);
         return true;
     }
 
@@ -47,55 +31,52 @@ class CardHoverManager {
             this.container.removeEventListener('mousemove', this.onMouseMove);
             this.onMouseMove = null;
         }
-        this.container.classList.remove(HOVER_MANAGED_CLASS);
-        if (this.frameHandle !== null) {
-            window.cancelAnimationFrame(this.frameHandle);
-            this.frameHandle = null;
+        if (this.onMouseLeave) {
+            this.container.removeEventListener('mouseleave', this.onMouseLeave);
+            this.onMouseLeave = null;
         }
-        this.pendingEvent = null;
-        this.clearHover();
+        this.clearAllHover();
     }
 
     handleMouseMove(event) {
-        this.pendingEvent = event;
-        if (this.frameHandle !== null) return;
-        this.frameHandle = window.requestAnimationFrame(this.applyPendingTarget);
-    }
-
-    consumePendingTarget() {
-        this.frameHandle = null;
-        const event = this.pendingEvent;
-        this.pendingEvent = null;
-        if (!event) return;
-
-        const target = this.resolveHoverTarget(event.target);
-        if (target === this.hoveredCard) return;
-
-        if (!target) {
-            this.clearHover();
+        const OnCoolDown = this.startedAt && (this.startedAt + HOVER_REMOVE_COOLDOWN_MS > Date.now());
+        if (this.hoveredCard && !OnCoolDown) {
+            if (this.hoveredCard !== event.target.closest(CARD_HOVER_TARGET_SELECTOR)) {
+                this.releaseHover();
+            }
+        }
+        let target = event.target;
+        if (!target || typeof target.closest !== 'function') 
+        {
             return;
         }
-        if (this.now() - this.lastSwitchAt < this.switchCooldownMs) return;
-
-        this.swapHover(target);
-        this.lastSwitchAt = this.now();
+        if (!OnCoolDown) this.applyHover(target.closest(CARD_HOVER_TARGET_SELECTOR));
     }
 
-    resolveHoverTarget(target) {
-        if (!target || typeof target.closest !== 'function') return null;
-        const card = target.closest(CARD_HOVER_TARGET_SELECTOR);
-        if (!card || card.closest(OWN_SIDE_EXCLUSION_SELECTOR)) return null;
-        return card;
+    handleMouseLeave() {
+        this.releaseHover();
     }
 
-    swapHover(card) {
-        if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
-        card.classList.add('card-hover');
+    applyHover(card) {
+        if (this.hoveredCard === card) return;
+        card.classList.add(HOVER_CLASS);
         this.hoveredCard = card;
+        this.startedAt = Date.now();
     }
 
-    clearHover() {
-        if (this.hoveredCard) this.hoveredCard.classList.remove('card-hover');
+    releaseHover() {
+        const remainingMs = this.startedAt + HOVER_REMOVE_COOLDOWN_MS - Date.now();
+        if (remainingMs <= 0) {
+            this.clearAllHover();
+            return;
+        }
+        window.setTimeout(() => this.clearAllHover(), remainingMs);
+    }
+
+    clearAllHover() {
+        for (const card of this.container.querySelectorAll(`.${HOVER_CLASS}`)) {
+            card.classList.remove(HOVER_CLASS);
+        }
         this.hoveredCard = null;
     }
 }

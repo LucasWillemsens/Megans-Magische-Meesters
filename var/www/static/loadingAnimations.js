@@ -214,7 +214,7 @@ class loadingAnimationsSystem {
         window.location.href = this._nextUrl || fallbackPath;
     }
 
-    Animate(classSelector = 'loading', delay = 1200) {
+    Animate(classSelector = 'loading', delay = 500) {
         const animationsElements = Array.from(document.getElementsByClassName(classSelector));
         const phase = document.getElementById('turnPhase')?.dataset.phase ?? '';
         const nextUrl = document.getElementById('boardNext')?.dataset.nextUrl ?? '';
@@ -228,6 +228,36 @@ class loadingAnimationsSystem {
         const timeline = timelineElement ? JSON.parse(timelineElement.textContent) : null;
 
         const schedule = (callback, waitMs) => this._scheduler.schedule(callback, waitMs);
+
+        /**
+         * Deck->hand and other player-side flights must be measured and
+         * started AFTER the page's scroll position has settled. Browsers
+         * restore the previous page's scroll offset shortly after
+         * DOMContentLoaded (around the load event) — measuring the flight
+         * before that would leave it playing out of view. `run` executes
+         * once, at whichever comes first: the load event or a short
+         * fallback timer (so a hanging subresource can't stall the
+         * sequence indefinitely). The deck/hand area is scrolled into view
+         * right before the flights are measured.
+         */
+        const startFlights = (run) => {
+            let started = false;
+            const begin = () => {
+                if (started) return;
+                started = true;
+                const deckHand = document.querySelector('.playerScreen .deckHand');
+                if (deckHand) {
+                    deckHand.scrollIntoView({ block: 'end' });
+                }
+                run();
+            };
+            if (document.readyState === 'complete') {
+                begin();
+            } else {
+                window.addEventListener('load', begin, { once: true });
+                schedule(begin, 150);
+            }
+        };
 
         const animateElement = (element) => {
             element.classList.add('animating');
@@ -290,21 +320,32 @@ class loadingAnimationsSystem {
         }
 
         if (phase === 'playerMoves') {
-            playerElements.forEach(animateElement);
             const playerWindow = playerElements.length * perElementWindow;
             // Let every flight finish (plus a reveal margin) before moving on.
             const playerFinished = playerElements.length > 0 ? moveDuration * 1000 + 150 : 0;
-            if (timeline && timeline.length > 0) {
-                // Play timeline after draw animations finish
+            const runPlayerMoves = () => {
+                playerElements.forEach(animateElement);
+                if (timeline && timeline.length > 0) {
+                    // Play timeline after draw animations finish
+                    schedule(() => {
+                        this.playTimeline(timeline, delay, nextUrl, boardPath);
+                    }, Math.max(playerWindow, playerFinished) + 200);
+                } else {
+                    const reloadWindow = Math.max(
+                        Math.min(Math.max(playerWindow, delay / 2), maxWindow),
+                        playerFinished,
+                    );
+                    schedule(reloadToBoard, reloadWindow);
+                }
+            };
+            if (playerElements.length > 0) {
+                startFlights(runPlayerMoves);
+            } else if (timeline && timeline.length > 0) {
                 schedule(() => {
                     this.playTimeline(timeline, delay, nextUrl, boardPath);
-                }, Math.max(playerWindow, playerFinished) + 200);
+                }, 200);
             } else {
-                const reloadWindow = Math.max(
-                    Math.min(Math.max(playerWindow, delay / 2), maxWindow),
-                    playerFinished,
-                );
-                schedule(reloadToBoard, reloadWindow);
+                schedule(reloadToBoard, delay / 2);
             }
             return;
         }
@@ -349,7 +390,6 @@ class loadingAnimationsSystem {
         }
 
         if (animationsElements.length > 0) {
-            playerElements.forEach(animateElement);
             const playerWindow = playerElements.length * perElementWindow;
             // The deck->hand / hand->lane flights run concurrently and each
             // takes moveDuration; the reload must wait for them to finish or
@@ -365,16 +405,23 @@ class loadingAnimationsSystem {
                 playerFinished,
             );
 
-            if (enemyElements.length > 0) {
-                schedule(() => {
-                    turnMarker(reloadWindow - playerWindow - 300, 'Enemy turn', this._scheduler);
-                }, playerWindow);
-                schedule(() => {
-                    enemyElements.forEach(animateElement);
-                }, enemyStart);
+            const runFlights = () => {
+                playerElements.forEach(animateElement);
+                if (enemyElements.length > 0) {
+                    schedule(() => {
+                        turnMarker(reloadWindow - playerWindow - 300, 'Enemy turn', this._scheduler);
+                    }, playerWindow);
+                    schedule(() => {
+                        enemyElements.forEach(animateElement);
+                    }, enemyStart);
+                }
+                schedule(reloadToBoard, reloadWindow);
+            };
+            if (playerElements.length > 0) {
+                startFlights(runFlights);
+            } else {
+                runFlights();
             }
-
-            schedule(reloadToBoard, reloadWindow);
         } else if (nextUrl && nextUrl !== boardPath()) {
             schedule(() => {
                 window.location.href = nextUrl;

@@ -37,15 +37,11 @@
     position: absolute;
 }
 
-/* Ghost style for source cards (hand ghost, flipped lane card) */
 li.cardContainer.ghost {
     opacity: 0.4;
     filter: grayscale(0.3);
 }
 
-/* Selection marker for JS/tests; selected cards also receive DOM focus, so this
-   mirrors li.cardContainer:focus-within (cards.css) rather than restyling. Identical
-   values mean both selectors matching at once cannot paint a second outline. */
 li.cardContainer.keyboard-selected {
     outline: 3px solid;
     outline-offset: 4px;
@@ -144,14 +140,10 @@ ul.hologramRow .hologram:nth-child(15) { left: 21.4em; z-index: 15; }
 
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));
-}
-.playerScreen:not(.hover-managed) ul.hologramRow .hologram:hover {
-    z-index: 100;
-    transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
-    opacity: 1;
+    /* Lets the .card-hover lift animate off as well as on. */
     transition: transform 0.15s ease-out, opacity 0.15s ease-out;
 }
-/* .card-hover mirror driven by hoverCooldown.js; :hover stays for no-JS. */
+/* Class-driven hover state applied by hoverCooldown.js. */
 ul.hologramRow .hologram.card-hover {
     z-index: 100;
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
@@ -209,9 +201,6 @@ div.drop-zone-active {
     opacity: 0.15;
 }
 
-.playerScreen:not(.hover-managed) ul.hand li.cardContainer:not(.blocked):hover > .card.smallCard{
-    animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
-}
 ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
 }

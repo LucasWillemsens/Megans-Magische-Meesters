@@ -382,10 +382,6 @@ class BattleFlowTests(TestCase):
             user_id=self.human_participant.id,
             state__inDeck=True,
         ).count()
-
-        # Draw limit per turn is based on stats (intCount+1), so draw in
-        # multiple rounds.  The important assertion is that no duplicates
-        # ever appear in the hand.
         for _ in range(drawable_cards + 2):
             self.client.post(draw_url, {"action": "draw"})
 
@@ -595,14 +591,12 @@ class BattleFlowTests(TestCase):
         self.assertEqual(self.game.roundNumber, 1)
         self.assertFalse([name for name in response.cookies if name.isdigit()])
 
-        # the board GET carrying the enemy phase runs the bots exactly once
         self.client.get(board_url)
         self.game.refresh_from_db()
         after = bot_state()
         self.assertGreater(after["lane"], before["lane"])
         self.assertEqual(self.game.roundNumber, 2)
 
-        # the phase cookie is single-use: further GETs never re-run the bots
         self.client.get(board_url)
         self.client.get(board_url)
         self.game.refresh_from_db()
@@ -626,17 +620,11 @@ class BattleFlowTests(TestCase):
 
         self.client.post(confirm_url)
         self.client.post(end_turn_url, {"action": "end_turn"})
-
-        # the reload after 'end turn' carries the enemy phase, runs the bots
-        # and renders their moves as loading animations with the source
-        # lane/ordinal the cards came from
+        
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
         self.assertContains(response, 'cardContainer loading')
-
-        # the loading card's data-source-* must describe where the card came
-        # from (the bot drew from the deck: source ordinal 0), not the card's
-        # final position in the lane
+        
         loading_tag = re.search(
             r'<li class="cardContainer loading"[^>]*>', response.content.decode()
         )
@@ -644,7 +632,6 @@ class BattleFlowTests(TestCase):
         self.assertIn('data-source-lane="-', loading_tag.group(0))
         self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
 
-        # the next board load lands clean with no animations
         self.client.cookies = SimpleCookie()
         response = self.client.get(board_url)
         self.assertNotContains(response, "cardContainer loading")
@@ -655,18 +642,12 @@ class BattleFlowTests(TestCase):
 
         self.client.post(confirm_url)
 
-        # the player's draw is recorded server-side as a play, so the action
-        # response itself renders the drawn hand card as a loading animation
-        # (mirroring the bot draw flow, no cookie round-trip)
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, 'cardContainer loading')
         self.assertContains(response, '<div class="card smallCard">')
         self.assertContains(response, "/static/1flubeltje.jpg")
         self.assertContains(response, 'data-source-lane="-')
 
-        # the loading card's data-source-* must describe where the card came
-        # from (the top of the deck: negative source lane, deck ordinal 0),
-        # not the card's final position in the hand
         loading_tag = re.search(
             r'<li class="cardContainer loading"[^>]*>', response.content.decode()
         )
@@ -713,9 +694,6 @@ class BattleFlowTests(TestCase):
             game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
         )
 
-        # the draw play is server-recorded, not cookie-staged: the response
-        # sets no digit-named cookie for the drawn card (cookies are only for
-        # cross-request plays, but the draw animates on this very response)
         self.assertNotIn(str(drawn_card.id), response.cookies)
         self.assertFalse([name for name in response.cookies if name.isdigit()])
 
@@ -893,8 +871,6 @@ class BattleFlowTests(TestCase):
         self.client.post(confirm_url)
         response = self.client.post(end_turn_url, {"action": "end_turn"})
 
-        # the end_turn POST render plays the player's own moves and signals the
-        # enemy phase to the next render via the turn phase cookie
         self.assertContains(response, 'data-phase="playerMoves"')
         self.assertEqual(response.cookies["turn_phase"].value, "enemy")
         self.assertEqual(
@@ -902,26 +878,17 @@ class BattleFlowTests(TestCase):
             f"/game/{self.game.id}/board/{self.human.id}/",
         )
 
-        # the reload renders the enemy phase and hands the player's own turn
-        # marker off to the final reload
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
         self.assertEqual(response.cookies["turn_phase"].value, "player")
-        # the handoff cookie must survive a real browser: a delete-then-set of
-        # the same cookie on one response leaves the delete's Max-Age=0 on the
-        # fresh value, and browsers then drop the cookie instantly (the test
-        # client ignores expiry, which is why this must be asserted explicitly)
         self.assertEqual(response.cookies["turn_phase"]["max-age"], "")
         self.assertEqual(response.cookies["turn_phase"]["expires"], "")
 
-        # the final reload marks the start of the player's turn and clears the
-        # turn phase cookie (clear-after-render, like the play cookies)
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="player"')
         self.assertEqual(response.cookies["turn_phase"].value, "")
         self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
 
-        # the turn sequence is over: the board lands clean afterwards
         self.client.cookies = SimpleCookie()
         response = self.client.get(board_url)
         self.assertNotContains(response, "data-phase=")
@@ -933,7 +900,6 @@ class BattleFlowTests(TestCase):
 
         self.client.post(confirm_url)
 
-        # leave the bot with nothing to draw and nothing to play
         for game_card in GameCard.objects.filter(
             game_id=self.game.id, user_id=self.bot_participant.id
         ):
@@ -945,9 +911,7 @@ class BattleFlowTests(TestCase):
             game_card.state.save()
 
         response = self.client.post(end_turn_url, {"action": "end_turn"})
-
-        # no bot action cookies, but the turn sequence still runs so the enemy
-        # marker always appears at the start of the enemy turn
+        
         self.assertFalse([name for name in response.cookies if name.isdigit()])
         self.assertEqual(response.cookies["turn_phase"].value, "enemy")
 
@@ -962,9 +926,7 @@ class BattleFlowTests(TestCase):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-
-        # Leave exactly one bot card in the deck and give the bot only a
-        # Resolve stat.  Its last draw therefore triggers the Resolve special.
+        
         bot_cards = list(
             GameCard.objects.filter(
                 game_id=self.game.id, user_id=self.bot_participant.id
@@ -1000,8 +962,6 @@ class BattleFlowTests(TestCase):
             ).exists()
         )
 
-        # The browser's next reload must be the player's phase, not another
-        # enemy-phase render that can show the marker again.
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="player"')
         self.assertEqual(response.cookies["turn_phase"].value, "")
@@ -1035,13 +995,8 @@ class BattleFlowTests(TestCase):
         ]
         updated = views._update_moved_hand_cards(hand_cards, plays)
 
-        # a drawn enemy card in the hand is marked loading with its deck
-        # position as the animation source (negative source lane)
         self.assertEqual(updated[0].cssClass, "loading")
         self.assertEqual(updated[0].state.lane, -2)
-        # the source ordinal must land in state.laneOrdinal: that is what the
-        # template renders as data-source-ordinal (a throwaway 'ordinal'
-        # attribute used to leave the final ordinal in the markup)
         self.assertEqual(updated[0].state.laneOrdinal, 0)
 
     def test_update_played_cards_marks_source_state(self):
@@ -1050,9 +1005,6 @@ class BattleFlowTests(TestCase):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-        # let the bot play a card to a lane so there is an untrusted lane
-        # card (the trusted starting card lives in trustedCards, which
-        # _update_played_cards deliberately does not animate)
         self.client.post(end_turn_url, {"action": "end_turn"})
         self.client.get(board_url)
 
@@ -1088,8 +1040,6 @@ class BattleFlowTests(TestCase):
         ]
         self.assertEqual(len(marked), 1)
         self.assertEqual(marked[0].cssClass, "loading")
-        # data-source-* point at the hand the card came from, not at the
-        # card's final position in the lane
         self.assertEqual(marked[0].state.lane, 0)
         self.assertEqual(marked[0].state.laneOrdinal, 2)
         self.assertNotEqual(marked[0].state.laneOrdinal, final_ordinal)
@@ -1108,10 +1058,7 @@ class BattleFlowTests(TestCase):
             user_id=self.bot_participant.id,
             state__lane__gt=0,
         ).count()
-
-        # a manually staged play cookie naming another participant's card must
-        # never be consumed: playcards() only executes the acting
-        # participant's own cookies
+        
         self.client.cookies[str(bot_card.id)] = (
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
         )
@@ -1138,9 +1085,7 @@ class BattleFlowTests(TestCase):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-
-        # both participants start with empty hands (the starting card is
-        # played straight to a lane), so no setup is needed here
+        
         self.assertFalse(
             GameCard.objects.filter(game_id=self.game.id, state__lane=0).exists()
         )
@@ -1148,10 +1093,8 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         content = response.content.decode()
 
-        # the player's own empty hand keeps its empty-hand indicator...
         self.assertEqual(content.count("emptyHand"), 1)
 
-        # ...but an empty enemy hand renders nothing at all
         enemy_hand = re.search(
             r'<ul class="hand enemyHand">(.*?)</ul>', content, re.DOTALL
         )
@@ -1164,9 +1107,7 @@ class BattleFlowTests(TestCase):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
 
         self.client.post(confirm_url)
-
-        # stage one revealed and one face-down untrusted lane card next to the
-        # trusted starting card so both own-board row types have content
+        
         revealed_lane_card = self._initialize_with_hand_card(
             self.human_participant, self.human_cards[1]
         )
@@ -1180,9 +1121,7 @@ class BattleFlowTests(TestCase):
 
         response = self.client.get(board_url)
         content = response.content.decode()
-
-        # the enemy deck/hand is display-only: no forms, buttons or draggable
-        # elements (interactivity is also never bound to it in cardDragDrop.js)
+        
         enemy_deck_hand = re.search(
             r'<div class="enemyDeckHand">(.*?)<ul class="lanes">', content, re.DOTALL
         )
@@ -1192,17 +1131,13 @@ class BattleFlowTests(TestCase):
         self.assertNotIn("<button", block)
         self.assertNotIn("draggable", block)
 
-        # enemy boards stay fully unfocusable: no tabindex anywhere on their side
         enemy_section = re.search(
             r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
             content, re.DOTALL
         )
         self.assertIsNotNone(enemy_section)
         self.assertNotIn('tabindex', enemy_section.group(1))
-
-        # flippable lane cards stay keyboard-reachable while trusted cards are
-        # settled board state: scope the tabindex checks per row type instead
-        # of matching every own-board card container
+        
         own_board = re.search(
             r'<li class="playerBoard.*?(?=<div class="deckHand">)',
             content, re.DOTALL
@@ -1225,21 +1160,16 @@ class BattleFlowTests(TestCase):
         self.assertTrue(flippable_tags)
         for tag in flippable_tags:
             if "faceDown" in tag:
-                # Face-down lane cards are flippable, so they stay focusable.
                 self.assertIn('tabindex="0"', tag)
             else:
-                # Face-up lane cards are settled: never focusable.
                 self.assertNotIn("tabindex", tag)
 
         trusted_tags = row_container_tags("trustedCards")
         self.assertTrue(trusted_tags)
         for tag in trusted_tags:
             self.assertNotIn("tabindex", tag)
-            # the trusted rows stay test-addressable via data-card-id now
-            # that the tabindex attribute is gone
             self.assertIn("data-card-id", tag)
 
-        # the player's own controls are untouched (the deck still draws)
         self.assertContains(response, 'class="card back draw"')
 
     def test_game_ending_end_turn_renders_player_moves_instead_of_redirecting(self):
@@ -1249,21 +1179,14 @@ class BattleFlowTests(TestCase):
 
         self.client.post(confirm_url)
 
-        # force the game to be over before the end_turn POST
         self.human_participant.defeated = True
         self.human_participant.save()
 
         response = self.client.post(end_turn_url, {"action": "end_turn"})
-
-        # the game-ending action renders its own moves instead of
-        # short-circuiting to the result page: the turn-phase chain plays out
+        
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-phase="playerMoves"')
-        # the playerMoves render always targets the board URL: the final bot
-        # moves still have to run and play out in the enemy phase
         self.assertContains(response, f'data-next-url="{board_url}"')
-        # boardAction keeps handing "enemy" to the next render even when
-        # finished: the enemy phase is where the final bot moves play
         self.assertEqual(response.cookies["turn_phase"].value, "enemy")
 
     def test_finished_game_enemy_phase_targets_result_and_ends_phase_chain(self):
@@ -1278,22 +1201,14 @@ class BattleFlowTests(TestCase):
 
         self.client.post(end_turn_url, {"action": "end_turn"})
 
-        # the following board GET carries the enemy phase: the bot turn runs
-        # here and the enemy phase still renders (final bot moves + markers),
-        # but its navigation target is the result page
         response = self.client.get(board_url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-phase="enemy"')
         self.assertContains(response, f'data-next-url="{result_url}"')
 
-        # the phase chain terminates on game end: the turn phase cookie is
-        # deleted (empty value, max-age 0) instead of handing off "player" -
-        # a finished game never shows the "Your turn" marker
         self.assertEqual(response.cookies["turn_phase"].value, "")
         self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
 
-        # and with the phase cookie gone, the next plain board visit skips
-        # straight to the results
         response = self.client.get(board_url)
         self.assertRedirects(response, result_url)
 
@@ -1643,7 +1558,10 @@ class BattleFlowTests(TestCase):
             'button.draw:not(.blocked):not(:disabled)'
         )
         self.assertIn(drawable_draw, cards_css)
-        self.assertIn(drawable_draw + ':hover', cards_css)
+        # The draw button is itself a card element: it reacts to hover only
+        # through the JS-managed .card-hover class, never a native rule.
+        self.assertNotIn(drawable_draw + ':hover', cards_css)
+        self.assertIn(drawable_draw + '.card-hover', cards_css)
         self.assertIn(drawable_draw + ':focus-visible', cards_css)
         self.assertIn('transition: transform 0.15s ease-out', cards_css)
         self.assertIn('transform: rotate(', cards_css)
@@ -1947,6 +1865,7 @@ class BattleFlowTests(TestCase):
         self.assertNotIn("removeAttribute('tabindex')", deck_branch)
 
     def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
+        """Cards react to hover ONLY via the JS-managed .card-hover class."""
         import os
 
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
@@ -1957,14 +1876,113 @@ class BattleFlowTests(TestCase):
         with open(os.path.join(static_dir, 'hoverCooldown.js')) as js_file:
             hover_js = js_file.read()
 
-        # cards.css .card-hover mirrors of the card :hover rules
-        self.assertIn('.playingCards li.cardContainer.card-hover {', cards_css)
+        self.assertNotIn(':hover', cards_css)
+        self.assertNotIn(':hover', drag_css)
+        self.assertNotIn(':hover', hover_js)
+        self.assertNotIn('hover-managed', cards_css)
+        self.assertNotIn('hover-managed', drag_css)
+        self.assertNotIn('hover-managed', hover_js)
+
+        target_selector_block = hover_js[
+            hover_js.index('const CARD_HOVER_TARGET_SELECTOR'):
+            hover_js.index("].join(', ');")
+        ]
+        self.assertIn('.playerScreen .deckHand .hand li.cardContainer', target_selector_block)
+        self.assertIn('.playerBoard ul.cardRow li.cardContainer', target_selector_block)
+        self.assertIn('.playerBoard ul.hologramRow .hologram', target_selector_block)
+        self.assertIn('.enemyBoard li.cardContainer', target_selector_block)
         self.assertIn(
-            'li.cardContainer:not(.blocked).card-hover {\n        z-index: 1000;',
+            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            'button.draw:not(.blocked):not(:disabled)',
+            target_selector_block,
+        )
+        self.assertNotIn('OWN_SIDE_EXCLUSION_SELECTOR', hover_js)
+
+        # Keyboard focus / mouse press lifts are independent of the manager.
+        self.assertIn(
+            '.playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,',
+            cards_css,
+        )
+
+        lift_block = cards_css[
+            cards_css.index('.playingCards li.cardContainer.card-hover,'):
+            cards_css.index('.playingCards li.cardContainer:focus-within:active')
+        ]
+        self.assertIn('.playingCards li.cardContainer.card-hover:focus-within:active', lift_block)
+        self.assertIn('--card-hover-lift: -30px;', lift_block)
+        self.assertIn('margin-top: 0;', lift_block)
+        self.assertNotIn('margin-top: -30px', lift_block)
+        self.assertNotIn(
+            '.playingCards li.cardContainer.card-hover {\n    margin-top: -30px;',
+            cards_css,
+        )
+
+        self.assertIn(
+            'transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));',
             cards_css,
         )
         self.assertIn(
-            '.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover',
+            'transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {\n'
+            '    transition: transform 0.15s ease-out;\n}',
+            cards_css,
+        )
+        self.assertIn(
+            'transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));',
+            cards_css,
+        )
+        self.assertIn(
+            '.playingCards ul.cardRow li.cardContainer:not(.duplicate) {\n'
+            '    transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;\n}',
+            cards_css,
+        )
+
+        card_row_hover_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked).card-hover {'):
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {')
+        ]
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
+            card_row_hover_block,
+        )
+        self.assertIn(
+            'transition: transform 0.15s ease-out, filter 0.15s ease-out;',
+            card_row_hover_block,
+        )
+        card_row_focus_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer:not(.blocked):focus-within {'):
+            cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover')
+        ]
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));',
+            card_row_focus_block,
+        )
+
+        ghost_mirror_block = cards_css[
+            cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover'):
+        ]
+        ghost_mirror_block = ghost_mirror_block[:ghost_mirror_block.index('}')]
+        self.assertIn('z-index: 999;', ghost_mirror_block)
+        self.assertIn('transform: none;', ghost_mirror_block)
+        self.assertIn('filter: none;', ghost_mirror_block)
+        active_mirror_block = cards_css[
+            cards_css.index('li.cardContainer:not(.blocked).card-hover:active'):
+        ]
+        active_mirror_block = active_mirror_block[:active_mirror_block.index('}')]
+        self.assertIn('box-shadow: unset;', active_mirror_block)
+        self.assertIn('filter: none;', active_mirror_block)
+
+        hand_hover_block = cards_css[
+            cards_css.index('.playerScreen .deckHand .hand li.cardContainer:not(.blocked).card-hover{'):
+            cards_css.index('.playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{')
+        ]
+        self.assertIn('opacity: 1 !important;', hand_hover_block)
+        self.assertIn('z-index: 1000;', hand_hover_block)
+        self.assertIn(
+            'li.cardContainer.blocked.card-hover {\n        opacity: 0.55 !important;\n        z-index: 999;',
             cards_css,
         )
         self.assertIn(
@@ -1976,7 +1994,7 @@ class BattleFlowTests(TestCase):
             cards_css,
         )
         self.assertIn(
-            'li.cardContainer.blocked.card-hover {\n        opacity: 0.55 !important;',
+            'li.cardContainer:not(.blocked).card-hover {\n        z-index: 1000;',
             cards_css,
         )
         self.assertIn(
@@ -1984,25 +2002,186 @@ class BattleFlowTests(TestCase):
             cards_css,
         )
 
-        # cardDragDrop.css .card-hover mirrors (hologram lift + hand morph)
-        self.assertIn('ul.hologramRow .hologram.card-hover', drag_css)
+        blocked_mirror_block = cards_css[
+            cards_css.index('.playerScreen li.cardContainer.blocked.card-hover'):
+        ]
+        blocked_mirror_block = blocked_mirror_block[:blocked_mirror_block.index('}')]
+        self.assertIn('z-index: 999;', blocked_mirror_block)
+        self.assertIn('box-shadow: none;', blocked_mirror_block)
+        self.assertIn(
+            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            'button.draw:not(.blocked):not(:disabled).card-hover',
+            cards_css,
+        )
+
+        hologram_rest_block = drag_css[
+            drag_css.index('ul.hologramRow .hologram {'):
+            drag_css.index('ul.hologramRow .hologram.card-hover {')
+        ]
+        self.assertIn(
+            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            hologram_rest_block,
+        )
+        hologram_hover_block = drag_css[
+            drag_css.index('ul.hologramRow .hologram.card-hover {'):
+            drag_css.index('ul.hologramRow .hologram:focus-within {')
+        ]
+        self.assertIn(
+            'transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));',
+            hologram_hover_block,
+        )
+        self.assertIn(
+            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            hologram_hover_block,
+        )
         self.assertIn(
             'ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard',
             drag_css,
         )
 
-        # manager stays passive and cooldown-driven
+
         self.assertIn('class CardHoverManager', hover_js)
-        self.assertIn('HOVER_SWITCH_COOLDOWN_MS = 500', hover_js)
+        self.assertIn('HOVER_REMOVE_COOLDOWN_MS = 500', hover_js)
+        self.assertNotIn('HOVER_REMOVE_DELAY_MS', hover_js)
         self.assertIn("addEventListener('mousemove'", hover_js)
         self.assertIn('{ passive: true }', hover_js)
-        self.assertIn(
-            "OWN_SIDE_EXCLUSION_SELECTOR = '.enemyBoard, .enemyDeckHand'",
-            hover_js,
-        )
-        self.assertIn('prefers-reduced-motion', hover_js)
+        self.assertIn("addEventListener('mouseleave', this.onMouseLeave)", hover_js)
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
+        self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
+
+        self.assertNotIn('hoverFootprint', hover_js)
+        self.assertNotIn('captureFootprint', hover_js)
+        self.assertNotIn('isInsideHoverFootprint', hover_js)
+        self.assertNotIn('footprint', hover_js)
+        self.assertNotIn('footprint', hover_js.lower())
+        self.assertNotIn('getBoundingClientRect', hover_js)
+        self.assertNotIn('pageX', hover_js)
+        self.assertNotIn('pageY', hover_js)
+
+        self.assertNotIn('matchMedia', hover_js)
+        self.assertNotIn('prefers-reduced-motion', cards_css)
+        self.assertNotIn('prefers-reduced-motion', hover_js)
+        self.assertNotIn('transition: none', cards_css)
+        self.assertEqual(drag_css.count('@media (prefers-reduced-motion: reduce)'), 1)
+        drag_motion_block = drag_css[
+            drag_css.index('@media (prefers-reduced-motion: reduce)'):
+            drag_css.index('ul.hologramRow {')
+        ]
+        self.assertIn('.shortcut-hold-loading', drag_motion_block)
+        self.assertNotIn('hologram', drag_motion_block)
+        self.assertNotIn('card-hover', drag_motion_block)
+        self.assertNotIn('morphCard', drag_motion_block)
+
+        self.assertNotIn('HOVER_SWITCH_COOLDOWN_MS', hover_js)
+        self.assertNotIn('schedulePendingSwitch', hover_js)
+        self.assertNotIn('pendingTarget', hover_js)
+        self.assertNotIn('lastSwitchAt', hover_js)
+        self.assertNotIn('schedulePendingRemove', hover_js)
+        self.assertNotIn('cancelPendingRemove', hover_js)
+        self.assertNotIn('this.removeTimer', hover_js)
+        self.assertIn('this.episodes = new Map();', hover_js)
+        consume_block = hover_js[
+            hover_js.index('consumePendingEvent() {'):
+            hover_js.index('resolveHoverTarget(event) {')
+        ]
+
+        self.assertIn('if (target === this.hoveredCard) return;', consume_block)
+        self.assertIn('this.swapHover(target);', consume_block)
+        self.assertIn('this.releaseHover(this.hoveredCard);', consume_block)
+        self.assertNotIn('setTimeout', consume_block)
+
+        self.assertIn('performance.now()', hover_js)
+        self.assertNotIn('startedAt', consume_block)
+        self.assertNotIn('episodes.set', consume_block)
+        resolve_block = hover_js[
+            hover_js.index('resolveHoverTarget(event) {'):
+            hover_js.index('swapHover(card) {')
+        ]
+        self.assertNotIn('startedAt', resolve_block)
+        self.assertNotIn('episodes.set', resolve_block)
+        self.assertIn('this.removeHoverNow(hovered);', resolve_block)
+        self.assertIn("typeof target.closest !== 'function'", resolve_block)
+        self.assertIn('return target.closest(CARD_HOVER_TARGET_SELECTOR);', resolve_block)
+        apply_block = hover_js[
+            hover_js.index('applyHover(card) {'):
+            hover_js.index('releaseHover(card) {')
+        ]
+        self.assertIn('this.cancelScheduledRemove(episode);', apply_block)
+        self.assertIn('startedAt: performance.now()', apply_block)
+        self.assertIn('card.classList.add(HOVER_CLASS);', apply_block)
+        self.assertLess(
+            apply_block.index('this.cancelScheduledRemove(episode);'),
+            apply_block.index('startedAt: performance.now()'),
+        )
+        self.assertLess(
+            apply_block.index('startedAt: performance.now()'),
+            apply_block.index('card.classList.add(HOVER_CLASS);'),
+        )
+
+        release_block = hover_js[
+            hover_js.index('releaseHover(card) {'):
+            hover_js.index('removeHoverNow(card) {')
+        ]
+        self.assertIn('if (!episode || episode.timerId !== null) return;', release_block)
+        self.assertIn(
+            'episode.startedAt + HOVER_REMOVE_COOLDOWN_MS - performance.now()',
+            release_block,
+        )
+        self.assertIn('if (remainingMs <= 0)', release_block)
+        self.assertIn('this.removeHoverNow(card);', release_block)
+        self.assertIn(
+            'window.setTimeout(() => this.removeHoverNow(card), remainingMs);',
+            release_block,
+        )
+
+        leave_block = hover_js[
+            hover_js.index('handleMouseLeave() {'):
+            hover_js.index('consumePendingEvent() {')
+        ]
+        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', leave_block)
+        self.assertIn('this.pendingEvent = null;', leave_block)
+        self.assertIn('this.releaseHover(this.hoveredCard);', leave_block)
+        self.assertNotIn('clearAllHover', leave_block)
+        self.assertNotIn('clearHover', leave_block)
+
+        swap_block = hover_js[
+            hover_js.index('swapHover(card) {'):
+            hover_js.index('applyHover(card) {')
+        ]
+        self.assertIn('this.releaseHover(this.hoveredCard);', swap_block)
+        self.assertIn('this.applyHover(card);', swap_block)
+        self.assertIn('this.hoveredCard = card;', swap_block)
+        self.assertNotIn('classList.remove', swap_block)
+
+        remove_block = hover_js[
+            hover_js.index('removeHoverNow(card) {'):
+            hover_js.index('cancelScheduledRemove(episode) {')
+        ]
+        self.assertIn('this.episodes.delete(card);', remove_block)
+        self.assertIn('card.classList.remove(HOVER_CLASS);', remove_block)
+        self.assertIn('if (this.hoveredCard === card) this.hoveredCard = null;', remove_block)
+        cancel_block = hover_js[
+            hover_js.index('cancelScheduledRemove(episode) {'):
+            hover_js.index('clearAllHover() {')
+        ]
+        self.assertIn('window.clearTimeout(episode.timerId);', cancel_block)
+
+        stop_block = hover_js[
+            hover_js.index('stop() {'):
+            hover_js.index('handleMouseMove(event) {')
+        ]
+        self.assertIn("removeEventListener('mousemove'", stop_block)
+        self.assertIn("removeEventListener('mouseleave'", stop_block)
+        self.assertIn('window.cancelAnimationFrame(this.frameHandle);', stop_block)
+        self.assertIn('this.clearAllHover();', stop_block)
+        teardown_block = hover_js[
+            hover_js.index('clearAllHover() {'):
+            hover_js.index("document.addEventListener('DOMContentLoaded'")
+        ]
+        self.assertIn('this.removeHoverNow(card);', teardown_block)
+        self.assertIn('this.episodes.clear();', teardown_block)
+        self.assertIn('this.hoveredCard = null;', teardown_block)
 
         # the board page loads the new module next to the other scripts
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -2090,9 +2269,6 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         content = response.content.decode()
 
-        # In the player lanes section, every hologramRow must appear
-        # before the first cardRow of its lane.  Check the raw ordering
-        # of hologramRow relative to cardRow within the ownLaneRows loop.
         player_board = re.search(
             r'<li class="playerBoard\s*"[^>]*>.*?</li>\s*</ul>\s*<div class="deckHand">',
             content, re.DOTALL
@@ -2100,9 +2276,6 @@ class BattleFlowTests(TestCase):
         self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")
         pb_html = player_board.group(0)
 
-        # Search for the sequence inside the player board's own lanes:
-        #   lane opening -> hologramRow -> cardRow
-        # for each of the 4 player lanes.
         for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
             pattern = re.escape(f'<li class="lane {lane_name}">')
             holo_before_card = re.search(
@@ -2125,9 +2298,7 @@ class BattleFlowTests(TestCase):
             loading_js = js_file.read()
         with open(os.path.join(static_dir, 'cards.css')) as css_file:
             cards_css = css_file.read()
-
-        # Splitting marks overflow rows, caps rows at 15 cards and never
-        # calls ensureSingleRow after splitting (the old merge-back bug).
+            
         self.assertIn("'overflow-row'", stacking_js)
         self.assertIn('MAX_CARDS_PER_ROW = 15', stacking_js)
         ensure_code = stacking_js[
@@ -2140,16 +2311,13 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('ensureSingleRow', split_code)
         self.assertIn('OVERFLOW_ROW_CLASS', split_code)
 
-        # Card flight helpers only count the main cards row group.
         find_code = loading_js[
             loading_js.index('function findCardRowForOrdinal('):
             loading_js.index('const HAND_FAN_SIZE')
         ]
         self.assertIn('[title="cards"]', find_code)
         self.assertNotIn('[title="trustedCards"]', find_code)
-
-        # CSS keeps left offsets beyond the 15th card and vertical gaps
-        # only between genuine overflow rows.
+        
         self.assertIn('li.cardContainer:nth-child(20)', cards_css)
         self.assertIn('ul.cardRow + ul.cardRow.overflow-row', cards_css)
 
@@ -2181,8 +2349,6 @@ class BattleFlowTests(TestCase):
         self.assertIn('flex-direction: row', lanes_body)
         self.assertIn('align-items: stretch', lanes_body)
 
-        # A height declaration on li.lane would disable stretching and
-        # reintroduce unequal lane heights when a lane overflows.
         lane_rule = re.search(r'ul\.lanes li\.lane\s*\{[^}]*\}', cards_css)
         self.assertIsNotNone(lane_rule, "ul.lanes li.lane rule missing from cards.css")
         self.assertIsNone(
@@ -2211,10 +2377,7 @@ class BattleFlowTests(TestCase):
         self.assertIn('getBoundingClientRect', deck_branch)
         self.assertIn("position = 'fixed'", deck_branch)
         self.assertIn('--move-x', deck_branch)
-
-        # The body-appended clone leaves every .playingCards-scoped rule
-        # behind, so it must carry a dedicated body-safe styling class and
-        # measure the visible top-card face rather than the wrapping li.
+        
         self.assertIn("classList.add('duplicate-deck-flight')", deck_branch)
         self.assertIn("topStackCard?.querySelector('.card')", deck_branch)
         self.assertIn(
@@ -2243,6 +2406,40 @@ class BattleFlowTests(TestCase):
         self.assertIn('moveDuration * 1000 + 150', animate_block)
         self.assertIn('playerFinished,', animate_block)
         self.assertIn('schedule(reloadToBoard, reloadWindow)', animate_block)
+
+    def test_draw_flights_start_after_scroll_settles(self):
+        """Deck->hand flights must be measured after the browser restores the scroll position.
+
+        The browser restores the previous page's scroll offset shortly after
+        DOMContentLoaded. Measuring the flight at DOMContentLoaded time (scroll
+        still at the top) leaves the whole animation out of view below the
+        fold. The flight start must be deferred until the scroll settles (load
+        event with a bounded fallback) and the deck scrolled into view first.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        start_flights = _extract_js_brace_block(loading_js, 'const startFlights = (run) =>')
+        # Wait for the load event (scroll restoration target) with a bounded
+        # fallback so a hanging subresource can't stall the sequence.
+        self.assertIn("document.readyState === 'complete'", start_flights)
+        self.assertIn("addEventListener('load', begin, { once: true })", start_flights)
+        self.assertIn('schedule(begin, 150)', start_flights)
+        # The deck/hand must be on screen before the flight is measured.
+        self.assertIn(".playerScreen .deckHand", start_flights)
+        self.assertIn("scrollIntoView({ block: 'end' })", start_flights)
+
+        # Both player-flight branches defer through startFlights; the
+        # no-player-element paths keep their immediate scheduling.
+        player_moves = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
+        self.assertIn('startFlights(runPlayerMoves)', player_moves)
+        no_phase = _extract_js_brace_block(
+            loading_js, 'if (animationsElements.length > 0)'
+        )
+        self.assertIn('startFlights(runFlights)', no_phase)
 
     def test_animation_skip_and_pause_controls(self):
         """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""
