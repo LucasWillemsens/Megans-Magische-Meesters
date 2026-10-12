@@ -702,7 +702,6 @@
     z-index: 2;
     width: min(12rem, 100%);
     height: var(--hand-row-height, 8em);
-    pointer-events: none;
 }
 
 .playerScreen .deck-stack > ul.deck {
@@ -714,7 +713,6 @@
     margin: 0;
     overflow: visible;
     clear: none;
-    pointer-events: auto;
 }
 
 .playerScreen .deck-stack > ul.deck.active-deck {
@@ -895,11 +893,11 @@ div.playerScreen{
         overflow: visible;
     }
 
-    .playerScreen .deckHand,
-    .playerScreen .deckHand > .hand-scroll {
+    .playerScreen .deckHand{
         box-sizing: border-box;
         min-width: 0;
         max-width: 100%;
+        pointer-events: auto;
     }
 
     ul.enemyBoards li.enemyBoard {
@@ -972,11 +970,11 @@ div.playerScreen{
 }
 
 .playerScreen .enemyDeckHand .deck-stack > ul.deck {
-    pointer-events: none;
     cursor: default;
 }
 
-.playerScreen.enemyTurnFocus > .deckHand {
+.playerScreen.enemyTurnFocus > .deckHand,
+.playerScreen.enemyTurnFocus .playerBoard {
     opacity: 0.3;
     filter: grayscale(0.9);
     pointer-events: none;
@@ -1044,6 +1042,7 @@ button.draw{
     text-shadow: unset;
     unicode-bidi: isolate;
     cursor: pointer;
+    pointer-events: inherit;
 }
 
 .playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {

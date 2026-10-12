@@ -261,9 +261,6 @@ class CardDragDropSystem {
             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
             if (deck) {
                 deck.classList.add('blocked');
-                if (!deck.hasAttribute('inert')) {
-                    deck.setAttribute('inert', '');
-                }
             }
             const drawBtn = deck?.querySelector('button.draw');
             if (drawBtn) {
@@ -932,8 +929,6 @@ class CardDragDropSystem {
     }
 
     flipKeyboardFocusedCard(event) {
-        // Keyboard actions are inert while enemy-turn/timeline animations
-        // play (those keys skip/pause the animation instead).
         if (this._keyboardTransitionActive()) return;
         const card = this._keyboardFlipTarget(event);
         if (!card || event.repeat) return;
@@ -1323,8 +1318,6 @@ class CardDragDropSystem {
             copycard.removeAttribute('aria-selected');
             delete copycard.dataset.keyboardSelected;
             copycard.classList.add('faceUp');
-            // Face-up lane cards are never focusable, so the preview clone
-            // must not inherit the hand card's tabindex.
             copycard.removeAttribute('tabindex');
             copycard.querySelectorAll('.back').forEach(cardFace => cardFace.classList.remove('back'));
             this._removePreviewControls(copycard);

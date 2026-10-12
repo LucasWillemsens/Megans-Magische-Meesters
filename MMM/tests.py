@@ -801,7 +801,6 @@ class BattleFlowTests(TestCase):
                 self.assertEqual(len(indicators), expected_indicator_count)
                 for indicator in indicators:
                     self.assertIn('aria-hidden="true"', indicator)
-                    self.assertIn("inert", indicator)
                     self.assertNotIn("<form", indicator)
                     self.assertNotIn("<button", indicator)
                     self.assertNotIn("data-card-id", indicator)
@@ -1861,7 +1860,6 @@ class BattleFlowTests(TestCase):
             affordances_code.index('if (remaining.draws <= 0)', restore_branch_end):
         ]
         self.assertIn("querySelector('button.draw')", deck_branch)
-        self.assertIn("deck.setAttribute('inert', '')", deck_branch)
         self.assertIn("drawBtn.setAttribute('tabindex', '-1')", deck_branch)
 
     def test_card_hover_manager_contract_covers_css_and_script_wiring(self):
