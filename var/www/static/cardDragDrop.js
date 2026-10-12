@@ -258,14 +258,15 @@ class CardDragDropSystem {
         }
 
         if (remaining.draws <= 0) {
-            // The deck stack must stay focus-inert (no tabindex on ul/li);
-            // the disabled draw button is the visible indication.
             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
-            if (deck) deck.classList.add('blocked');
+            if (deck) {
+                deck.classList.add('blocked');
+            }
             const drawBtn = deck?.querySelector('button.draw');
             if (drawBtn) {
                 drawBtn.disabled = true;
                 drawBtn.title = this.tooltips.draw;
+                drawBtn.setAttribute('tabindex', '-1');
             }
         }
     }
@@ -554,12 +555,18 @@ class CardDragDropSystem {
         return Boolean(cardIdInput?.value);
     }
 
-    /**
-     * Hand cards in fan order that can receive a number-key selection:
-     * playable cards plus staged ghosts (which keep their hand slot).
-     * Numbering is position-based over the full hand, so a ghost in the
-     * middle of the hand no longer shifts the numbers of later cards.
-     */
+    //TODO: rework this file
+    _isStagedGhost(card) {
+        if (!card || !card.matches('li.cardContainer')) return false;
+        if (!this.playerHandCards().includes(card)) return false;
+        if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+        if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+        if (!card.classList.contains('ghost')) return false;
+        if (card.classList.contains('loading') || card.closest('.loading')) return false;
+        const cardIdInput = this._cardIdInput(card);
+        return Boolean(cardIdInput?.value);
+    }
+    
     orderableKeyboardCards() {
         if (!this._hasPlayerBoard() || this._keyboardTransitionActive()) return [];
         return this.playerHandCards().filter(card => this._isOrderableKeyboardCard(card));
@@ -568,14 +575,10 @@ class CardDragDropSystem {
     _isOrderableKeyboardCard(card) {
         if (!card || !card.matches('li.cardContainer')) return false;
         if (this._isPlayableKeyboardCard(card)) return true;
-        return this._isGhostFlipCandidate(card);
+        return this._isStagedGhost(card);
     }
 
-    /**
-     * A staged ghost can be selected (by number, +/- stepping, or click) to
-     * flip the played card face up, mirroring the click-to-flip on the lane
-     * hologram.
-     */
+    
     _isGhostFlipCandidate(card) {
         if (!card || !card.matches('li.cardContainer')) return false;
         if (!this.playerHandCards().includes(card)) return false;
@@ -815,6 +818,14 @@ class CardDragDropSystem {
                 if (this._confirmGhostFlipSelection(event)) event.preventDefault();
                 return;
             }
+            const selection = this.keyboardSelection;
+            if (
+                selection.selectedCard &&
+                selection.selectedCard.dataset.stagedFlipped === 'true'
+            ) {
+                this.clearKeyboardSelection();
+                return;
+            }
             if (!this._keyboardActionAllowed(event)) return;
             if (this.confirmKeyboardSelection()) event.preventDefault();
             return;
@@ -882,10 +893,7 @@ class CardDragDropSystem {
         this.clearKeyboardSelection();
     }
 
-    /**
-     * Route a position-based number selection to the right handler:
-     * playable cards stage a lane preview, staged ghosts arm a face-up flip.
-     */
+    
     selectOrderedCard(card, digitBuffer, event) {
         if (this._isPlayableKeyboardCard(card)) {
             if (!this._keyboardActionAllowed(event)) return;
@@ -895,12 +903,15 @@ class CardDragDropSystem {
         if (this._isGhostFlipCandidate(card)) {
             if (!this._ghostFlipInteractionAllowed(event)) return;
             this.selectKeyboardCard(card, digitBuffer);
+            return;
+        }
+        if (card.dataset.stagedFlipped === 'true' && card.classList.contains('ghost')) {
+            if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+            this.clearKeyboardSelection();
         }
     }
 
     flipKeyboardFocusedCard(event) {
-        // Keyboard actions are inert while enemy-turn/timeline animations
-        // play (those keys skip/pause the animation instead).
         if (this._keyboardTransitionActive()) return;
         const card = this._keyboardFlipTarget(event);
         if (!card || event.repeat) return;
@@ -958,11 +969,6 @@ class CardDragDropSystem {
         return true;
     }
 
-    /**
-     * Flip a staged ghost's played card face up. Rewrites the existing play
-     * cookie with flipFaceUp=true (same payload the lane hologram's
-     * click-to-flip writes) and mirrors the flip on the lane hologram.
-     */
     _confirmGhostFlipSelection(event = null) {
         const selection = this.keyboardSelection;
         const card = selection.selectedCard;
@@ -1170,9 +1176,20 @@ class CardDragDropSystem {
         if (index === -1) return;
         if (this.playableKeyboardCards().includes(card)) {
             if (!this._keyboardActionAllowed(event)) return;
-        } else if (!this._ghostFlipInteractionAllowed(event)) {
+            this.selectKeyboardCard(card, String(index + 1));
             return;
         }
+        if (!card.classList.contains('ghost')) {
+            if (!this._ghostFlipInteractionAllowed(event)) return;
+            this.selectKeyboardCard(card, String(index + 1));
+            return;
+        }
+        if (card.dataset.stagedFlipped === 'true') {
+            if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+            this.clearKeyboardSelection();
+            return;
+        }
+        if (!this._ghostFlipInteractionAllowed(event)) return;
         this.selectKeyboardCard(card, String(index + 1));
     }
 
@@ -1279,8 +1296,6 @@ class CardDragDropSystem {
             copycard.removeAttribute('aria-selected');
             delete copycard.dataset.keyboardSelected;
             copycard.classList.add('faceUp');
-            // Face-up lane cards are never focusable, so the preview clone
-            // must not inherit the hand card's tabindex.
             copycard.removeAttribute('tabindex');
             copycard.querySelectorAll('.back').forEach(cardFace => cardFace.classList.remove('back'));
             this._removePreviewControls(copycard);
@@ -1364,6 +1379,8 @@ class CardDragDropSystem {
 
         sourceEl.addEventListener('mouseenter', showArrow);
         sourceEl.addEventListener('mouseleave', hideArrow);
+        sourceEl.addEventListener('focusin', showArrow);
+        sourceEl.addEventListener('focusout', hideArrow);
         targetEl.addEventListener('mouseenter', showArrow);
         targetEl.addEventListener('mouseleave', hideArrow);
     }
