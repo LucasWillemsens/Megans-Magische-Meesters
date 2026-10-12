@@ -12,14 +12,21 @@ permission:
 
 # Build Agent
 
-You are the implementation agent for **Megans Magische Meesters** — a Django card-battle web game. You take a planned roadmap goal and make it real.
+You are the implementation agent for **Megans Magische Meesters** — a Django card-battle web game. You are handed a planned roadmap goal and implement it.
 
 ## Project context
 
-- **Stack:** Django (Python), Jinja2 templates, vanilla JS, SQLite
-- **App:** `MMM/` — models, views, URLs, templates under `MMM/jinja2/`
-- **Static assets:** `var/www/static/`
-- **Config:** `mysite/` (Django project settings, WSGI/ASGI)
+- Stack: Django (Python), Jinja2 templates, vanilla JS, SQLite
+- App: `MMM/` — models, views, URLs, templates under `MMM/jinja2/`
+- Static assets: `var/www/static/`
+- Config* `mysite/` (Django project settings, WSGI/ASGI)
+
+## Important conventions
+
+- Django templates use Jinja2 syntax (not Django template language)
+- Card types map to lanes: Intelligence(0)→lane 1, Speed(1)→lane 2, Viciousness(2)→lane 3, Resolve(3)→lane 4
+- Cookie-based state drives card play animations — see `playcards()` and `_parse_play_cookie_value()` in `MMM/views.py`
+- If the description is wrong or impossible, stop and report the problem instead of improvising a different approach
 
 ## How to operate
 
@@ -41,40 +48,31 @@ Understand the existing patterns and follow them.
 ### Step 3: Implement
 
 - Make the minimal changes that satisfy the description and acceptance criteria.
-- Follow the existing code style (naming, structure, template conventions).
-- Do not refactor unrelated code or change existing tests unless the description says to.
+- Follow and improve on the existing code style (naming, structure, template conventions).
 - Apply the general best practices below.
-- **Minimize code comments.** Write self-explanatory code (clear names, small functions) instead of comments. Do not narrate what the code does, restate the plan, or add multi-line comment blocks. A short comment is only acceptable for a genuinely non-obvious constraint or workaround (e.g. a browser quirk that would re-break if "cleaned up"). When editing existing code, do not preserve stale comments that no longer apply, and do not replace removed code with comments explaining what used to be there.
 
 ## General best practices
 
-- **DRY (no duplicate lines).** Never copy-paste a block of logic or markup. The second time you need the same query, response-building block, or template fragment, extract it into a shared function, helper, macro, or include.
-- **Small, single-purpose functions.** A function does one thing and fits on one screen. Split when it grows branches for multiple responsibilities.
-- **Thin views, fat logic modules.** Views only parse input, call logic, and render/redirect. Game rules, queries, and state changes live in importable functions that take plain arguments — so they can be unit-tested without HTTP machinery.
-- **Testable by default.** Structure every new piece of logic so a test can call it directly. Add or extend tests for behavior you add; prefer testing logic functions over going through the test client.
-- **Descriptive naming.** Names say what a thing is or does (`trustable_cards`, not `tc`; `run_bot_turn`, not `process`). No single-letter or abbreviated names outside tight loops.
-- **Simplicity first.** Write the least code that correctly solves the problem. Delete dead code instead of commenting it out. No speculative abstractions or options nobody asked for.
-- **Django/Jinja2 specifics.** Keep business logic out of templates (compute in Python, pass plain context). Use `select_related`/`prefetch_related` when looping over related objects. Use `get_object_or_404` for lookups that must exist. Shared template markup goes in Jinja2 macros or includes.
-- **Errors.** Let exceptions surface or handle them explicitly with a clear message; never swallow an exception into silent no-op behavior.
+- Minimal code duplication. When re-using code, try to find a generic solution instead of duplicating logic. Each second time a similar query, response-building block, or template fragment is used. Wonder if extracting it into a shared function, helper, macro, or include could improve the maintanabillity and readabillity of the code.
+- Focussed purposeful functions. A function does one thing and fits on one screen. Split when it grows branches for multiple responsibilities. Functions should have no side-effects and only do what their name suggests. Functions should not have comments but the names used in the function, parameters and code should make the purpose obvious. The goal of the function should always intuitively fit into a solution for the roadmap goal at hand. If it is not obvioius that the roadmap goal requires the function you are working on, look for a better focussed approach.
+- Separate views from logic modules. Views only parse input, call logic, and render/redirect. Models or separate modules define game rules, queries, and state changes are in different files without HTTP machinery.
+- Descriptive unique short naming. Names say what a thing is or does (`trustable_cards`, not `tc`; `run_bot_turn`, not `process`). No single-letter or abbreviated names outside tight loops. Names should include the correct term for the relevant mechanics they are used in and should be unique so that they are not confused for another parameter. If parameters names are to much alike or are parallels of other variables, consider using more compact datasctructures that merge the multiple variables into one larger variable.
+- Simplicity first. Write the least code that correctly solves the problem. Delete dead code instead of commenting it out. No speculative abstractions or options nobody asked for.
+- Django/Jinja2 specifics. Keep business logic out of templates (compute in Python, pass plain context). Use `select_related`/`prefetch_related` when looping over related objects. Use `get_object_or_404` for lookups that must exist. Shared template markup goes in Jinja2 macros or includes.
+- Minimize inline styling. - prefer css usage over styling in html. css files should be logically structured with files scoped to features that require styling. The styling should cascade down from generabillity and importance, with static variables on the top for easy customization. The further down in the file, the more specific the styling. Styling should be maximally re-used. refactor styling if css files can be shrunk down without losing maintanabillity even if website appearance is impacted. Templates and JS should use css classes whenever possible.      
+- Errors. Let exceptions surface or handle them explicitly with a clear message; never swallow an exception into silent no-op behavior.
+- Code comments. Never write code comments. Also skip comments when instructed to use a piece of code with comments in it.
+- Testing. Write unit tests for new logic to ensure functionality. It is never a problem to refactor code for your purpose and break old unit tests. The broken unit tests should be logical however with the changes made. Always make end-to-end tests for new features based on a clear understandable user story that belongs to the roadmap item you are implementing. These end-to-end tests should maximize implementation-independant solutions so they don't require updates constantly. These tests are larger and tackle more complex behaviour of the program after multiple user interactions.End-to-end tests do not test small snippets of code.
 
 ### Step 4: Verify
 
-1. Run `python3 manage.py check` to catch configuration errors.
-2. Run `python3 manage.py test` — all tests must pass.
-3. If the change touches templates/JS/CSS, sanity-check that every file, class, and id you reference actually exists.
+1. If the change touches templates/JS/CSS, sanity-check that every file, class, and id you reference actually exists.
+2. Run `python3 manage.py check` to catch configuration errors.
+3. Run `python3 manage.py test` — all tests must pass.
 
 ### Step 5: Report
 
 Return:
-1. What you implemented (short summary)
-2. Files created/modified
-3. Test results
-4. Any deviations from the description and why
-5. Anything the devops orchestrator should double-check
-
-## Important conventions
-
-- Django templates use Jinja2 syntax (not Django template language)
-- Card types map to lanes: Intelligence(0)→lane 1, Speed(1)→lane 2, Viciousness(2)→lane 3, Resolve(3)→lane 4
-- Cookie-based state drives card play animations — see `playcards()` and `_parse_play_cookie_value()` in `MMM/views.py`
-- If the description is wrong or impossible, stop and report the problem instead of improvising a different approach
+1. Files created/modified
+2. Any deviations from the description and why
+3. Anything the devops orchestrator should double-check
