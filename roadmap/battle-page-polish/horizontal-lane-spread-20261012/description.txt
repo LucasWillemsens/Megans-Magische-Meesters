@@ -1,0 +1,8 @@
+Lanes need more horizontal space. The field should always take up around 90% 
+
+- Widen `.playingCards .boardContainer` / `.lanes` to ~90vw, with a sensible max for huge screens.
+- Re-tune the MAX_CARDS_PER_ROW constant in laneStacking.js — it was tuned for a narrower field; with 90% width, more cards should fit per row before overflow kicks in.
+
+Don't worry about Mobile / narrow viewports
+
+Both player fields should remain symmetric in width

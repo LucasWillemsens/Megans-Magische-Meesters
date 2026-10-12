@@ -1,0 +1,47 @@
+moving up with arrow keys while focussed on handcards should move focus to field cards, moving down again should get back to where you were in hand. moving down should go to the end turn button, moving down again should go to the draw button. moving up from the draw button should go to the end turn button and moving up from the end turn button should move to the hand, where the player last focussed on a card in hand. This should be implemented by saving the last inputted select card option.
+
+The focus on a card and select card mechanisms should refactored into one clean keyboard selection control mechanism. When cards in hand that are played (both face up or face down) are focussed, they should show the hover arrow to where they are being played. The reverse should also happen when a card in the lane is focussed when it is being flipped: The arrow should point from the original faceDown card to the flipped card. When a ghost of a played card (in hand or not) is selected, the arrow should point to where it is played.
+
+the first <p> element in the player and enemy deck hand should have the styling:
+    position: absolute;
+    background: white;
+    z-index: 3;
+
+It should be invisble normally but its view should be toggled when the player types the ` char. Additionally, the <p> element with the lane indicators should also have this css class and it's view toggled when this happens and invisble by default.
+
+User decisions:
+- Unit tests pinned to the old scattered focus/select predicates will be rewritten as part of the refactor.
+- _addHoverArrow already works as-is; the new selection control just hooks into it on focusin/focusout.
+- The backtick debug overlay is a player-facing UI feature, not a dev-only tool.
+
+---
+
+Arrow-key navigation:
+- Up from hand → upmost left focusable field card
+- Down from field → hand, at the last-focused hand card position.
+- Up from field → end turn button.
+- Down from hand → end turn button.
+- Down from end turn → draw button.
+- Up from end turn → hand, at the last-focused hand card.
+- Down from draw → hand, at the last-focused hand card.
+- Up from draw → end turn.
+- Last-focused hand card is remembered across turns and across page reloads (persist via #turnLimits data block or similar server-rendered state).
+
+Refactor:
+- One clean keyboard selection control replaces the scattered focus/select helpers.
+- All existing tests that pin the old predicate shape are rewritten.
+- _addHoverArrow binding extends naturally: focusin on a hand card that's been played (face up or face down) shows the arrow to its lane target. Focusin on a ghost of a played card shows the arrow to where it's played. Focusin on a face-down lane card that's been flipped shows the arrow to the flip hologram. 
+
+Debug overlay (player-facing):
+- The backtick key (`) toggles visibility of three elements:
+  - The first `<p>` in the player deckHand.
+  - The first `<p>` in the enemy deckHand.
+  - The lane indicator `<p>` (the value / name `<p>` inside each lane).
+- When visible, all three get the shared CSS class with `position: absolute; background: white; z-index: 3;` — a floating white panel-style overlay.
+- Invisible by default.
+- This is an inspectable debug-style UI, accessible to players via the backtick key.
+
+The "last focused hand card" is persisted across page reloads as a new integer value in the battleparticipant model. It is loaded into the cardselection input as if the player manually typed the associated number. The input defaults to 1. Moving up from the endturn or down from draw loads the value and focusses / selects the associated hand card.
+
+The refactor touches cardDragDrop.js's keyboard machinery that needs a full rewrite.
+The debug overlay has been tested already.

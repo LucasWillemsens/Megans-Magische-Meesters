@@ -1,0 +1,12 @@
+BUG: End-turn focused when turn starts but not in view.
+
+
+Likely failure modes:
+The just-shipped fix in loadingAnimations.js (player-phase branch: `requestAnimationFrame(() => endTurnBtn.focus({ preventScroll: false }))`) is not working in practice. The smooth-scroll on `.playerScreen .deckHand` races with the focus call.
+- rAF fires before the smooth scroll completes (smooth scroll can take ~300ms in Chrome).
+- `preventScroll: false` lets the browser re-scroll, but the smooth scrollIntoView on the parent overwrites that and parks the button off-screen.
+- On first paint (no prior animation), both autofocus and the rAF focus fire, and the page hasn't scrolled yet — the focus lands correctly but a subsequent scroll moves the button out.
+
+implement:
+- Drop the deckHand-level smooth scrollIntoView when the focus target is the end-turn button — let `end-turn.focus({ preventScroll: true })` drive the scroll. remove `scroll-margin` because there is no need for button breathing room from the viewport edge.
+- On first paint, trust the browser's autofocus; only override after a player-phase animation. The bug is only the post-animation case.

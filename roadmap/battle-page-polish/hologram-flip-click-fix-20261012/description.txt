@@ -1,0 +1,5 @@
+BUG: The user can click the hologram of a card that was flipped, which seems to use up another flip action, while the card is already being played and thus no further action is possible.
+
+The hologram click handler doesn't check whether the card is already `stagedFlipped` — it just stages another flip cookie.
+
+In the hologram click handler, gate on `stagedFlipped !== 'true'`: stop if the card is already flipped

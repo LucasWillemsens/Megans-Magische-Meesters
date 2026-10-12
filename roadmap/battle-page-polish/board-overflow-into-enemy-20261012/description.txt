@@ -1,0 +1,7 @@
+BUG: playerboard can never overflow into enemyBoard.
+
+Let the player board push the enemy board up when it gets tall, which should work in combination with the wider field. Fewer cards should then overflow vertically.
+
+no max on the player board
+
+- The deckHand (hand + draw + end-turn) should not change when the player lanes get taller
