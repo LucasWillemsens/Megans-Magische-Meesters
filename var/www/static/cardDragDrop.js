@@ -555,11 +555,7 @@ class CardDragDropSystem {
         return Boolean(cardIdInput?.value);
     }
 
-    /**
-     * A staged ghost occupies its hand slot, regardless of whether it has
-     * already been flipped face up. Numbering is position-based over the full
-     * hand, so this card must still count.
-     */
+    //TODO: rework this file
     _isStagedGhost(card) {
         if (!card || !card.matches('li.cardContainer')) return false;
         if (!this.playerHandCards().includes(card)) return false;
@@ -570,13 +566,7 @@ class CardDragDropSystem {
         const cardIdInput = this._cardIdInput(card);
         return Boolean(cardIdInput?.value);
     }
-
-    /**
-     * Hand cards in fan order that can receive a number-key selection:
-     * playable cards plus staged ghosts (which keep their hand slot).
-     * Numbering is position-based over the full hand, so a ghost in the
-     * middle of the hand no longer shifts the numbers of later cards.
-     */
+    
     orderableKeyboardCards() {
         if (!this._hasPlayerBoard() || this._keyboardTransitionActive()) return [];
         return this.playerHandCards().filter(card => this._isOrderableKeyboardCard(card));
@@ -588,11 +578,7 @@ class CardDragDropSystem {
         return this._isStagedGhost(card);
     }
 
-    /**
-     * A staged ghost can be selected (by number, +/- stepping, or click) to
-     * flip the played card face up, mirroring the click-to-flip on the lane
-     * hologram.
-     */
+    
     _isGhostFlipCandidate(card) {
         if (!card || !card.matches('li.cardContainer')) return false;
         if (!this.playerHandCards().includes(card)) return false;
@@ -907,10 +893,7 @@ class CardDragDropSystem {
         this.clearKeyboardSelection();
     }
 
-    /**
-     * Route a position-based number selection to the right handler:
-     * playable cards stage a lane preview, staged ghosts arm a face-up flip.
-     */
+    
     selectOrderedCard(card, digitBuffer, event) {
         if (this._isPlayableKeyboardCard(card)) {
             if (!this._keyboardActionAllowed(event)) return;
@@ -986,11 +969,6 @@ class CardDragDropSystem {
         return true;
     }
 
-    /**
-     * Flip a staged ghost's played card face up. Rewrites the existing play
-     * cookie with flipFaceUp=true (same payload the lane hologram's
-     * click-to-flip writes) and mirrors the flip on the lane hologram.
-     */
     _confirmGhostFlipSelection(event = null) {
         const selection = this.keyboardSelection;
         const card = selection.selectedCard;

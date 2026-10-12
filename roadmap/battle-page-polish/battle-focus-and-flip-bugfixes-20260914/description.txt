@@ -694,10 +694,6 @@ The `ul.cardRow` currently has no vertical positioning other than what's inherit
 Add to `cards.css` after the existing `.playingCards ul.cardRow + ul.cardRow.overflow-row` rule (line 1215):
 
 ```css
-/* Bottom-to-top lane stacking: rows are inserted in document order as
-   [overflow-row-1, overflow-row-2, ..., source-row]. We anchor them so
-   the source row sits at the visual top and overflow rows stack below,
-   each offset by one row height + the gap. */
 ul.lanes li.lane > ul.cardRow,
 ul.lanes li.lane > ul.hologramRow {
     position: relative;

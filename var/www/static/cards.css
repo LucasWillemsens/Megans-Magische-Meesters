@@ -1225,11 +1225,6 @@ ul.cardRow{
     margin-top: 0.5rem;
 }
 
-/* Bottom-to-top lane stacking: overflow rows are inserted in document order
-   as [overflow-row-1, overflow-row-2, ..., source-row]. We anchor the source
-   row visually on top and the overflow rows stack below it, each offset by
-   one row height + the gap. The lane <p> indicator stays absolutely
-   positioned so it does not shift when rows are added. */
 ul.lanes li.lane > ul.cardRow,
 ul.lanes li.lane > ul.hologramRow {
     position: relative;
@@ -1247,7 +1242,6 @@ ul.lanes li.lane > ul.hologramRow.overflow-row {
     margin:0;
     border: 3px solid black;
 }
-
 
 .cardInfo{
     display: flex;
