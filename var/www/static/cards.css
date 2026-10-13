@@ -678,16 +678,37 @@
 .playingCards ul.deck li:nth-child(32) { left: 62px; bottom: 31px; }
 
 .playingCards ul.deck-indicator {
+    width: 100%;
+    height: 100%;
     list-style-type: none;
     padding: 0;
     margin: 0;
     position: absolute;
 }
 
-.playingCards ul.deck-indicator li {
+.playingCards ul.deck-indicator .deck-indicator-face {
+    width: 79%;
+}
+
+.playingCards ul.deck-indicator.blocked .deck-indicator-face {
+    filter: grayscale(0.85);
+}
+
+.playingCards .deck-stack ul.deck-indicator li {
     padding: 0;
     list-style-type: none;
     position: absolute;
+    left: var(--deck-indicator-offset, 0);
+    bottom: 0;
+    z-index: 1;
+    pointer-events: none;
+    user-select: none;
+    cursor: default;
+    width: 88%;
+    height: 100%;
+    margin-left: -73%;
+    margin-top: -9px;
+    border-radius: 0.3em;
 }
 
 .playerScreen .deckHand,
@@ -706,9 +727,7 @@
 
 .playerScreen .deck-stack > ul.deck {
     position: absolute;
-    left: calc(2rem + var(--deck-indicator-count, 0) * 0.55rem);
     bottom: 0;
-    width: calc(10rem - var(--deck-indicator-count, 0) * 0.55rem);
     height: var(--hand-row-height, 8em);
     margin: 0;
     overflow: visible;
@@ -717,34 +736,6 @@
 
 .playerScreen .deck-stack > ul.deck.active-deck {
     z-index: 10;
-}
-
-.playerScreen .deck-stack > ul.deck-indicator {
-    left: var(--deck-indicator-offset, 0);
-    bottom: 0;
-    z-index: 1;
-    pointer-events: none;
-    user-select: none;
-    cursor: default;
-}
-
-.playerScreen .deck-stack > ul.deck-indicator li {
-    left: 0;
-    bottom: 0;
-    width: 1.7rem;
-    height: 1.15rem;
-}
-
-.deck-indicator-face {
-    display: block;
-    width: 100%;
-    height: 100%;
-    box-sizing: border-box;
-    border: 1px solid #666;
-    border-radius: .25em;
-    background: repeating-linear-gradient(135deg, #1f326b 0, #1f326b 3px, #4c7190 3px, #4c7190 6px);
-    box-shadow: .08em .08em .16em rgba(0, 0, 0, .45);
-    opacity: .92;
 }
 
 div.playerScreen{
@@ -995,13 +986,8 @@ div.playerScreen{
     }
 
     .playerScreen .deckHand .deck-stack > ul.deck {
-        left: calc(.75rem + var(--deck-indicator-count, 0) * .45rem);
-        width: calc(5.75rem - var(--deck-indicator-count, 0) * .45rem);
-    }
-
-    .playerScreen .deck-stack > ul.deck-indicator li {
-        width: 1.3rem;
-        height: .95rem;
+        /* left: calc(.75rem + var(--deck-indicator-count, 0) * .45rem);
+        width: calc(5.75rem - var(--deck-indicator-count, 0) * .45rem); */
     }
 
     .playerScreen .enemyDeckHand > .hand {

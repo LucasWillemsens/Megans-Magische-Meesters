@@ -46,13 +46,15 @@
             <h2>{{ enemy.participant.player.name }} </h2>
             <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
             <div class="enemyDeckHand">
-                <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
+                <div class="deck-stack enemy-deck-stack" {% if enemy.deckIndicators %}
+                    style="--deck-indicator-count: {{ enemy.deckIndicators|length }};" {% endif %}>
+                    <ul class="deck-indicator {% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" aria-hidden="true" inert>
                     {% for indicator in enemy.deckIndicators %}
-                    <ul class="deck-indicator" aria-hidden="true" inert
-                        style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
-                        <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
-                    </ul>
+                        <li aria-hidden="true" style="--deck-indicator-offset: -{{ (loop.length - loop.index) * 5 }}rem;">
+                            <img class="deck-indicator-face" draggable="false" src="/static/extradeck.jpg" alt="extra pile of cards from deck">
+                        </li>
                     {% endfor %}
+                    </ul>
                     <ul class="deck enemyDeck active-deck">
                         {% if enemy.deckStack %}
                             {% for card in enemy.deckStack %}
@@ -279,13 +281,15 @@
             Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
             <span id="turnCounters" hidden>( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn )</span>
             </p>
-        <div class="deck-stack own-deck-stack"{% if ownDeckIndicators %} style="--deck-indicator-count: {{ ownDeckIndicators|length }};"{% endif %}>
+        <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
+            style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
+            <ul class="deck-indicator {% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" aria-hidden="true" inert>
             {% for indicator in ownDeckIndicators %}
-            <ul class="deck-indicator" aria-hidden="true" inert
-                style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
-                <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
-            </ul>
+                <li aria-hidden="true" style="--deck-indicator-offset: -{{ (loop.length - loop.index) * 5 }}rem;">
+                    <img class="deck-indicator-face" draggable="false" src="/static/extradeck.jpg" alt="extra pile of cards from deck">
+                </li>
             {% endfor %}
+            </ul>
             <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
             {% if ownDeckCount > 0 %}
                 {% for _ in ownDeckStack %}

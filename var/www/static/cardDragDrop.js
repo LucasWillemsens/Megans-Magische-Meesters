@@ -229,8 +229,6 @@ class CardDragDropSystem {
 
         if (remaining.plays <= 0) {
             this.clearKeyboardSelection();
-            // Staged ghosts stay interactive: they represent cards that were
-            // already played and can still be selected to flip face up.
             this.playerHandCards().filter(card =>
                 !card.classList.contains('blocked') && !card.classList.contains('ghost')
             ).forEach(card => {
@@ -259,8 +257,15 @@ class CardDragDropSystem {
 
         if (remaining.draws <= 0) {
             const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+            let Extradecks = document.querySelector('.playerScreen .deckHand .deck-indicator');
+            
             if (deck) {
                 deck.classList.add('blocked');
+            }
+            if (Extradecks) {
+                Array.from(Extradecks).forEach((extraDeck) => {
+                    extraDeck.classList.add('blocked');
+                });
             }
             const drawBtn = deck?.querySelector('button.draw');
             if (drawBtn) {
