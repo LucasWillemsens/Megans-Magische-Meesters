@@ -1,354 +1,41 @@
-Wire the arrow keys (Up, Down, Left, Right) to move focus
-between the four regions on the board: hand cards, field
-cards, end-turn button, draw button. The new
-`KeyboardSelectionControl` (from
-`keyboard-selection-control-refactor-20261012/`) exposes a
-`navigate(direction, fromElement)` API; this subdirectory
-implements the API and integrates the persisted
-last-focused hand card value (from
-`last-focused-hand-card-persistence-20261012/`) so the
-hand region recalls the player's previous focus position.
+Wire the arrow keys (Up, Down, Left, Right) to move focus between the four regions on the board: hand cards, field cards, end-turn button, draw button. The new `KeyboardSelectionControl` exposes a `navigate(direction, fromElement)` API; this goal implements the API and integrates the persisted last-focused hand card value.
 
-The user-provided route table (verbatim from the source
-description):
+## Route table (verbatim)
 
-- Up from hand → upmost left focusable field card
-- Down from field → hand, at the last-focused hand card
-  position.
-- Up from field → end turn button.
-- Down from hand → end turn button.
-- Down from end turn → draw button.
-- Up from end turn → hand, at the last-focused hand card.
-- Down from draw → hand, at the last-focused hand card.
-- Up from draw → end turn.
+- Up from hand → upmost-left focusable field card.
+- Down from field → hand, at the last-focused hand card slot.
+- Up from field → end-turn button.
+- Down from hand → end-turn button.
+- Down from end-turn → draw button.
+- Up from end-turn → hand, at the last-focused hand card slot.
+- Down from draw → hand, at the last-focused hand card slot.
+- Up from draw → end-turn button.
+- ArrowLeft/Right inside the field with a selected card: continue cycling lanes via the existing `moveKeyboardSelection`.
 
-Background:
+## Code locations
 
-The new `KeyboardSelectionControl` (added in the
-refactor subdirectory) owns the keyboard selection state.
-This subdirectory adds a `navigate(direction,
-fromElement)` method on the control and a small helper
-class (`RegionNavigator`) that knows the four regions
-(hand, field, end-turn, draw) and can resolve a focus
-target for a given (direction, current region) pair.
+- `var/www/static/cardDragDrop.js` — add `RegionNavigator`, add `navigate(direction, fromElement)` to `KeyboardSelectionControl`, wire arrow keys in `onKeyboardKeyDown`.
 
-The "last-focused hand card position" comes from the
-`data-focused-hand-card` attribute on `#turnLimits` (added
-in `last-focused-hand-card-persistence-20261012/`). On
-initial render the JS reads this attribute and stores it as
-the default focus target for the hand region. The
-`selectKeyboardCard` method (already updated in the
-refactor subdirectory) updates a hidden input on the
-end-turn form so the next action POST persists the
-updated value; this subdirectory wires the read side.
+## Implementation notes
 
-Implementation:
+- `RegionNavigator` resolves the current region from `document.activeElement` and returns the focusable targets for each of the four regions (hand, field, end-turn, draw).
+- "Upmost-left" field card sorts by `getBoundingClientRect().top` ascending, tiebreak by `left` ascending. The sort continues to work after `board-overflow-into-enemy-20261012` lands because overflow rows are positioned absolutely within their lane.
+- The last-focused hand card slot is read from `data-focused-hand-card` on `#turnLimits` (set up by `last-focused-hand-card-persistence-20261012`).
+- When the navigate method lands on a hand card, also update the persisted last-focused hand card via `selectKeyboardCard`, which writes to the hidden input on the end-turn form.
 
-1. `var/www/static/cardDragDrop.js` — add a small
-   `RegionNavigator` class near the
-   `KeyboardSelectionControl` definition:
+## Acceptance criteria
 
-       const REGIONS = {
-           HAND: 'hand',
-           FIELD: 'field',
-           END_TURN: 'end-turn',
-           DRAW: 'draw',
-       };
+- The eight region/direction routes above focus the correct element.
+- The last-focused hand card slot is loaded from `data-focused-hand-card` on render.
+- Updating the focused hand card (via select or navigate) writes the new value to the `focusedHandCardInput` hidden input.
+- POSTing end-turn with the hidden input persists the new value on the participant.
+- The existing ArrowLeft/Right lane-cycle path (`moveKeyboardSelection`) is preserved when a card is selected.
 
-       class RegionNavigator {
-           constructor(cardDragDrop) {
-               this.cardDragDrop = cardDragDrop;
-           }
+## Notes
 
-           resolveRegion(element) {
-               if (!element || typeof element.closest !== 'function') return null;
-               if (element.closest('.playerScreen .deckHand .end-turn')) return REGIONS.END_TURN;
-               if (element.closest('.playerScreen .deckHand .active-deck button.draw')) return REGIONS.DRAW;
-               if (element.closest('.playerScreen .deckHand .hand-scroll .hand-fan')) return REGIONS.HAND;
-               if (element.closest('.playerBoard .lane, .hologram')) return REGIONS.FIELD;
-               return null;
-           }
+- "Upmost-left" sorts by `getBoundingClientRect().top` then `.left` ascending. Continues to work after `board-overflow-into-enemy-20261012` lands because overflow rows are absolutely positioned within their lane and have smaller `.top` than the first row.
+- HologramRow cards are treated as part of the FIELD region — no special routing.
 
-           focusableTargets(region) {
-               switch (region) {
-                   case REGIONS.HAND:
-                       return Array.from(this.cardDragDrop.playerHandCards())
-                           .filter((card) =>
-                               card.hasAttribute('tabindex') &&
-                               !card.classList.contains('blocked'));
-                   case REGIONS.FIELD: {
-                       const cards = Array.from(
-                           this.cardDragDrop.playerBoard?.querySelectorAll(
-                               '.playerBoard .lane ul.cardRow[title="cards"] li.cardContainer[tabindex="0"], ' +
-                               '.hologram.keyboard-staged .cardContainer[tabindex="0"]'
-                           ) || []
-                       );
-                       return cards;
-                   }
-                   case REGIONS.END_TURN:
-                       return [document.querySelector('.playerScreen .end-turn')].filter(Boolean);
-                   case REGIONS.DRAW:
-                       return [document.querySelector('.playerScreen .deckHand .active-deck button.draw:not(:disabled)')].filter(Boolean);
-                   default:
-                       return [];
-               }
-           }
-
-           upmostLeft(fieldCards) {
-               // "Upmost left" = the focusable field card with the
-                   // smallest offsetTop; tiebreak by smallest offsetLeft.
-                   return fieldCards.slice().sort((a, b) => {
-                       const ay = a.getBoundingClientRect().top;
-                       const by = b.getBoundingClientRect().top;
-                       if (ay !== by) return ay - by;
-                       return a.getBoundingClientRect().left - b.getBoundingClientRect().left;
-                   })[0] || null;
-           }
-
-           handTargetAtSlot(slot) {
-               const cards = this.focusableTargets(REGIONS.HAND);
-               if (cards.length === 0) return null;
-               const index = Math.max(0, Math.min(slot - 1, cards.length - 1));
-               return cards[index];
-           }
-
-           lastFocusedHandSlot() {
-               const limits = document.getElementById('turnLimits');
-               const raw = limits?.dataset?.focusedHandCard;
-               const parsed = Number.parseInt(raw, 10);
-               return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-           }
-       }
-
-2. `var/www/static/cardDragDrop.js` — add a `navigate`
-   method on the new `KeyboardSelectionControl`:
-
-       navigate(direction, fromElement) {
-           const navigator = this.regionNavigator;
-           const region = navigator.resolveRegion(fromElement);
-           if (!region) return false;
-
-           const route = {
-               [REGIONS.HAND]: {
-                   Up: () => navigator.upmostLeft(navigator.focusableTargets(REGIONS.FIELD)),
-                   Down: () => navigator.focusableTargets(REGIONS.END_TURN)[0] || null,
-               },
-               [REGIONS.FIELD]: {
-                   Up: () => navigator.focusableTargets(REGIONS.END_TURN)[0] || null,
-                   Down: () => navigator.handTargetAtSlot(navigator.lastFocusedHandSlot()),
-               },
-               [REGIONS.END_TURN]: {
-                   Up: () => navigator.handTargetAtSlot(navigator.lastFocusedHandSlot()),
-                   Down: () => navigator.focusableTargets(REGIONS.DRAW)[0] || null,
-               },
-               [REGIONS.DRAW]: {
-                   Up: () => navigator.focusableTargets(REGIONS.END_TURN)[0] || null,
-                   Down: () => navigator.handTargetAtSlot(navigator.lastFocusedHandSlot()),
-               },
-           };
-
-           const target = route[region]?.[direction]?.();
-           if (target && typeof target.focus === 'function') {
-               target.focus({ preventScroll: true });
-               if (region === REGIONS.HAND) {
-                   // also select via the keyboard selection control
-                   // so the hidden input on the end-turn form tracks
-                   // the new focus position.
-                   this.selectKeyboardCard(target, this._ordinalForCard(target));
-               }
-               return true;
-           }
-           return false;
-       }
-
-   Add a private `_ordinalForCard(card)` helper on the
-   control that returns the 1-based ordinal of `card` in
-   the current hand (or `null` if not in hand). This is
-   the value written to the `focusedHandCardInput` hidden
-   input on the end-turn form.
-
-3. `var/www/static/cardDragDrop.js` — instantiate
-   `RegionNavigator` in `CardDragDropSystem.init()` and
-   pass it to the new `KeyboardSelectionControl`:
-
-       this.regionNavigator = new RegionNavigator(this);
-       this.keyboardSelectionControl = new KeyboardSelectionControl({
-           ...,
-           regionNavigator: this.regionNavigator,
-       });
-
-4. `var/www/static/cardDragDrop.js` — wire the arrow keys
-   in `onKeyboardKeyDown`. The existing handler already
-   routes ArrowLeft / ArrowRight / ArrowUp / ArrowDown
-   for `moveKeyboardSelection` (line 834-846), which cycles
-   the selected card through the four lanes. Add a new
-   branch above that one for "no current selection" or
-   "selection is in a different region":
-
-       if (key === 'ArrowUp' || key === 'ArrowDown'
-           || key === 'ArrowLeft' || key === 'ArrowRight') {
-           // ArrowLeft/Right inside the field still cycle lanes.
-           if ((key === 'ArrowLeft' || key === 'ArrowRight')
-               && this.keyboardSelectionControl.selectedCard) {
-               // existing per-lane cycle path
-               ...
-               return;
-           }
-           // Otherwise navigate between regions.
-           if (this.keyboardSelectionControl.navigate(
-                   key,
-                   document.activeElement
-               )) {
-               event.preventDefault();
-               return;
-           }
-       }
-
-   The exact branch order is sensitive: the existing
-   ArrowLeft/Right cycle path must run first when there
-   is a selected card so the existing
-   `moveKeyboardSelection` behavior is preserved. The
-   navigate path runs only when there is no current
-   selection (or the selection is in the hand and the
-   user pressed Up/Down to leave the hand).
-
-5. `var/www/static/cardDragDrop.js` — when the new
-   `navigate` method lands on a hand card, also update
-   the persisted last-focused hand card value. The
-   `selectKeyboardCard` method (called inside
-   `navigate` for hand targets) already writes to the
-   `focusedHandCardInput` hidden input via the
-   `last-focused-hand-card-persistence-20261012/`
-   subdirectory's wiring. Verify the wiring is in
-   place and that the digitBuffer is the 1-based
-   ordinal of the focused hand card.
-
-6. `var/www/static/cardDragDrop.js` — also expose a small
-   helper `focusHandCardAtSlot(slot)` on
-   `CardDragDropSystem` for use by the
-   `backtick-debug-overlay-20261012/` subdirectory (which
-   may want to focus the hand for accessibility
-   purposes). The helper delegates to
-   `keyboardSelectionControl.navigate('Down', endTurnElement)`
-   which routes through the END_TURN region's Down
-   arrow to the hand at the last-focused slot.
-
-Files to modify:
-- `var/www/static/cardDragDrop.js` — add `RegionNavigator`,
-  add `navigate(direction, fromElement)` to
-  `KeyboardSelectionControl`, wire arrow keys in
-  `onKeyboardKeyDown`. Approximately +120 lines.
-
-Tests to add / update in `MMM/tests.py`:
-
-1. New test `test_arrow_key_navigation_table_matches_design`:
-   - static-analysis test that reads the JS source;
-   - assert the route table is present (look for the
-     `REGIONS.HAND`, `REGIONS.FIELD`, `REGIONS.END_TURN`,
-     `REGIONS.DRAW` strings and the
-     `navigate(direction, fromElement)` method on the
-     new control);
-   - assert the `lastFocusedHandSlot` method reads
-     `turnLimits.dataset.focusedHandCard`.
-
-2. New test `test_up_from_hand_focuses_upmost_left_field_card`:
-   - render the board with at least one face-down card in
-     each lane;
-   - simulate a focus on the first hand card and press
-     ArrowUp (Playwright);
-   - assert the focused element is the upmost-left
-     focusable field card.
-
-3. New test `test_down_from_end_turn_focuses_draw`:
-   - focus the end-turn button, press ArrowDown;
-   - assert the focused element is the draw button.
-
-4. New test `test_recall_last_focused_hand_card_from_field`:
-   - set `data-focused-hand-card="4"` on `#turnLimits`
-     (simulate the persisted value);
-   - focus a field card, press ArrowDown;
-   - assert the focused element is the 4th hand card.
-
-5. New test `test_persisted_focused_hand_card_round_trips_via_post`:
-   - set `data-focused-hand-card="1"` on the rendered
-     board, focus the 3rd hand card, POST to
-     `boardAction` with `action=end_turn`;
-   - the JS sends `focused_hand_card=3` (or whatever the
-     digitBuffer is at the moment of submit);
-   - re-render the board;
-   - assert `data-focused-hand-card="3"` is now in the
-     response.
-
-6. Update the existing
-   `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks`
-   (rewritten in the refactor subdirectory) to also
-   assert the navigate method exists and the route table
-   is wired.
-
-Acceptance criteria:
-- [ ] Arrow Up from any hand card focuses the upmost-left
-      focusable field card.
-- [ ] Arrow Down from a hand card focuses the end-turn
-      button.
-- [ ] Arrow Up from a field card focuses the end-turn
-      button.
-- [ ] Arrow Down from a field card focuses the hand card
-      at the last-focused slot.
-- [ ] Arrow Down from the end-turn button focuses the
-      draw button.
-- [ ] Arrow Up from the end-turn button focuses the hand
-      card at the last-focused slot.
-- [ ] Arrow Up from the draw button focuses the end-turn
-      button.
-- [ ] Arrow Down from the draw button focuses the hand
-      card at the last-focused slot.
-- [ ] The last-focused hand card slot is loaded from
-      `data-focused-hand-card` on render.
-- [ ] Updating the focused hand card (via select or
-      navigate) writes the new value to the
-      `focusedHandCardInput` hidden input.
-- [ ] POSTing end-turn with the hidden input saves the
-      new value on the participant.
-- [ ] The existing ArrowLeft/Right lane-cycle path
-      (`moveKeyboardSelection`) is preserved.
-- [ ] `python3 manage.py test` is green.
-
-Dependencies:
-- `last-focused-hand-card-persistence-20261012/` —
-  depends on the model field, migration, and template
-  wiring.
-- `keyboard-selection-control-refactor-20261012/` —
-  depends on the new `KeyboardSelectionControl` class
-  and the `navigate(direction, fromElement)` API point.
-- Independent of
-  `focus-arrow-bindings-20261012` and
-  `backtick-debug-overlay-20261012`.
-
-Notes / risks:
-- The "upmost left" rule for Up-from-hand sorts by
-  `getBoundingClientRect().top` ascending then
-  `getBoundingClientRect().left` ascending. This works
-  for the current layout where all four lanes are
-  side-by-side and a single "topmost" lane exists.
-  After `board-overflow-into-enemy-20261012/` lands,
-  the upmost-left field card may be in an overflow
-  row above the first row; the sorting still works
-  because the overflow rows are positioned absolutely
-  within the lane and their bounding rects are above
-  the first row.
-- The `focusableTargets(REGIONS.FIELD)` selector
-  targets both lane cards and keyboard-staged
-  holograms. A keyboard-staged hologram is a face-down
-  clone placed in the holoRow when the player confirms
-  a play; it has `tabindex="0"` if flips remain. Up
-  from hand focuses the upmost-left of these.
-- The navigate method returns true when focus moves
-  and false otherwise (e.g. ArrowDown from a hand card
-  with no end-turn button visible, which should not
-  happen in normal play but is defensive). The caller
-  calls `event.preventDefault()` only on true.
-- The hidden input is updated synchronously inside
-  `selectKeyboardCard`; the persistence round-trip is
-  on the next action POST (end-turn or draw). This
-  matches the "remembered across turns" intent in
-  the source description.
+- Depends on `last-focused-hand-card-persistence-20261012/` (the data attribute + hidden input).
+- Depends on `keyboard-selection-control-refactor-20261012/` (the new control class and `navigate` API point).
+- Independent of `focus-arrow-bindings-20261012` and `backtick-debug-overlay-20261012`.

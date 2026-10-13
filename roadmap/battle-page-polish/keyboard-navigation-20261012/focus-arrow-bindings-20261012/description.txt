@@ -1,343 +1,39 @@
-Wire `_addHoverArrow` to fire on `focusin` for: (a) a hand
-card that has been played (face up or face down) — arrow
-from hand card to its play hologram in the lane; (b) a
-ghost of a played card that is currently selected — arrow
-from the ghost to the play hologram; (c) a face-down lane
-card that has been flipped — arrow from the face-down card
-to its flip hologram.
+Wire `_addHoverArrow` to fire on `focusin` for: (a) a played hand card, (b) a selected ghost of a played card, (c) a face-down lane card that has been flipped. The new `KeyboardSelectionControl` emits `focusin`/`focusout` events on the right elements; this goal fills in the `_addHoverArrow` calls at those hook points.
 
-`_addHoverArrow` already works as-is (the source
-description confirms this). The new `KeyboardSelectionControl`
-(from `keyboard-selection-control-refactor-20261012/`)
-emits `focusin`/`focusout` events on the right elements;
-this subdirectory fills in the `_addHoverArrow` calls at
-those hook points.
+## Behavior
 
-Background:
+- Focusing a played hand card (with a staged play hologram in the lane) shows the curved arrow from the hand card to the hologram.
+- Focusing a hand ghost shows the curved arrow from the ghost to the staged play hologram.
+- Focusing a flipped face-down lane card shows the curved arrow from the lane card to the flip hologram in the holoRow.
+- Blurring the focused element removes the hover arrow.
+- The existing mouseenter/mouseleave behavior of `_addHoverArrow` is unchanged.
+- Confirming a play does not double-create the arrow; the focus-driven and stage-driven arrows are visually one.
 
-`_addHoverArrow(sourceEl, targetEl)` (line 1350 in the
-current `cardDragDrop.js`) takes two elements and creates
-a curved SVG arrow from `sourceEl` to `targetEl`, with
-mouseenter/mouseleave and focusin/focusout listeners on
-both. It is already used in two places:
+## Code locations
 
-- `_stagePlay` (line 1280) — for play holograms (hand
-  card → play hologram in the lane).
-- `onFaceDownCardClick` (line 1496) — for flip holograms
-  (face-down lane card → face-up flip hologram in the
-  holoRow).
+- `var/www/static/cardDragDrop.js` — `KeyboardSelectionControl.onFocusIn` / `onFocusOut` stubs (filled in here); focusin/focusout delegation on `playerScreen` (capture phase); `clearKeyboardSelection` cleanup.
 
-The refactor in
-`keyboard-selection-control-refactor-20261012/` adds
-`onFocusIn(card)` and `onFocusOut(card)` stub methods on
-the new `KeyboardSelectionControl`. This subdirectory
-fills in those stubs.
+## Implementation notes
 
-User decision captured in the source description:
+- `_addHoverArrow` already binds focusin/focusout on its source/target; the new control routes through it on the right hook points.
+- `_focusArrowTarget(card)` resolves the target from the card's role: played hand card → keyboard-staged hologram in the lane; hand ghost → staged play hologram (lookup via `hologram.dataset.stagedForCardId === card.dataset.cardId`); flipped face-down lane card → flip hologram in the holoRow.
+- Delegation: register `focusin`/`focusout` listeners on `playerScreen` in capture phase (focus events do not bubble) and dispatch to the control's `onFocusIn` / `onFocusOut`.
 
-- `_addHoverArrow` already works as-is; the new
-  selection control just hooks into it on
-  focusin/focusout.
+## Acceptance criteria
 
-Implementation:
+- The three focus-driven arrow cases (played hand card, ghost, flipped face-down card) render the arrow to the correct target.
+- Blur removes the arrow.
+- Mouseenter/mouseleave behavior unchanged.
+- No double arrow when the focus-driven and stage-driven arrows overlap visually.
 
-1. `var/www/static/cardDragDrop.js` — fill in the
-   `onFocusIn` and `onFocusOut` stubs on
-   `KeyboardSelectionControl`.
+## Notes
 
-   In the refactor subdirectory, the stubs are:
+- The focus-driven path uses a small `_createFocusArrow(sourceEl, targetEl)` helper that wraps `_createCurvedArrow` without re-binding focus listeners — avoids double-binds.
+- The control's `onFocusOut` is a no-op; the existing `_addHoverArrow` focusout listener already debounces removal by 100ms.
+- Focus delegation selector covers hand `.cardContainer`, lane `.cardContainer`, and hologram `.cardContainer`. Trusted-cards row is not in the focus delegation.
 
-       onFocusIn(card) { /* show arrow from card → state.hologram */ }
-       onFocusOut(card) { /* hide arrow */ }
+## Dependencies
 
-   Replace with:
-
-       onFocusIn(card) {
-           if (!card) return;
-           const target = this._focusArrowTarget(card);
-           if (target && this._focusArrowSource(card, target)) {
-               this._showFocusArrow(card, target);
-           }
-       }
-
-       onFocusOut(card) {
-           if (!card) return;
-           this._hideFocusArrow(card);
-       }
-
-   `_focusArrowTarget(card)` returns the target element
-   for the arrow based on the card's role:
-
-   - If `card` is a hand card with `stagedLane` set (i.e.
-     the player has played it via the keyboard selection
-     control), look up the keyboard-staged hologram in
-     `ul.lanes li.lane.${laneName} .hologram.keyboard-staged`
-     and return it.
-   - If `card` is a hand card that is a ghost (the
-     hand-card slot is ghosted because the player played
-     the card by drag), the source is the ghost and the
-     target is the staged play hologram in the lane. Look
-     up via `hologram.dataset.stagedForCardId === card.dataset.cardId`.
-   - If `card` is a face-down lane card with
-     `dataset.stagedFlipped === 'true'` (i.e. the player
-     has flipped it), the source is the face-down lane
-     card and the target is the flip hologram in the
-     holoRow. Look up via
-     `lane.querySelector('.hologram')` (the flip
-     hologram is the only `.hologram` in the holoRow
-     when the flip cookie is set).
-   - Otherwise return null (no arrow).
-
-   The `_focusArrowSource` is the card itself (passed
-   in). The implementation may need to return a
-   different source for the ghost case: the ghost is
-   the hand card with `class="ghost"`, which is what
-   `card` already is. So the source and the focused
-   element are the same.
-
-   `_showFocusArrow(source, target)` and
-   `_hideFocusArrow(source)` are thin wrappers around
-   the existing `_addHoverArrow` flow. The simplest
-   implementation reuses the existing SVG arrow
-   creation:
-
-       _showFocusArrow(source, target) {
-           this._focusArrow = this._addHoverArrow(source, target);
-       }
-       _hideFocusArrow(source) {
-           if (this._focusArrow) {
-               this._focusArrow.remove?.();
-               this._focusArrow = null;
-           }
-       }
-
-   The `_addHoverArrow` function already binds
-   `focusin`/`focusout` on both elements, so calling
-   it from `onFocusIn` may produce a double-bind
-   (once from the original stage-time binding, once
-   from the focus-driven binding). To avoid double
-   arrows, the focus-driven path uses a different
-   helper that does NOT add its own focus listeners
-   and just creates the SVG:
-
-       _createFocusArrow(sourceEl, targetEl) {
-           // Mirror of `_createCurvedArrow` but without
-           // the focusin/focusout binding (the binding
-           // is now driven by the control's
-           // onFocusIn/onFocusOut).
-           const svg = this._createCurvedArrow(sourceEl, targetEl);
-           return svg;
-       }
-
-   Alternatively, accept the double-bind: the
-   `_addHoverArrow` `focusin` listener is idempotent
-   (it checks `arrow.parentNode` and creates only if
-   needed) and the `focusout` listener uses a 100ms
-   timeout to debounce. Double-binding is harmless.
-
-2. `var/www/static/cardDragDrop.js` — the new control
-   needs a back-reference to `CardDragDropSystem` for
-   `_createCurvedArrow`. Pass it through the
-   constructor:
-
-       class KeyboardSelectionControl {
-           constructor({
-               ...,
-               createCurvedArrow,  // (source, target) => svg
-               showFocusArrow,     // (source, target) => void
-               hideFocusArrow,     // (source) => void
-           } = {}) {
-               ...,
-               this.createCurvedArrow = createCurvedArrow;
-               this.showFocusArrow = showFocusArrow;
-               this.hideFocusArrow = hideFocusArrow;
-           }
-       }
-
-   In `CardDragDropSystem.init()`, wire:
-
-       this.keyboardSelectionControl = new KeyboardSelectionControl({
-           ...,
-           showFocusArrow: (source, target) =>
-               this._addHoverArrow(source, target),
-           hideFocusArrow: (source) => {
-               // `_addHoverArrow` already manages the SVG's
-               // lifecycle via focusin/focusout. The
-               // control's onFocusOut is best-effort;
-               // it just makes sure no stale arrow
-               // remains.
-           },
-       });
-
-   The control's onFocusOut can be a no-op (the
-   `_addHoverArrow` `focusout` listener already
-   removes the SVG). The control's onFocusIn
-   triggers `_addHoverArrow` on the source-target
-   pair.
-
-3. `var/www/static/cardDragDrop.js` — bind the
-   `focusin`/`focusout` events on the right elements
-   so the control's `onFocusIn` / `onFocusOut` actually
-   fire. The current `cardDragDrop.js` has many places
-   that focus cards (e.g.
-   `selectKeyboardCard` calls
-   `card.focus({ preventScroll: true })` at line 956,
-   1030, 1188, etc.). Each of these is a natural
-   trigger for the new `onFocusIn`. The simplest wiring
-   is delegation: in `CardDragDropSystem.init()`, add
-   `focusin` and `focusout` listeners on the
-   `playerScreen`:
-
-       this.playerScreen.addEventListener('focusin', (event) => {
-           const card = event.target.closest(
-               '.playerScreen .deckHand .hand-fan li.cardContainer, ' +
-               '.playerBoard .lane li.cardContainer, ' +
-               '.hologram li.cardContainer'
-           );
-           if (card) this.keyboardSelectionControl.onFocusIn(card);
-       }, true);
-       this.playerScreen.addEventListener('focusout', (event) => {
-           const card = event.target.closest(
-               '.playerScreen .deckHand .hand-fan li.cardContainer, ' +
-               '.playerBoard .lane li.cardContainer, ' +
-               '.hologram li.cardContainer'
-           );
-           if (card) this.keyboardSelectionControl.onFocusOut(card);
-       }, true);
-
-   The `true` (capture phase) is important: focus
-   events do not bubble, so the listener must be in
-   the capture phase to catch them on the right
-   element.
-
-4. `var/www/static/cardDragDrop.js` — clean up the
-   arrow on selection clear. The existing
-   `clearKeyboardSelection` removes the keyboard
-   preview hologram; it should also tear down the
-   focus arrow. Add a call to `hideFocusArrow(source)`
-   for the previously-selected card before clearing
-   the state.
-
-5. `var/www/static/cardDragDrop.js` — when the player
-   confirms a play (calls `confirmKeyboardSelection`),
-   the focus arrow between the hand card and the
-   keyboard-staged hologram should remain visible
-   after confirmation (the hand card stays in the hand
-   as a ghost, and the staged hologram is the target).
-   The existing `_stagePlay` call at line 1280 already
-   calls `_addHoverArrow(card, hologram)` for the
-   play flow. The focus-driven path is additive: the
-   focus arrow is created on focusin and removed on
-   focusout, but the staging arrow is created on
-   stage and removed on the next action. Both arrows
-   can coexist; visually they overlap and look like
-   one arrow.
-
-Files to modify:
-- `var/www/static/cardDragDrop.js` — fill in the
-  `onFocusIn` / `onFocusOut` stubs on
-  `KeyboardSelectionControl`; add the
-  `_focusArrowTarget` / `_focusArrowSource` helpers;
-  add the focusin/focusout delegation on
-  `playerScreen`. Approximately +80 lines.
-
-Tests to add / update in `MMM/tests.py`:
-
-1. New test `test_focus_in_triggers_hover_arrow_for_played_hand_card`:
-   - render the board with a hand card that is already
-     staged (has `stagedLane` set via a previous action);
-   - focus the hand card;
-   - assert a `svg.hologram-arrow` element exists in
-     the DOM and points to the keyboard-staged
-     hologram in the lane.
-
-2. New test `test_focus_in_triggers_hover_arrow_for_ghost`:
-   - render the board with a ghost hand card (class
-     `ghost`, no `stagedLane` set explicitly, but
-     `stagedForCardId` set on a hologram in the lane);
-   - focus the ghost;
-   - assert a hover arrow points to the staged
-     hologram.
-
-3. New test `test_focus_in_triggers_hover_arrow_for_flipped_lane_card`:
-   - render the board with a face-down lane card that
-     has `dataset.stagedFlipped = 'true'` and a
-     corresponding flip hologram in the holoRow;
-   - focus the face-down lane card;
-   - assert a hover arrow points from the face-down
-     card to the flip hologram.
-
-4. New test `test_focus_out_removes_hover_arrow`:
-   - render the board with a played hand card;
-   - focus it (assert arrow present), blur it
-     (assert arrow removed).
-
-5. Update the existing
-   `test_lane_face_down_card_hover_arrow_binds_to_focus`
-   (line 2606) to also assert that the new
-   `onFocusIn` hook on the control triggers
-   `_addHoverArrow` for flipped face-down cards. The
-   existing test already inspects the JS for
-   `_addHoverArrow(card, flipHologram)` and the
-   `'focusin'` listener; the new test pins the new
-   control's hook.
-
-6. Update the existing
-   `test_add_hover_arrow_binds_focus_and_mouse_events`
-   (around line 2592) to assert the new control's
-   `onFocusIn` / `onFocusOut` delegate to
-   `_addHoverArrow`.
-
-Acceptance criteria:
-- [ ] Focusing a played hand card (with a staged play
-      hologram in the lane) shows the hover arrow from
-      the hand card to the hologram.
-- [ ] Focusing a hand ghost shows the hover arrow from
-      the ghost to the staged play hologram.
-- [ ] Focusing a face-down lane card that has been
-      flipped shows the hover arrow from the face-down
-      card to the flip hologram in the holoRow.
-- [ ] Blurring the focused element removes the hover
-      arrow.
-- [ ] The mouseenter/mouseleave behavior of
-      `_addHoverArrow` is unchanged (it still works
-      on mouse hover).
-- [ ] Confirming a play does not double-create the
-      arrow; the focus-driven and stage-driven arrows
-      are visually one.
-- [ ] `python3 manage.py test` is green.
-
-Dependencies:
-- `keyboard-selection-control-refactor-20261012/` —
-  depends on the new `KeyboardSelectionControl` class
-  and its `onFocusIn` / `onFocusOut` stub methods.
-- `hologram-flip-click-fix-20261012` (sibling) — the
-  flipped-face-down-card focus case depends on the
-  `dataset.stagedFlipped = 'true'` guard added in the
-  sibling fix; otherwise the focus arrow could fire on
-  a card the user has already flipped (and the
-  existing `stagedFlipped` guard would suppress
-  the flip but not the arrow).
-- Independent of
-  `last-focused-hand-card-persistence-20261012`,
-  `arrow-key-routing-20261012`, and
-  `backtick-debug-overlay-20261012`.
-
-Notes / risks:
-- The delegation `focusin`/`focusout` listeners on
-  `playerScreen` use the capture phase because focus
-  events do not bubble. This is the standard pattern
-  for delegated focus handling.
-- The `focusout` event fires *before* the focus moves
-  to the next element, so the arrow may briefly
-  disappear and reappear when the player tabs between
-  cards. The existing `_addHoverArrow` `focusout`
-  listener has a 100ms debounce that masks this. The
-  control's `onFocusOut` should also debounce, or it
-  can be a no-op (the existing `_addHoverArrow`
-  listener handles removal).
-- The new control's `onFocusIn` is called for every
-  focusin inside the playerScreen, including on
-  non-card elements (e.g. the end-turn button). The
-  `_focusArrowTarget` helper returns null for
-  non-card elements, so the call is a no-op for those.
+- Depends on `keyboard-selection-control-refactor-20261012/` (the `onFocusIn` / `onFocusOut` stub methods).
+- Soft dependency on sibling `hologram-flip-click-fix-20261012`: the flipped-face-down focus case relies on the new `dataset.stagedFlipped = 'true'` guard.
+- Independent of `last-focused-hand-card-persistence-20261012`, `arrow-key-routing-20261012`, `backtick-debug-overlay-20261012`.

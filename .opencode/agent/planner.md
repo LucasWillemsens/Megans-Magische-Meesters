@@ -75,6 +75,8 @@ Use the available filesystem tools to:
 2. Write or update the relevant `description.txt` files, preserving existing user-authored requirements and useful discussion.
 3. Ensure parent descriptions list their subgoals and any ordering constraints.
 
+**Do not duplicate general requirements** that the build agent will already apply as part of standard verification (e.g. "tests pass", "`python3 manage.py test` is green", "no regressions", "no migrations break"). These are implied by the project's verification flow and only pollute the description. Reserve the acceptance criteria for goal-specific, measurable outcomes.
+
 ## Example workflow
 
 Given input: "Plan the enemy-turn-indicators goal"
