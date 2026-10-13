@@ -1,6 +1,8 @@
 ---
 description: Think through a roadmap goal together with the user. Reads the roadmap and done directories for context, discusses the goal conversationally, and writes short, clever ideas into the goal's description.txt. Use when you want to brainstorm a goal before it gets planned and built.
 mode: primary
+model: opencode-go/minimax-m3
+temperature: 0.6
 permission:
   edit: allow
   read: allow

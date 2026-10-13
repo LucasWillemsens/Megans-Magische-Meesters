@@ -1,6 +1,8 @@
 ---
 description: Turns an agreed roadmap goal into an actionable implementation specification by checking project context, existing code, and tests, then updating the relevant description.txt files. Use when a roadmap item needs planning, clarification, or decomposition before implementation.
 mode: subagent
+model: opencode-go/minimax-m3
+temperature: 0.1
 permission:
   edit: allow
   bash: allow
