@@ -1,6 +1,6 @@
 class LaneCardStacking {
     static OVERFLOW_ROW_CLASS = 'overflow-row';
-    static MAX_CARDS_PER_ROW = 15;
+    static MAX_CARDS_PER_ROW = 25;
 
     constructor() {
         this.debounceTimer = null;

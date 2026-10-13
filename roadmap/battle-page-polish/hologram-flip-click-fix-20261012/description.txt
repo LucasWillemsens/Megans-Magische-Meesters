@@ -1,29 +1,74 @@
 Clicking the face-up clone inside a flip-hologram re-fires the no-op else-branch of `onFaceDownCardClick`, stages another flip cookie, and consumes one of the player's remaining flip actions even though the card is already flipped.
 
-## Behavior
+## Objective
+Stop the second click on a flip-hologram's face-up clone from incrementing `staged.flips` or writing a duplicate `flipFaceUp=true` cookie, without changing any other flip behavior. Extend one end-to-end JS-contract test in `MMM/tests.py` to cover it.
 
-- First click on a face-down lane card flips it and increments `staged.flips` exactly once.
-- Subsequent clicks on the resulting face-up flip-hologram do not increment `staged.flips` again and do not stage a duplicate `flipFaceUp=true` cookie.
-- The play-hologram flip flow (click a play hologram to flip a played card face-up) still works exactly once; further clicks on the now-face-up play hologram are no-ops.
-- The face-down click handler still respects the existing `flips <= 0` budget guard.
+## Implementation
 
-## Code locations
+File: `var/www/static/cardDragDrop.js`
 
-- `var/www/static/cardDragDrop.js` — `onFaceDownCardClick`, the if-branch that creates the flipHologram and the one-shot click listener on its face-up clone.
+Edit 1 — flag the source lane card before cloning (minimum fix). In `onFaceDownCardClick`, inside the `if (!card.closest('.hologram'))` if-branch, insert one line right after `card.classList.add('ghost');` (currently line 1460):
 
-## Implementation notes
+Before:
+```
+            // Lane card stays face-down — ghostly to indicate it was flipped
+            card.classList.add('ghost');
 
-- The bug: `card.dataset.stagedFlipped` is only set on the hand ghost (else-branch) and on the play-hologram face-up clone, never on the source lane card. The existing line 1448 guard `if (card.dataset.stagedFlipped === 'true') return;` therefore misses the second click on a flipHologram's face-up clone.
-- Minimum fix: set `card.dataset.stagedFlipped = 'true'` on the source lane card right after `card.classList.add('ghost');` in the if-branch. The existing line 1448 guard then catches the second click.
-- Belt-and-braces: optionally tighten the one-shot click handler with an explicit check on `sourceCard.dataset.stagedFlipped` to bail out before the listener body runs. Either fix alone resolves the bug; landing both is fine.
+            // Create face-up hologram clone
+```
+
+After:
+```
+            // Lane card stays face-down — ghostly to indicate it was flipped
+            card.classList.add('ghost');
+            card.dataset.stagedFlipped = 'true';
+
+            // Create face-up hologram clone
+```
+
+`card.cloneNode(true)` on line 1464 copies `dataset`, so the face-up clone inside `flipHologram` inherits `stagedFlipped='true'`. The existing guard on line 1448 (`if (card.dataset.stagedFlipped === 'true') return;`) then catches the second click before it can enter the else-branch, before `staged.flips++` on line 1510, and before the duplicate `createupdateCookie` call.
+
+Edit 2 — belt-and-braces tighten the one-shot click handler (optional). Replace the listener currently on lines 1491-1493:
+
+Before:
+```
+            // One-shot click-to-flip on the hologram (same pattern as play hologram)
+            const holoCard = flipHologram.querySelector('.cardContainer');
+            if (holoCard) {
+                holoCard.addEventListener('click', (ev) => this.onFaceDownCardClick(ev, laneValue), { once: true });
+            }
+```
+
+After:
+```
+            // One-shot click-to-flip on the hologram (same pattern as play hologram)
+            const holoCard = flipHologram.querySelector('.cardContainer');
+            if (holoCard) {
+                holoCard.addEventListener('click', (ev) => {
+                    if (card.dataset.stagedFlipped === 'true') return;
+                    this.onFaceDownCardClick(ev, laneValue);
+                }, { once: true });
+            }
+```
+
+`card` (the source lane card) is still in closure scope from the enclosing `onFaceDownCardClick` call. Edit 1 alone resolves the bug; Edit 2 is defense in depth and may be omitted.
 
 ## Acceptance criteria
 
-- First flip increments `staged.flips` once.
-- Second click on the flipHologram's face-up clone does not increment `staged.flips` and writes no new `flipFaceUp` cookie.
-- The play-hologram flip path is unchanged.
-- Keyboard-triggered flip (`flipKeyboardFocusedCard`) is also regression-tested for the same behavior.
+- [ ] `onFaceDownCardClick` flag set: the `if (!card.closest('.hologram'))` if-branch contains `card.dataset.stagedFlipped = 'true';` directly after `card.classList.add('ghost');`.
+- [ ] First click on a face-down lane card increments `staged.flips` exactly once and writes exactly one `flipFaceUp=true` cookie.
+- [ ] Second click on the resulting face-up clone inside the flipHologram does not increment `staged.flips` and writes no new `flipFaceUp` cookie.
+- [ ] Play-hologram flip path (else-branch, line 1504) is unchanged: first click on a face-down play hologram flips it once and sets `card.dataset.stagedFlipped = 'true'`; subsequent clicks are no-ops via the line 1448 guard.
+- [ ] `flipKeyboardFocusedCard` (lines 914-928) regresses identically because it forwards to `onFaceDownCardClick(event, laneValue)`; a second Enter/Space on an already-flipped card via keyboard is a no-op.
+- [ ] Existing budget guard `remainingAllowances().flips <= 0` on line 1444 still short-circuits before any of the above.
+- [ ] Hand ghost mirror: `_handCardForId` lookup in the else-branch (line 1506) still flags the hand ghost with `stagedFlipped='true'` on first flip.
 
-## Dependencies
+## Existing tests to extend
 
-- None. One-line JS fix; no template, CSS, model or migration changes.
+`MMM/tests.py`:
+
+- `test_lane_face_down_card_hover_arrow_binds_to_focus` (around line 2606) — already slices `onFaceDownCardClick` body between `drag_js.index('    onFaceDownCardClick(e, laneValue) {')` and `drag_js.index('    createupdateCookie(cardId, laneValue, flipFaceUp')`. Extend it with an assertion that the if-branch contains `card.dataset.stagedFlipped = 'true';` after `card.classList.add('ghost');`. This is the most impactful end-to-end test for this fix.
+- `test_ghost_card_numbering_and_flip_contract` (around line 2455) — already asserts `card.dataset.stagedFlipped` appears in `drag_js` and asserts `stagedFlipped === 'true'` in the `selectOrderedCard` block. No changes required, but verify it still passes after the fix.
+- `test_keyboard_flip_branch_targets_face_down_cards` (around line 1673-1687) — asserts `flipKeyboardFocusedCard` forwards to `onFaceDownCardClick`. No changes required, but verify it still passes after the fix.
+
+Do not duplicate existing assertions; only add the new `stagedFlipped = 'true'` assertion inside the `onFaceDownCardClick` slice in the first test.

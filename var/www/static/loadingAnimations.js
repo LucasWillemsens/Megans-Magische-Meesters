@@ -312,17 +312,19 @@ class loadingAnimationsSystem {
         if (phase === 'player') {
             turnMarker(delay, 'Your turn', this._scheduler);
             animationsElements.forEach((element) => element.classList.remove('loading'));
-            const deckHand = document.querySelector('.playerScreen .deckHand');
-            if (deckHand) {
-                deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            }
-            const endTurnBtn = document.querySelector(
-                '.playerScreen .deckHand .end-turn'
-            );
-            if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
-                requestAnimationFrame(() => {
-                    endTurnBtn.focus({ preventScroll: false });
-                });
+            if (animationsElements.length > 0) {
+                const deckHand = document.querySelector('.playerScreen .deckHand');
+                if (deckHand) {
+                    deckHand.scrollIntoView({ block: 'end' });
+                }
+                const endTurnBtn = document.querySelector(
+                    '.playerScreen .deckHand .end-turn'
+                );
+                if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+                    requestAnimationFrame(() => {
+                        endTurnBtn.focus({ preventScroll: true });
+                    });
+                }
             }
             return;
         }

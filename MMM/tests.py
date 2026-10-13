@@ -1625,9 +1625,39 @@ class BattleFlowTests(TestCase):
         self.assertIn('clearKeyboardSelection', drag_js)
         self.assertIn('createupdateCookie', drag_js)
 
+        self.assertIn('class KeyboardSelectionControl {', drag_js)
+        self.assertIn('class CardDragDropSystem {', drag_js)
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('selectKeyboardCard(card', control_class)
+        self.assertIn('clearKeyboardSelection({removePreview', control_class)
+        self.assertIn('flipKeyboardFocusedCard(event)', control_class)
+        self.assertIn('_keyboardFlipTarget(event)', control_class)
+        self.assertIn('_keyboardHologramRow(laneValue)', control_class)
+        self.assertIn('onFocusIn(card)', control_class)
+        self.assertIn('onFocusOut(card)', control_class)
+        self.assertIn('this.parent', control_class)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn('    onKeyboardKeyDown(event)', parent_class)
+        self.assertIn('    onHandCardClick(event)', parent_class)
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(digitBuffer)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(lastDigitBuffer)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._confirmGhostFlipSelection(event)',
+            parent_class,
+        )
+
         keydown_code = drag_js[
             drag_js.index('    onKeyboardKeyDown(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+            drag_js.index('    selectOrderedCard(')
         ]
         backspace_branch_start = keydown_code.index("if (key === '0' || key === 'Backspace') {")
         backspace_branch = keydown_code[
@@ -1635,7 +1665,10 @@ class BattleFlowTests(TestCase):
             keydown_code.index('}', backspace_branch_start) + 1
         ]
         self.assertIn('this._cancelKeyboardSelectionFromEvent(event);', backspace_branch)
-        self.assertIn('_noZeroOrdinal(digitBuffer)', keydown_code)
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(digitBuffer)',
+            keydown_code,
+        )
         self.assertIn('digitBuffer.slice(-1)', keydown_code)
         self.assertLess(
             keydown_code.index('digitBuffer.slice(-1)'),
@@ -1672,29 +1705,35 @@ class BattleFlowTests(TestCase):
         self.assertLess(flip_branch_start, selection_confirm_index)
         self.assertIn('this.flipKeyboardFocusedCard(event)', keydown_code[flip_branch_start:])
 
-        flip_method_code = drag_js[
-            drag_js.index('    flipKeyboardFocusedCard(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+        flip_method_code = control_class[
+            control_class.index('    flipKeyboardFocusedCard(event)'):
+            control_class.index('    _keyboardHologramRow(laneValue)')
         ]
         self.assertIn('.playerBoard ul.cardRow li.cardContainer.faceDown', flip_method_code)
         self.assertIn('.hologram.keyboard-staged .cardContainer.faceDown', flip_method_code)
-        self.assertIn('_laneValueForCard(card)', flip_method_code)
-        self.assertIn('this.remainingAllowances().flips <= 0', flip_method_code)
+        self.assertIn('this.parent._laneValueForCard(card)', flip_method_code)
+        self.assertIn(
+            'this._predicates.remainingAllowances().flips <= 0',
+            flip_method_code,
+        )
         self.assertIn("classList.contains('blocked')", flip_method_code)
         self.assertIn("classList.contains('ghost')", flip_method_code)
-        self.assertIn('this.onFaceDownCardClick(event, laneValue)', flip_method_code)
+        self.assertIn(
+            'this.parent.onFaceDownCardClick(event, laneValue)',
+            flip_method_code,
+        )
         self.assertIn('event.preventDefault()', flip_method_code)
         self.assertIn('_laneValueForCard(card) {', drag_js)
         self.assertIn("card.closest('li.lane').classList[1]", drag_js)
-        selection_code = drag_js[
-            drag_js.index('    selectKeyboardCard(card'):
-            drag_js.index('    onCardDragStart(e)')
+        selection_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
         ]
         self.assertNotIn('createupdateCookie', selection_code)
         self.assertIn('card.focus({ preventScroll: true })', selection_code)
         self.assertIn("typeof card.focus === 'function'", selection_code)
-        self.assertIn('activeElement.blur()', selection_code)
-        self.assertIn('card.contains(activeElement)', selection_code)
+        self.assertIn('activeElement.blur()', control_class)
+        self.assertIn('card.contains(activeElement)', control_class)
 
         self.assertIn("document.addEventListener('click', this.keyboardClickHandler);", drag_js)
         self.assertIn("document.removeEventListener('click', this.keyboardClickHandler);", drag_js)
@@ -1782,14 +1821,30 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('onFaceDownCardClick', keyboard_preview_code)
         self.assertIn("hologram.classList.add('keyboard-preview')", drag_js)
 
-        confirm_code = drag_js[
-            drag_js.index('    confirmKeyboardSelection(laneValue'):
-            drag_js.index('    clearKeyboardSelection({removePreview')
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('    confirmKeyboardSelection(laneValue = null)', control_class)
+        self.assertIn('    moveKeyboardSelection(laneValue)', control_class)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl.confirmKeyboardSelection(laneValue)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl.moveKeyboardSelection(laneValue)',
+            parent_class,
+        )
+
+        confirm_code = control_class[
+            control_class.index('    confirmKeyboardSelection(laneValue'):
+            control_class.index('    clearKeyboardSelection({removePreview')
         ]
         self.assertIn('moveKeyboardSelection(requestedLane)', confirm_code)
         self.assertIn('selection.hologram.remove()', confirm_code)
         self.assertIn(
-            'this._buildPlayHologram(card, requestedLane, false, selection.rotation)',
+            'this.parent._buildPlayHologram(card, requestedLane, false, selection.rotation)',
             confirm_code,
         )
         self.assertIn('this._keyboardHologramRow(requestedLane)', confirm_code)
@@ -1797,13 +1852,13 @@ class BattleFlowTests(TestCase):
         self.assertIn("hologram.dataset.keyboardStaged = 'true'", confirm_code)
         self.assertNotIn("hologram.classList.add('keyboard-preview')", confirm_code)
         self.assertIn(
-            'this._stagePlay(card, requestedLane, hologram, true, selection)',
+            'this.parent._stagePlay(card, requestedLane, hologram, true, selection)',
             confirm_code,
         )
         self.assertNotIn('createupdateCookie', confirm_code)
         self.assertIn(".querySelector('.cardContainer.faceDown')", confirm_code)
         self.assertIn("setAttribute('tabindex', '0')", confirm_code)
-        self.assertIn('this.remainingAllowances().flips > 0', confirm_code)
+        self.assertIn('this._predicates.remainingAllowances().flips > 0', confirm_code)
 
         else_branch_start = drag_js.index(
             '        } else {', drag_js.index('    _buildPlayHologram(')
@@ -1820,9 +1875,9 @@ class BattleFlowTests(TestCase):
 
         self.assertIn("hologram.dataset.stagedForCardId = selection.cardId", confirm_code)
         self.assertIn('this._mirrorStagedFocus(card, hologram)', confirm_code)
-        mirror_helper_code = drag_js[
-            drag_js.index('    _mirrorStagedFocus(card, hologram) {'):
-            drag_js.index('    onHandCardClick(event)')
+        mirror_helper_code = control_class[
+            control_class.index('    _mirrorStagedFocus(card, hologram) {'):
+            control_class.index('    onFocusIn(card)')
         ]
         self.assertIn("'focusin'", mirror_helper_code)
         self.assertIn("'focusout'", mirror_helper_code)
@@ -1835,6 +1890,29 @@ class BattleFlowTests(TestCase):
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn(
+            '    _isPlayableKeyboardCard_Legacy(card) {',
+            control_class,
+        )
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            '    _isPlayableKeyboardCard(card) {',
+            parent_class,
+        )
+        parent_wrapper_index = parent_class.index(
+            '    _isPlayableKeyboardCard(card) {',
+        )
+        wrapper_close_index = parent_class.index('}', parent_wrapper_index)
+        wrapper_block = parent_class[parent_wrapper_index:wrapper_close_index + 1]
+        self.assertIn(
+            'this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card)',
+            wrapper_block,
+        )
 
         affordances_code = drag_js[
             drag_js.index('    applyTurnAffordances() {'):
@@ -1854,7 +1932,7 @@ class BattleFlowTests(TestCase):
         restore_branch = affordances_code[restore_branch_start:restore_branch_end]
         self.assertIn("!card.hasAttribute('tabindex')", restore_branch)
         self.assertIn("card.setAttribute('tabindex', '0');", restore_branch)
-        self.assertIn('_isPlayableKeyboardCard(card)', restore_branch)
+        self.assertIn('this._isPlayableKeyboardCard(card)', restore_branch)
 
         deck_branch = affordances_code[
             affordances_code.index('if (remaining.draws <= 0)', restore_branch_end):
@@ -2260,7 +2338,7 @@ class BattleFlowTests(TestCase):
             cards_css = css_file.read()
             
         self.assertIn("'overflow-row'", stacking_js)
-        self.assertIn('MAX_CARDS_PER_ROW = 15', stacking_js)
+        self.assertIn('MAX_CARDS_PER_ROW = 25', stacking_js)
         ensure_code = stacking_js[
             stacking_js.index('    ensureSingleRow('):stacking_js.index('    splitIntoRows(')
         ]
@@ -2328,12 +2406,115 @@ class BattleFlowTests(TestCase):
         self.assertIn('display: flex', lanes_body)
         self.assertIn('flex-direction: row', lanes_body)
         self.assertIn('align-items: stretch', lanes_body)
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', lanes_body),
+            "ul.lanes must not declare a fixed/percentage height; lanes equalize via stretch "
+            "and the playerBoard must grow with its content"
+        )
 
         lane_rule = re.search(r'ul\.lanes li\.lane\s*\{[^}]*\}', cards_css)
         self.assertIsNotNone(lane_rule, "ul.lanes li.lane rule missing from cards.css")
         self.assertIsNone(
             re.search(r'(^|[^-\w])height\s*:', lane_rule.group(0)),
             "li.lane must not declare a fixed/percentage height; lanes equalize via stretch"
+        )
+
+        player_screen_ul_rule = re.search(
+            r'\.playerScreen\s*>\s*ul\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            player_screen_ul_rule,
+            ".playerScreen > ul rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', player_screen_ul_rule.group(0)),
+            ".playerScreen > ul must not cap the playerBoard-wrapping basic-mat at a "
+            "fixed height; the playerBoard must grow with its lanes"
+        )
+
+        player_board_rule = re.search(
+            r'\.playerScreen\s+\.playerBoard\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            player_board_rule,
+            ".playerScreen .playerBoard rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', player_board_rule.group(0)),
+            ".playerScreen .playerBoard must not declare a fixed height; it must "
+            "stretch with the column"
+        )
+
+        basic_mat_rule = re.search(
+            r'li\.playerBoard\s*>\s*ul\.basic-mat\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            basic_mat_rule,
+            "li.playerBoard > ul.basic-mat rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', basic_mat_rule.group(0)),
+            "li.playerBoard > ul.basic-mat must not cap the playerBoard child at a "
+            "fixed height; the column must grow with its lanes"
+        )
+
+    def test_player_board_grows_with_lanes_deckhand_pinned(self):
+        """Player board grows vertically with long lanes; deckHand stays pinned at the bottom."""
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        player_screen_rule = re.search(
+            r'div\.playerScreen\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(player_screen_rule, "div.playerScreen rule missing from cards.css")
+        player_screen_body = player_screen_rule.group(0)
+        self.assertIn(
+            'display: flex', player_screen_body,
+            "div.playerScreen must be a flex column so the playerBoard can push "
+            "the enemy board up while the deckHand stays pinned"
+        )
+        self.assertIn(
+            'flex-direction: column', player_screen_body,
+            "div.playerScreen must lay out children vertically"
+        )
+
+        deck_hand_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(deck_hand_rule, ".playerScreen .deckHand rule missing from cards.css")
+        deck_hand_body = deck_hand_rule.group(0)
+        self.assertIn(
+            'margin-top: auto', deck_hand_body,
+            ".playerScreen .deckHand must use margin-top: auto to pin itself to the "
+            "column bottom regardless of how tall the playerBoard above grows"
+        )
+        self.assertIn(
+            '--hand-row-height', deck_hand_body,
+            ".playerScreen .deckHand must declare --hand-row-height so child rows "
+            "keep a fixed visible size"
+        )
+
+        deck_hand_children_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck-stack\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-fan\s*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(
+            deck_hand_children_rule,
+            ".playerScreen .deckHand child-row rule missing from cards.css"
+        )
+        self.assertIn(
+            'height: var(--hand-row-height)', deck_hand_children_rule.group(0),
+            "deckHand child rows must keep a fixed height of var(--hand-row-height) "
+            "so the deck stack / hand fan / end-turn button stay the same visible "
+            "size as the playerBoard grows above them"
         )
 
     def test_deck_draw_animation_does_not_insert_into_deck(self):
@@ -2379,13 +2560,10 @@ class BattleFlowTests(TestCase):
         with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
             loading_js = js_file.read()
 
-        animate_block = _extract_js_brace_block(
-            loading_js, 'if (animationsElements.length > 0)'
-        )
-        self.assertIn('const playerFinished', animate_block)
-        self.assertIn('moveDuration * 1000 + 150', animate_block)
-        self.assertIn('playerFinished,', animate_block)
-        self.assertIn('schedule(reloadToBoard, reloadWindow)', animate_block)
+        self.assertIn('const playerFinished', loading_js)
+        self.assertIn('moveDuration * 1000 + 150', loading_js)
+        self.assertIn('playerFinished,', loading_js)
+        self.assertIn('schedule(reloadToBoard, reloadWindow)', loading_js)
 
     def test_draw_flights_start_after_scroll_settles(self):
         """Deck->hand flights must be measured after the browser restores the scroll position.
@@ -2416,10 +2594,7 @@ class BattleFlowTests(TestCase):
         # no-player-element paths keep their immediate scheduling.
         player_moves = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
         self.assertIn('startFlights(runPlayerMoves)', player_moves)
-        no_phase = _extract_js_brace_block(
-            loading_js, 'if (animationsElements.length > 0)'
-        )
-        self.assertIn('startFlights(runFlights)', no_phase)
+        self.assertIn('startFlights(runFlights)', loading_js)
 
     def test_animation_skip_and_pause_controls(self):
         """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""
@@ -2471,17 +2646,79 @@ class BattleFlowTests(TestCase):
         self.assertIn('hologram.dataset.stagedForCardId = String(cardId);', drag_js)
         self.assertIn('card.dataset.stagedFlipped', drag_js)
 
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('    _isStagedGhost_Legacy(card) {', control_class)
+        self.assertIn('    _isOrderableKeyboardCard_Legacy(card) {', control_class)
+        self.assertIn('    _isGhostFlipCandidate_Legacy(card) {', control_class)
+        self.assertIn('    _stagedLaneForGhost_Legacy(card) {', control_class)
+        self.assertIn('    _selectGhostFlipCard(card, digitBuffer) {', control_class)
+        self.assertIn('    _confirmGhostFlipSelection(event = null) {', control_class)
+
+        # The control forwards each predicate to the arrow passed in from init().
+        is_staged_ghost_legacy = control_class[
+            control_class.index('    _isStagedGhost_Legacy(card) {'):
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isStagedGhost(card)', is_staged_ghost_legacy)
+        is_orderable_legacy = control_class[
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card) {'):
+            control_class.index('    _isGhostFlipCandidate_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isOrderableKeyboardCard(card)', is_orderable_legacy)
+        is_ghost_flip_legacy = control_class[
+            control_class.index('    _isGhostFlipCandidate_Legacy(card) {'):
+            control_class.index('    _stagedLaneForGhost_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isGhostFlipCandidate(card)', is_ghost_flip_legacy)
+
         # Ghost flips rewrite the staged play cookie with flipFaceUp=true.
+        confirm_ghost_flip = control_class[
+            control_class.index('    _confirmGhostFlipSelection(event = null) {'):
+            control_class.index('    selectKeyboardCard(card')
+        ]
         self.assertIn(
-            'this.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);',
-            drag_js,
+            'this.parent.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);',
+            confirm_ghost_flip,
         )
+        # card.dataset.stagedFlipped is set on the staged hologram AND on the
+        # hand ghost in the same method.
+        self.assertIn("card.dataset.stagedFlipped = 'true';", confirm_ghost_flip)
+
+        # The same flag is set on lane-card face-down clicks (line ~1504 in the original).
+        on_face_down = drag_js[
+            drag_js.index('    onFaceDownCardClick(e, laneValue) {'):
+            drag_js.index('    createupdateCookie(cardId, laneValue, flipFaceUp')
+        ]
+        self.assertIn("card.dataset.stagedFlipped = 'true';", on_face_down)
+
+        # The predicate arrows live in init() and keep the split semantics:
+        # staged ghosts are countable, flipped ghosts are not re-flippable.
+        is_staged_ghost_arrow = drag_js[
+            drag_js.index('        const isStagedGhost = (card) => {'):
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {')
+        ]
+        self.assertNotIn('stagedFlipped', is_staged_ghost_arrow)
+        self.assertIn("classList.contains('ghost')", is_staged_ghost_arrow)
+        is_ghost_flip_arrow = drag_js[
+            drag_js.index('        const isGhostFlipCandidate = (card) => {'):
+            drag_js.index('        const handCards')
+        ]
+        self.assertIn("stagedFlipped === 'true'", is_ghost_flip_arrow)
+        is_orderable_arrow = drag_js[
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {'):
+            drag_js.index('        const stagedLaneForGhost')
+        ]
+        self.assertIn('isPlayableKeyboardCard(card)', is_orderable_arrow)
+        self.assertIn('isStagedGhost(card)', is_orderable_arrow)
+        self.assertNotIn('isGhostFlipCandidate(card)', is_orderable_arrow)
 
         # Number selection is position-based over the full hand (ghosts
         # included): the ghost in slot 1 no longer shifts later cards.
         keydown_code = drag_js[
             drag_js.index('    onKeyboardKeyDown(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+            drag_js.index('    selectOrderedCard(')
         ]
         self.assertIn('orderableCards[ordinal - 1]', keydown_code)
         self.assertIn('orderableCards[lastDigitOrdinal - 1]', keydown_code)
@@ -2489,12 +2726,15 @@ class BattleFlowTests(TestCase):
 
         # Staging must never write the flip cookie inside selectKeyboardCard;
         # the ghost-flip helpers live outside the selection slice.
-        selection_code = drag_js[
-            drag_js.index('    selectKeyboardCard(card'):
-            drag_js.index('    onCardDragStart(e)')
+        selection_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
         ]
         self.assertNotIn('createupdateCookie', selection_code)
-        self.assertIn('this._selectGhostFlipCard(card, digitBuffer)', selection_code)
+        self.assertIn(
+            'return this._selectGhostFlipCard(card, digitBuffer);',
+            selection_code,
+        )
 
         # Ghosts are no longer blocked when the play budget is exhausted, so
         # they stay selectable for their face-up flip.
@@ -2504,31 +2744,36 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("!card.classList.contains('ghost')", affordances_code)
 
-        # NEW (Bug 3): split predicate so flipped ghosts remain countable.
-        self.assertIn('_isStagedGhost', drag_js)
-        self.assertIn('_isOrderableKeyboardCard', drag_js)
-        orderable_code = drag_js[
-            drag_js.index('    _isOrderableKeyboardCard(card) {'):
-            drag_js.index('    _isGhostFlipCandidate(card)')
-        ]
-        self.assertIn('this._isPlayableKeyboardCard(card)', orderable_code)
-        self.assertIn('this._isStagedGhost(card)', orderable_code)
-        self.assertNotIn('this._isGhostFlipCandidate(card)', orderable_code)
-        staged_code = drag_js[
-            drag_js.index('    _isStagedGhost(card) {'):
-            drag_js.index('    _isOrderableKeyboardCard(card)')
-        ]
-        self.assertNotIn('stagedFlipped', staged_code)
-        self.assertIn("classList.contains('ghost')", staged_code)
-        ghost_flip_code = drag_js[
-            drag_js.index('    _isGhostFlipCandidate(card) {'):
-            drag_js.index('    _stagedLaneForGhost')
-        ]
-        self.assertIn("stagedFlipped", ghost_flip_code)
-        select_ordered = drag_js[
-            drag_js.index('    selectOrderedCard(card'):
-            drag_js.index('    flipKeyboardFocusedCard')
-        ]
+        # Parent-side: the wrappers delegate straight to the control's Legacy
+        # implementations; back-compat probes still work against them.
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._handCardForId_Legacy(cardId)',
+            parent_class,
+        )
+
+        select_ordered_start = drag_js.index('    selectOrderedCard(card')
+        select_ordered_end = drag_js.index(
+            '    flipKeyboardFocusedCard(event) {',
+            select_ordered_start,
+        )
+        select_ordered = drag_js[select_ordered_start:select_ordered_end]
         self.assertIn("stagedFlipped === 'true'", select_ordered)
 
     def test_trusted_cards_have_no_focus_or_hover_styling(self):
@@ -2577,17 +2822,38 @@ class BattleFlowTests(TestCase):
 
     def test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable(self):
         import os
+
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
         self.assertIn('orderableKeyboardCards()', drag_js)
         self.assertIn('_isOrderableKeyboardCard', drag_js)
-        staged = drag_js[
-            drag_js.index('    _isStagedGhost(card) {'):
-            drag_js.index('    _isOrderableKeyboardCard(card)')
+
+        is_staged_ghost_arrow = drag_js[
+            drag_js.index('        const isStagedGhost = (card) => {'):
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {')
         ]
-        self.assertNotIn('stagedFlipped', staged)
-        self.assertIn("classList.contains('ghost')", staged)
+        self.assertNotIn('stagedFlipped', is_staged_ghost_arrow)
+        self.assertIn("classList.contains('ghost')", is_staged_ghost_arrow)
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        staged_wrapper = control_class[
+            control_class.index('    _isStagedGhost_Legacy(card) {'):
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isStagedGhost(card)', staged_wrapper)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
+            parent_class,
+        )
 
     def test_add_hover_arrow_binds_focus_and_mouse_events(self):
         import os
@@ -2600,8 +2866,8 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("addEventListener('mouseenter'", arrow_helper)
         self.assertIn("addEventListener('mouseleave'", arrow_helper)
-        self.assertIn("addEventListener('focusin'", arrow_helper)
-        self.assertIn("addEventListener('focusout'", arrow_helper)
+        self.assertNotIn("addEventListener('focusin'", arrow_helper)
+        self.assertNotIn("addEventListener('focusout'", arrow_helper)
 
     def test_lane_face_down_card_hover_arrow_binds_to_focus(self):
         import os
@@ -2614,11 +2880,16 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn('_addHoverArrow(card, flipHologram)', on_face_down)
         self.assertIn("flipHologram.classList.add('hologram')", on_face_down)
+        self.assertIn("card.dataset.stagedFlipped = 'true';", on_face_down)
+        self.assertLess(
+            on_face_down.index("card.classList.add('ghost');"),
+            on_face_down.index("card.dataset.stagedFlipped = 'true';"),
+        )
         arrow_helper = drag_js[
             drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
             drag_js.index('    _createCurvedArrow')
         ]
-        self.assertIn("'focusin'", arrow_helper)
+        self.assertNotIn("'focusin'", arrow_helper)
 
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
@@ -2640,6 +2911,359 @@ class BattleFlowTests(TestCase):
             for li_tag in re.findall(r'<li class="cardContainer[^>]*>', row):
                 if 'faceDown' in li_tag:
                     self.assertIn('tabindex="0"', li_tag)
+
+    def test_create_focus_arrow_wraps_curved_arrow_and_binds_no_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _createFocusArrow(sourceEl, targetEl) {')
+        helper_end = drag_js.index('    _focusArrowTarget(card) {')
+        focus_arrow_helper = drag_js[helper_start:helper_end]
+        self.assertIn('this._createCurvedArrow(sourceEl, targetEl)', focus_arrow_helper)
+        self.assertIn('document.body.appendChild(arrow)', focus_arrow_helper)
+        self.assertIn("sourceEl.classList.add('hover')", focus_arrow_helper)
+        self.assertIn("targetEl.classList.add('hover')", focus_arrow_helper)
+        self.assertIn('return arrow;', focus_arrow_helper)
+        self.assertNotIn('addEventListener', focus_arrow_helper)
+
+    def test_focus_arrow_target_resolves_hand_and_flipped_lane_targets(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn(".playerScreen .deckHand", focus_target_helper)
+        self.assertIn(
+            '.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]',
+            focus_target_helper,
+        )
+        self.assertIn('.playerScreen .playerBoard ul.cardRow', focus_target_helper)
+        self.assertIn("dataset.stagedFlipped === 'true'", focus_target_helper)
+        self.assertIn(":scope > .hologramRow > .hologram", focus_target_helper)
+
+    def test_focus_arrow_target_returns_null_for_unfocusable_card(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('if (!card || typeof card.closest !== \'function\') return null;', focus_target_helper)
+        self.assertIn('return null;', focus_target_helper)
+
+    def test_focus_delegation_registers_capture_phase_on_player_screen(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        setup_keyboard = drag_js[
+            drag_js.index('    setupKeyboardSelection() {'):
+            drag_js.index('    _hasPlayerBoard() {')
+        ]
+        self.assertIn("document.querySelector('.playerScreen')", setup_keyboard)
+        self.assertIn('this.focusDelegateHandler = (event) => {', setup_keyboard)
+        self.assertIn(
+            "const card = event.target.closest('.cardContainer');",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "if (card.closest('.playerScreen ul.cardRow[title=\"trustedCards\"]')) return;",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "this._keyboardSelectionControl.onFocusIn(card);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "this._keyboardSelectionControl.onFocusOut(card);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "playerScreen.addEventListener('focusin', this.focusDelegateHandler, true);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "playerScreen.addEventListener('focusout', this.focusDelegateHandler, true);",
+            setup_keyboard,
+        )
+
+    def test_focus_delegation_destruction_removes_capture_phase_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        destroy_block = drag_js[
+            drag_js.index('    destroy() {'):
+            drag_js.index('document.addEventListener(\'DOMContentLoaded\'')
+        ]
+        self.assertIn(
+            "playerScreen.removeEventListener('focusin', this.focusDelegateHandler, true);",
+            destroy_block,
+        )
+        self.assertIn(
+            "playerScreen.removeEventListener('focusout', this.focusDelegateHandler, true);",
+            destroy_block,
+        )
+        self.assertIn('this.focusDelegateHandler = null;', destroy_block)
+
+    def test_keyboard_selection_control_focus_arrow_field_initialized_to_null(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        constructor_block = control_class[
+            control_class.index('constructor({'):control_class.index('    _emptyKeyboardSelection() {')
+        ]
+        self.assertIn('this._focusArrow = null;', constructor_block)
+
+    def test_keyboard_selection_control_on_focus_in_creates_arrow_through_parent(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        on_focus_in = control_class[
+            control_class.index('    onFocusIn(card) {'):
+            control_class.index('    onFocusOut(card) {')
+        ]
+        self.assertIn('this.parent._focusArrowTarget(card)', on_focus_in)
+        self.assertIn('this._focusArrow.source === card', on_focus_in)
+        self.assertIn('this._focusArrow.target === target', on_focus_in)
+        self.assertIn('this._focusArrow.arrow.remove()', on_focus_in)
+        self.assertIn('this.parent._createFocusArrow(card, target)', on_focus_in)
+        self.assertIn('source: card', on_focus_in)
+        self.assertIn('target,', on_focus_in)
+        self.assertIn('arrow:', on_focus_in)
+
+    def test_keyboard_selection_control_on_focus_out_removes_arrow_only_for_source(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        on_focus_out = control_class[
+            control_class.index('    onFocusOut(card) {'):
+            control_class.index('}\n', control_class.index('    onFocusOut(card) {'))
+        ]
+        self.assertIn('if (!this._focusArrow) return;', on_focus_out)
+        self.assertIn('if (this._focusArrow.source !== card) return;', on_focus_out)
+        self.assertIn('this._focusArrow.arrow.remove();', on_focus_out)
+        self.assertIn('this._focusArrow = null;', on_focus_out)
+
+    def test_clear_keyboard_selection_resets_focus_arrow_before_state(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        clear_block = control_class[
+            control_class.index('    clearKeyboardSelection({removePreview'):
+            control_class.index('    cancelKeyboardSelection() {')
+        ]
+        self.assertIn('this._focusArrow.arrow.remove()', clear_block)
+        self.assertIn('this._focusArrow = null', clear_block)
+        focus_arrow_reset_index = clear_block.rindex('this._focusArrow = null')
+        state_reset_index = clear_block.index('this.state = this._emptyKeyboardSelection()')
+        self.assertLess(focus_arrow_reset_index, state_reset_index)
+
+    def test_add_hover_arrow_keeps_mouseenter_mouseleave_and_drops_focus_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        arrow_helper = drag_js[
+            drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+            drag_js.index('    _createCurvedArrow')
+        ]
+        self.assertIn("addEventListener('mouseenter'", arrow_helper)
+        self.assertIn("addEventListener('mouseleave'", arrow_helper)
+        self.assertNotIn("addEventListener('focusin'", arrow_helper)
+        self.assertNotIn("addEventListener('focusout'", arrow_helper)
+
+    def test_focus_arrow_lifecycle_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness_parts = [
+            'const makeElement = (tag) => ({',
+            '    tagName: tag,',
+            '    classList: { add() {}, remove() {}, contains() { return false; } },',
+            '    children: [],',
+            '    parentNode: null,',
+            '    setAttribute() {},',
+            '    removeAttribute() {},',
+            '    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },',
+            '    remove() { this.removed = true; },',
+            '    querySelector() { return null; },',
+            '    querySelectorAll() { return []; },',
+            '    addEventListener() {},',
+            '    removeEventListener() {},',
+            '    focus() {},',
+            '    getBoundingClientRect() { return { left: 0, top: 0, width: 10, height: 10 }; },',
+            '    contains() { return true; },',
+            '});',
+            '',
+            'const fakePlayerBoard = makeElement("div");',
+            'fakePlayerBoard.querySelectorAll = () => [];',
+            'fakePlayerBoard.querySelector = () => null;',
+            '',
+            'const fakePlayerScreen = makeElement("div");',
+            'const listeners = {};',
+            'fakePlayerScreen.addEventListener = (event, handler, capture) => {',
+            '    if (!listeners[event]) listeners[event] = [];',
+            '    listeners[event].push({ handler, capture: !!capture });',
+            '};',
+            'fakePlayerScreen.removeEventListener = (event, handler, capture) => {',
+            '    if (!listeners[event]) return;',
+            '    listeners[event] = listeners[event].filter(',
+            '        (entry) => entry.handler !== handler || entry.capture !== !!capture',
+            '    );',
+            '};',
+            '',
+            'const documentListeners = {};',
+            'const fakeDocument = {',
+            '    listeners: documentListeners,',
+            '    documentElement: { contains: () => true },',
+            '    querySelector(selector) {',
+            "        if (selector === '.playerBoard') return fakePlayerBoard;",
+            "        if (selector === '.playerScreen') return fakePlayerScreen;",
+            '        return null;',
+            '    },',
+            '    querySelectorAll() { return []; },',
+            '    getElementById() { return null; },',
+            '    createElement: (tag) => makeElement(tag),',
+            '    createElementNS: () => makeElement("svg"),',
+            '    addEventListener(event, handler, capture) {',
+            '        if (!documentListeners[event]) documentListeners[event] = [];',
+            '        documentListeners[event].push({ handler, capture: !!capture });',
+            '    },',
+            '    removeEventListener(event, handler, capture) {',
+            '        if (!documentListeners[event]) return;',
+            '        documentListeners[event] = documentListeners[event].filter(',
+            '            (entry) => entry.handler !== handler || entry.capture !== !!capture',
+            '        );',
+            '    },',
+            '    hidden: false,',
+            '    visibilityState: "visible",',
+            '    body: makeElement("body"),',
+            '    activeElement: null,',
+            '};',
+            '',
+            'const fakeWindow = { addEventListener() {}, removeEventListener() {}, cardDragDrop: null };',
+            '',
+            'global.document = fakeDocument;',
+            'global.window = fakeWindow;',
+            'global.MutationObserver = function(handler) { this.observe = () => {}; this.disconnect = () => {}; };',
+            '',
+            'const dragCode = ' + repr(drag_js) + ';',
+            'eval(dragCode);',
+            '',
+            'const domReadyHandlers = documentListeners["DOMContentLoaded"] || [];',
+            'if (domReadyHandlers.length === 0) throw new Error("DOMContentLoaded handler missing");',
+            'domReadyHandlers.forEach((entry) => entry.handler());',
+            '',
+            'const system = global.window.cardDragDrop;',
+            'if (!system) throw new Error("cardDragDrop not instantiated");',
+            '',
+            'const arrowCreated = [];',
+            'system._createCurvedArrow = function(source, target) {',
+            '    arrowCreated.push({ source, target });',
+            '    return makeElement("svg");',
+            '};',
+            'system._createFocusArrow = function(source, target) {',
+            '    const arrow = system._createCurvedArrow(source, target);',
+            '    fakeDocument.body.appendChild(arrow);',
+            '    source.classList.add("hover");',
+            '    target.classList.add("hover");',
+            '    return arrow;',
+            '};',
+            '',
+            'const fakeTarget = makeElement("div");',
+            'system._focusArrowTarget = () => fakeTarget;',
+            '',
+            'const fakeCard = makeElement("li");',
+            'fakeCard.closest = (selector) => {',
+            "    if (selector === '.cardContainer') return fakeCard;",
+            "    if (selector === '.playerScreen') return fakePlayerScreen;",
+            "    if (selector === '.playerScreen ul.cardRow[title=\"trustedCards\"]') return null;",
+            '    return null;',
+            '};',
+            '',
+            'const focusinEntries = listeners["focusin"] || [];',
+            'const focusoutEntries = listeners["focusout"] || [];',
+            'if (focusinEntries.length === 0) throw new Error("focus delegation not registered");',
+            'if (focusinEntries.some((entry) => entry.capture !== true)) throw new Error("focus delegation missing capture phase");',
+            '',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'if (arrowCreated.length !== 1) throw new Error("expected exactly one arrow after duplicate focus, got " + arrowCreated.length);',
+            '',
+            'focusoutEntries.forEach((entry) => entry.handler({ type: "focusout", target: fakeCard }));',
+            'if (system._keyboardSelectionControl._focusArrow !== null) throw new Error("focus arrow should be cleared on focusout");',
+            '',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'if (arrowCreated.length !== 2) throw new Error("expected second arrow after fresh focus, got " + arrowCreated.length);',
+            '',
+            'focusoutEntries.forEach((entry) => entry.handler({ type: "focusout", target: { closest: () => null } }));',
+            'if (arrowCreated.length !== 2) throw new Error("focusout on non-matching source should not affect arrow count");',
+            '',
+            'system.destroy();',
+            'if (listeners["focusin"] && listeners["focusin"].length > 0) throw new Error("destroy did not remove focusin listener");',
+            'if (listeners["focusout"] && listeners["focusout"].length > 0) throw new Error("destroy did not remove focusout listener");',
+            '',
+            'console.log("focus-arrow lifecycle ok");',
+            '',
+        ]
+        harness = '\n'.join(harness_parts)
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping focus-arrow lifecycle test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping focus-arrow lifecycle test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'focus arrow lifecycle harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('focus-arrow lifecycle ok', completed.stdout)
 
     def test_focus_within_background_excludes_face_down_cards(self):
         import os
@@ -2689,6 +3313,175 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         self.assertContains(response, 'class="end-turn"')
         self.assertRegex(response.content.decode(), r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+    def test_focused_hand_card_persists_across_turns_and_round_trips(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        self.assertIn('data-focused-hand-card="1"', content)
+        self.assertIn('name="focused_hand_card" value="1"', content)
+
+        self.client.post(action_url, {"action": "draw", "focused_hand_card": "4"})
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.focusedHandCard, 4)
+
+        self.client.post(action_url, {"action": "end_turn", "focused_hand_card": "abc"})
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.focusedHandCard, 4)
+
+        response = self.client.get(board_url)
+        self.assertIn('data-focused-hand-card="4"', response.content.decode())
+
+    def test_arrow_key_routing_uses_region_navigator_and_persists_focused_hand_card(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        self.assertIn('class RegionNavigator {', drag_js)
+        self.assertIn('class KeyboardSelectionControl {', drag_js)
+        self.assertIn('class CardDragDropSystem {', drag_js)
+
+        shortcut_class = drag_js.index('class ShortcutHoldAction {')
+        navigator_start = drag_js.index('class RegionNavigator {')
+        keyboard_selection_start = drag_js.index('class KeyboardSelectionControl {')
+        card_drag_drop_start = drag_js.index('class CardDragDropSystem {')
+        self.assertGreater(navigator_start, shortcut_class)
+        self.assertLess(navigator_start, keyboard_selection_start)
+        self.assertLess(keyboard_selection_start, card_drag_drop_start)
+
+        navigator_class = drag_js[navigator_start:keyboard_selection_start]
+        self.assertIn('regionFor(element)', navigator_class)
+        self.assertIn('firstFieldCard()', navigator_class)
+        self.assertIn('handCardAt(slot)', navigator_class)
+        self.assertIn('endTurnButton()', navigator_class)
+        self.assertIn('drawButton()', navigator_class)
+
+        self.assertIn(
+            '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer',
+            navigator_class,
+        )
+        self.assertIn(
+            '.playerScreen .deckHand ul.hand li.cardContainer',
+            navigator_class,
+        )
+        self.assertIn('.playerScreen .lanes .cardContainer', navigator_class)
+        self.assertIn('.playerScreen .end-turn', navigator_class)
+        self.assertIn(
+            '.playerScreen .deckHand .active-deck button.draw',
+            navigator_class,
+        )
+
+        self.assertIn('getBoundingClientRect()', navigator_class)
+        self.assertIn('orderableKeyboardCards()', navigator_class)
+        self.assertIn('_findEndTurnControl()', navigator_class)
+        self.assertIn('_findDrawControl()', navigator_class)
+
+        control_class = drag_js[keyboard_selection_start:card_drag_drop_start]
+        self.assertIn('navigate(direction, fromElement)', control_class)
+        self.assertIn('persistedHandSlot', control_class)
+        self.assertIn("getElementById('turnLimits')", control_class)
+        self.assertIn('dataset.focusedHandCard', control_class)
+        self.assertIn('this.navigator', control_class)
+        self.assertIn('this.system', control_class)
+
+        constructor_block = control_class[
+            control_class.index('constructor({'):control_class.index('    _emptyKeyboardSelection() {')
+        ]
+        self.assertIn('this.persistedHandSlot = Number.isInteger(raw) && raw >= 1 ? raw : 1;', constructor_block)
+
+        select_keyboard_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
+        ]
+        self.assertIn("form.cardActionForm input[name=\"focused_hand_card\"]", select_keyboard_code)
+        clear_index = select_keyboard_code.rindex('this.clearKeyboardSelection()')
+        state_index = select_keyboard_code.rindex('this.state = {')
+        write_index = select_keyboard_code.index(
+            "form.cardActionForm input[name=\"focused_hand_card\"]"
+        )
+        self.assertGreater(write_index, clear_index)
+        self.assertLess(write_index, state_index)
+
+        navigate_method = control_class[
+            control_class.index('    navigate(direction, fromElement)'):
+        ]
+        next_method_match = navigate_method.index('    ', navigate_method.index('\n    _mirrorStagedFocus'))
+        navigate_method = navigate_method[:next_method_match]
+
+        self.assertIn("region === 'hand' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'hand' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'field' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'field' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'end-turn' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'end-turn' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'draw' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'draw' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn('firstFieldCard()', navigate_method)
+        self.assertIn('endTurnButton()', navigate_method)
+        self.assertIn('drawButton()', navigate_method)
+        self.assertIn('handCardAt(this.persistedHandSlot)', navigate_method)
+        self.assertIn('this.system.selectKeyboardCard(target, String(this.persistedHandSlot))', navigate_method)
+        self.assertIn('target.focus({ preventScroll: true })', navigate_method)
+        self.assertIn("return typeof target.focus === 'function';", navigate_method)
+        self.assertNotIn("'ArrowLeft'", navigate_method)
+        self.assertNotIn("'ArrowRight'", navigate_method)
+
+        parent_class = drag_js[card_drag_drop_start:]
+        self.assertIn('    onKeyboardKeyDown(event)', parent_class)
+        self.assertIn('    selectOrderedCard(', parent_class)
+        keydown_code = parent_class[
+            parent_class.index('    onKeyboardKeyDown(event)'):
+            parent_class.index('    selectOrderedCard(')
+        ]
+
+        self.assertIn(
+            "key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'",
+            keydown_code,
+        )
+        self.assertIn(
+            '!this.keyboardSelection.selectedCard',
+            keydown_code,
+        )
+        self.assertIn(
+            '!this.keyboardSelection.ghostFlip',
+            keydown_code,
+        )
+        self.assertIn(
+            'this.control.navigate(key, document.activeElement)',
+            keydown_code,
+        )
+        self.assertIn(
+            'if (this.control.navigate(key, document.activeElement)) event.preventDefault();',
+            keydown_code,
+        )
+
+        arrow_branch_index = keydown_code.index(
+            "key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'"
+        )
+        lane_step_index = keydown_code.index('const laneStep = {')
+        self.assertLess(arrow_branch_index, lane_step_index)
+
+        navigate_call_count = keydown_code.count('.navigate(')
+        self.assertEqual(navigate_call_count, 1)
+
+        parent_navigate_count = parent_class.count('.navigate(')
+        self.assertEqual(parent_navigate_count, 1)
+
+        self.assertIn('this.moveKeyboardSelection(nextLane)', keydown_code)
+        self.assertIn("ArrowLeft: -1", keydown_code)
+        self.assertIn("ArrowRight: 1", keydown_code)
+        self.assertIn("ArrowUp: -1", keydown_code)
+        self.assertIn("ArrowDown: 1", keydown_code)
+
+        self.assertIn("get control() {", parent_class)
+        self.assertIn("return this._keyboardSelectionControl;", parent_class)
 
 
 def _extract_js_brace_block(source, opener):
@@ -3790,3 +4583,249 @@ class SpecialTimelineTests(TestCase):
             "intSpecial should produce card-effect steps even after playCard moves cards. "
             "Bug: build_int_timeline looks for cards in hand after playCard already moved them."
         )
+
+
+class BattlePagePolishBacktickOverlayTests(TestCase):
+    def setUp(self):
+        self.human = Player.objects.create(name="Human")
+        self.bot = Player.objects.create(name="Bot")
+
+        human_owner = CardOwnerHistory.objects.create(cardOwner=self.human)
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=self.bot)
+
+        self.human_cards = [
+            Card.objects.create(title=f"Human-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.human_cards:
+            card.ownerHistory.add(human_owner)
+        self.bot_cards = [
+            Card.objects.create(title=f"Bot-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.bot_cards:
+            card.ownerHistory.add(bot_owner)
+
+        self.human_deck = Deck.create(
+            self.human.id,
+            deckTitle="Human deck",
+            newDescription="test deck",
+            newDeckCards=self.human_cards,
+        )
+        self.bot_deck = Deck.create(
+            self.bot.id,
+            deckTitle="Bot deck",
+            newDescription="test deck",
+            newDeckCards=self.bot_cards,
+        )
+
+        history = BattleHistory.objects.create(challenger=self.human)
+        self.game = Game.objects.create(title="Test game", history=history, roundNumber=0)
+        self.human_participant = history.addHumanChallenger(
+            challengerPlayer_id=self.human.id,
+            startingCard_id=self.human_cards[0].id,
+            deck_id=self.human_deck.id,
+        )
+        self.bot_participant = history.addRobotChallenger(
+            challengerPlayer_id=self.bot.id,
+            startingCard_id=self.bot_cards[0].id,
+            deck_id=self.bot_deck.id,
+        )
+
+    def _read_card_drag_drop_js(self):
+        import os
+
+        js_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cardDragDrop.js'
+        )
+        with open(js_path) as js_file:
+            return js_file.read()
+
+    def _slice_on_keyboard_key_down(self, drag_js):
+        return drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+
+    def _read_cards_css(self):
+        import os
+
+        css_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css'
+        )
+        with open(css_path) as css_file:
+            return css_file.read()
+
+    def test_backtick_overlay_keydown_branch_toggles_three_targets(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        self.assertIn("event.key === '`'", keydown_code)
+        self.assertNotIn("event.key === '~'", keydown_code)
+        self.assertIn("classList.toggle('debug-overlay-visible'", keydown_code)
+
+        for selector in (
+            ".playerScreen .deckHand > p",
+            ".playerScreen .enemyDeckHand > p",
+            ".playerScreen .lanes .lane > p",
+        ):
+            self.assertIn(selector, keydown_code)
+
+        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
+        self.assertIn('event.preventDefault()', keydown_code[:toggle_index])
+
+    def test_backtick_overlay_skips_text_controls(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        backtick_index = keydown_code.index("event.key === '`'")
+        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
+        self.assertLess(backtick_index, toggle_index)
+
+        guard_block = keydown_code[backtick_index:toggle_index]
+        self.assertIn('_isTextControlTarget', guard_block)
+        self.assertIn('event.preventDefault()', guard_block)
+
+    def test_backtick_overlay_css_rule_uses_absolute_white_z3(self):
+        cards_css = self._read_cards_css()
+
+        rule_match = re.search(r'\.debug-overlay-visible[^{]*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(rule_match, "No .debug-overlay-visible CSS rule found")
+
+        rule_body = rule_match.group(0)
+        self.assertIn('position: absolute', rule_body)
+        self.assertIn('background: white', rule_body)
+        self.assertIn('z-index: 3', rule_body)
+
+        for forbidden in ('top:', 'width: ', 'left: ', 'height: '):
+            self.assertNotIn(forbidden, rule_body)
+
+    def test_backtick_overlay_targets_exist_in_rendered_board(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        player_section_match = re.search(
+            r'<div class="deckHand">\s*(.*?)<div class="deck-stack',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            player_section_match,
+            "Could not locate <div class=\"deckHand\"> opening in rendered board",
+        )
+        player_p_match = re.match(
+            r'\s*<p[^>]*>([\s\S]*?)</p>',
+            player_section_match.group(1),
+        )
+        self.assertIsNotNone(
+            player_p_match,
+            "Player deck/hand counter <p> is not the first direct child of "
+            "<div class=\"deckHand\">",
+        )
+        self.assertIn('Deck:', player_p_match.group(1))
+        self.assertIn('| Hand:', player_p_match.group(1))
+
+        enemy_section_match = re.search(
+            r'<div class="enemyDeckHand">\s*(.*?)<div class="deck-stack enemy-deck-stack"',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            enemy_section_match,
+            "Could not locate <div class=\"enemyDeckHand\"> opening in rendered board",
+        )
+        enemy_p_match = re.match(
+            r'\s*<p class="cardType"[^>]*>([\s\S]*?)</p>',
+            enemy_section_match.group(1),
+        )
+        self.assertIsNotNone(
+            enemy_p_match,
+            "Enemy deck/hand counter <p class=\"cardType\"> is not the first direct child of "
+            "<div class=\"enemyDeckHand\">",
+        )
+        self.assertIn('Deck:', enemy_p_match.group(1))
+        self.assertIn('| Hand:', enemy_p_match.group(1))
+
+        lane_finder = _LaneIndicatorFinder()
+        lane_finder.feed(content)
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            self.assertIn(
+                lane_name,
+                lane_finder.found,
+                f"Lane <li class=\"lane {lane_name}\"> has no <p> direct child",
+            )
+            self.assertIn(lane_name, lane_finder.found[lane_name])
+
+    def test_backtick_overlay_targets_are_visible_not_dev_only(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        def strip_blocks(source, pattern):
+            return re.sub(pattern, '', source, flags=re.DOTALL)
+
+        scrubbed = strip_blocks(content, r'<script\b[^>]*>[\s\S]*?</script>')
+        scrubbed = strip_blocks(scrubbed, r'<template\b[^>]*>[\s\S]*?</template>')
+        scrubbed = strip_blocks(scrubbed, r'<div\b[^>]*\bhidden\b[^>]*>[\s\S]*?</div>')
+
+        self.assertRegex(
+            scrubbed,
+            r'<p[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            "Player counter <p> must not be inside <script>, <template>, or hidden <div>",
+        )
+        self.assertRegex(
+            scrubbed,
+            r'<p class="cardType"[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            "Enemy counter <p class=\"cardType\"> must not be inside dev-only blocks",
+        )
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            self.assertRegex(
+                scrubbed,
+                rf'<p[^>]*>[\s\S]*?\|\s*{lane_name}\s*</p>',
+                f"Lane <p> for {lane_name} must not be inside dev-only blocks",
+            )
+
+
+class _LaneIndicatorFinder(HTMLParser):
+    """Walk rendered board and collect <p> indicators that are direct children of lane <li>s."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.target_lanes = ('Intelligence', 'Speed', 'Visciousness', 'Resolve')
+        self.found = {}
+        self.current_lane = None
+        self.li_depth_in_lane = 0
+        self.in_p_at_lane_depth = False
+        self.p_text = ''
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'li':
+            attrs_dict = dict(attrs)
+            cls = attrs_dict.get('class', '')
+            if self.current_lane is None:
+                parts = cls.split(' ', 1)
+                if len(parts) == 2 and parts[0] == 'lane' and parts[1] in self.target_lanes:
+                    self.current_lane = parts[1]
+                    self.li_depth_in_lane = 1
+                    return
+            else:
+                self.li_depth_in_lane += 1
+        elif tag == 'p' and self.current_lane is not None and self.li_depth_in_lane == 1:
+            self.in_p_at_lane_depth = True
+            self.p_text = ''
+
+    def handle_endtag(self, tag):
+        if tag == 'li' and self.current_lane is not None:
+            self.li_depth_in_lane -= 1
+            if self.li_depth_in_lane == 0:
+                self.current_lane = None
+        elif tag == 'p' and self.in_p_at_lane_depth:
+            if self.current_lane and self.li_depth_in_lane == 1:
+                self.found[self.current_lane] = self.p_text
+            self.in_p_at_lane_depth = False
+            self.p_text = ''
+
+    def handle_data(self, data):
+        if self.in_p_at_lane_depth:
+            self.p_text += data

@@ -405,6 +405,12 @@ def boardAction(request, game_id, player_id):
     _ensure_game_initialized(game) #todo remove this
 
     action = request.POST.get("action", "")
+    focused_hand_card_raw = request.POST.get("focused_hand_card", "")
+    if focused_hand_card_raw.isdigit():
+        focused_hand_card = int(focused_hand_card_raw)
+        if 1 <= focused_hand_card <= 6561:
+            current_participant.focusedHandCard = focused_hand_card
+            current_participant.save(update_fields=["focusedHandCard"])
     error_message = ""
     action_plays = []
     timeline_steps = []

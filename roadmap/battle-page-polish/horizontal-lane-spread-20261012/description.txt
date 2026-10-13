@@ -3,37 +3,121 @@ The four player lanes are too narrow: at 56% field width with 14% horizontal pad
 ## Behavior
 
 - On a 1920×1080 monitor the four lanes span ~90% of the viewport width.
-- Each lane fits at least 9 overlapping cards before overflow.
+- Each lane fits at least 9 overlapping cards before overflow (natural fit at 1920px is ~13 with the new widths).
 - On 4K and larger screens the field scales proportionally to ~90vw (no pixel cap).
 - Mobile (`@media (max-width: 700px)`) is untouched.
 - Both player and enemy fields are widened symmetrically.
 - `LaneCardStacking.MAX_CARDS_PER_ROW` matches the new per-row capacity so overflow triggers correctly.
 - The four lanes stay equal-width and equal-height; the lane indicator stays centred.
 
-## Code locations
+## Code locations (verified)
 
-- `var/www/static/cards.css` — `ul.lanes` rule, `ul.cardRow li.cardContainer:nth-child(N)` rules, `ul.hologramRow .hologram:nth-child(N)` rules.
-- `var/www/static/laneStacking.js` — `LaneCardStacking.MAX_CARDS_PER_ROW`.
+- `var/www/static/cards.css`:
+  - `ul.lanes` rule: lines 787-800 (`width: 56%`, `padding: 0 14%`, `gap: 2%`).
+  - `ul.lanes li.lane` rule: lines 801-805 (`width: 22%`, `min-width: 8rem`, `position: relative`).
+  - `ul.cardRow li.cardContainer:nth-child(N)` rules: lines 1199-1218, covering N=1..20 (20 rules).
+- `var/www/static/cardDragDrop.css` (NOT `cards.css`):
+  - `ul.hologramRow .hologram:nth-child(N)` rules: lines 125-139, covering N=1..15 (15 rules).
+- `var/www/static/laneStacking.js`:
+  - `LaneCardStacking.MAX_CARDS_PER_ROW = 15` at line 3.
+  - `overlapOffset = 1.4` at line 7 (UNCHANGED).
+- `MMM/tests.py`:
+  - Line 2263 asserts `'MAX_CARDS_PER_ROW = 15'` in `laneStacking.js`. Must be updated to the new value.
+  - Line 2301 asserts `'li.cardContainer:nth-child(20)'` is in `cards.css`. The rule is preserved.
+  - Line 2310-2314 enforces `MAX_CARDS_PER_ROW <= max(cardContainer nth-child offset)`. The new value must satisfy this.
 
-## Implementation notes
+## Math (cardContainer 82px, overlap 1.4em ≈ 22.4px at 16px root font)
 
-- Replace `ul.lanes` `width: 56%`, `padding: 0 14%`, `gap: 2%` with `width: 90vw`, reduced side padding, and the tighter gap.
-- Raise `MAX_CARDS_PER_ROW` to a value matching the new per-row capacity; add the missing `nth-child` rules in both `ul.cardRow li.cardContainer` and `ul.hologramRow .hologram` for the new max.
-- The `overlapOffset` value stays the same; only `MAX_CARDS_PER_ROW` changes.
+| Viewport | Lane width (90vw, padding 5%, gap 1.5%) | Natural cards/row |
+|----------|-----------------------------------------|-------------------|
+| 1280px   | ~246px                                  | 8                 |
+| 1440px   | ~277px                                  | 9                 |
+| 1920px   | ~369px                                  | 13                |
+| 2560px   | ~493px                                  | 19                |
+| 3840px   | ~739px                                  | 30                |
+
+`MAX_CARDS_PER_ROW = 25` is above the natural 1920px fit (13), so it never artificially restricts on the target monitor, and it covers ~2560px viewports without overflow. On 4K the cap kicks in at 25 — acceptable since the goal says "scales proportionally to ~90vw" about the lane width, not the card count.
+
+## Implementation
+
+1. **`var/www/static/cards.css`** — replace the `ul.lanes` rule (lines 787-800) with:
+   ```
+   ul.lanes {
+       align-self: center;
+       justify-self: center;
+       height: 85%;
+       display: flex;
+       flex-wrap: nowrap;
+       flex-direction: row;
+       align-items: stretch;
+       padding: 0 5%;
+       width: 90vw;
+       gap: 1.5%;
+       justify-content: center;
+       margin-top: -1.5%;
+   }
+   ```
+   Change `width: 56%` → `width: 90vw`, `padding: 0 14%` → `padding: 0 5%`, `gap: 2%` → `gap: 1.5%`.
+
+2. **`var/www/static/cards.css`** — adjust the `ul.lanes li.lane` rule (lines 801-805) to use `flex: 1` instead of `width: 22%` so the four lanes stay perfectly equal-width regardless of gap. Result:
+   ```
+   ul.lanes li.lane {
+       flex: 1;
+       min-width: 8rem;
+       position: relative;
+   }
+   ```
+   Do not add a `height` declaration (test at `MMM/tests.py:2332-2337` forbids it).
+
+3. **`var/www/static/cards.css`** — add 5 new `nth-child` rules immediately after line 1218 to extend coverage from N=20 to N=25 (the step remains 1.4em):
+   ```
+   .playingCards ul.cardRow li.cardContainer:nth-child(21) { left: 29.8em; z-index: 21; }
+   .playingCards ul.cardRow li.cardContainer:nth-child(22) { left: 31.2em; z-index: 22; }
+   .playingCards ul.cardRow li.cardContainer:nth-child(23) { left: 32.6em; z-index: 23; }
+   .playingCards ul.cardRow li.cardContainer:nth-child(24) { left: 34.0em; z-index: 24; }
+   .playingCards ul.cardRow li.cardContainer:nth-child(25) { left: 35.4em; z-index: 25; }
+   ```
+
+4. **`var/www/static/cardDragDrop.css`** — add 10 new `nth-child` rules immediately after line 139 to extend hologram coverage from N=15 to N=25 (mirrors the cardContainer offsets, same 1.4em step):
+   ```
+   ul.hologramRow .hologram:nth-child(16) { left: 22.8em; z-index: 16; }
+   ul.hologramRow .hologram:nth-child(17) { left: 24.2em; z-index: 17; }
+   ul.hologramRow .hologram:nth-child(18) { left: 25.6em; z-index: 18; }
+   ul.hologramRow .hologram:nth-child(19) { left: 27.0em; z-index: 19; }
+   ul.hologramRow .hologram:nth-child(20) { left: 28.4em; z-index: 20; }
+   ul.hologramRow .hologram:nth-child(21) { left: 29.8em; z-index: 21; }
+   ul.hologramRow .hologram:nth-child(22) { left: 31.2em; z-index: 22; }
+   ul.hologramRow .hologram:nth-child(23) { left: 32.6em; z-index: 23; }
+   ul.hologramRow .hologram:nth-child(24) { left: 34.0em; z-index: 24; }
+   ul.hologramRow .hologram:nth-child(25) { left: 35.4em; z-index: 25; }
+   ```
+
+5. **`var/www/static/laneStacking.js`** — change line 3 from `MAX_CARDS_PER_ROW = 15` to `MAX_CARDS_PER_ROW = 25`. Leave `overlapOffset = 1.4` (line 7) and all other logic untouched.
+
+6. **`MMM/tests.py`** — update line 2263 from `self.assertIn('MAX_CARDS_PER_ROW = 15', stacking_js)` to `self.assertIn('MAX_CARDS_PER_ROW = 25', stacking_js)` so the existing regression test keeps passing.
 
 ## Acceptance criteria
 
-- 1920×1080: lanes span ~90vw.
-- 4K and larger: lanes scale proportionally to ~90vw (no pixel cap).
-- Narrow viewport (<700px): mobile block unchanged.
-- Four lanes remain equal-width / equal-height.
-- `MAX_CARDS_PER_ROW` matches the number of defined `nth-child` rules.
+- [ ] `ul.lanes` rule in `cards.css` (lines 787-800) has `width: 90vw`, `padding: 0 5%`, `gap: 1.5%`.
+- [ ] `ul.lanes li.lane` rule uses `flex: 1` (no `width` declaration) and still has `min-width: 8rem` and `position: relative`.
+- [ ] `cards.css` contains `ul.cardRow li.cardContainer:nth-child` rules covering N=1..25 (added 21..25 with `left` offsets 29.8em..35.4em in 1.4em steps and `z-index` 21..25).
+- [ ] `cardDragDrop.css` contains `ul.hologramRow .hologram:nth-child` rules covering N=1..25 (added 16..25 with `left` offsets 22.8em..35.4em in 1.4em steps and `z-index` 16..25).
+- [ ] `laneStacking.js` line 3 reads `MAX_CARDS_PER_ROW = 25`.
+- [ ] `laneStacking.js` line 7 still reads `overlapOffset = 1.4`.
+- [ ] `MMM/tests.py` line 2263 asserts `'MAX_CARDS_PER_ROW = 25'`.
+- [ ] On a 1920px viewport the four `.lane` elements have equal width (verified in DevTools) and span ~90vw combined.
+- [ ] On a 1920px viewport each lane can hold at least 13 cards before `laneStacking.js` splits an `.overflow-row`.
+- [ ] On 4K (3840px) the lanes scale to ~90vw with no `max-width` clipping.
+- [ ] The mobile `@media (max-width: 700px)` block is untouched.
+- [ ] Four lanes remain equal-width / equal-height; the `<p>` lane indicator stays centred.
+- [ ] `python -m pytest MMM/tests.py -k lane` (covers `test_lane_overflow_splits_rows_without_merging_back`, `test_lane_heights_stretch_equal_across_board`, `test_hologram_row_renders_before_card_row`) all pass.
 
 ## Notes
 
-- Width uses `90vw` with no pixel cap, so lanes scale proportionally on 4K and larger screens.
-- `gap: 1.5%` (preferred over `2%`).
-- Both `ul.cardRow li.cardContainer` and `ul.hologramRow .hologram` get the new `nth-child` rules so the hologram row stays symmetric with the card row at the new per-row capacity.
+- `overlapOffset = 1.4` (in `laneStacking.js`) is unchanged; only `MAX_CARDS_PER_ROW` moves.
+- The `ul.lanes` width uses `90vw` with no `max-width`, so lanes scale proportionally on 4K and larger screens.
+- The hologram nth-child rules live in `cardDragDrop.css`, not `cards.css` — keep that file split intact.
+- The MAX of 25 is a working choice. If a real 4K browser test shows the cap firing prematurely, the build agent may raise MAX to 30 and add the matching nth-child rules (cardContainer 26-30, hologram 26-30). The math table above shows the natural 4K fit is ~30 cards.
 
 ## Dependencies
 

@@ -1,39 +1,137 @@
-Refactor the scattered keyboard predicates in `cardDragDrop.js` into one cohesive `KeyboardSelectionControl` class. The new control owns the selection state, the per-card playability predicates, the focusin/focusout bindings (for the hover-arrow wiring in `focus-arrow-bindings`), and the public selection API.
+Extract a cohesive `KeyboardSelectionControl` class in `var/www/static/cardDragDrop.js` that owns the keyboard selection state, the per-card predicates, the focusin/focusout hook points, and the public selection API. `CardDragDropSystem` retains its public API surface and delegates selection to the new control.
 
-## Behavior
+## Code locations (verified)
 
-- A new `KeyboardSelectionControl` class owns the keyboard selection state, predicates, and public API.
-- `CardDragDropSystem` retains its public API surface (`playableKeyboardCards`, `orderableKeyboardCards`, `applyTurnAffordances`, `onHandCardClick`, `onDropZoneClick`) but delegates the keyboard selection logic to the new control.
-- The end-to-end keyboard behavior is identical from the user's perspective: the same keys do the same things in the same situations.
-- The end-turn / draw hold flows (E / D keys via `ShortcutHoldAction`) and the drag-and-drop flow are unchanged.
-- The four existing tests that pin the old scattered predicate shape are rewritten to pin the new control's API.
-- `CardDragDropSystem.destroy()` nulls out the new control so re-init starts with fresh state.
+`var/www/static/cardDragDrop.js` (1572 lines total):
 
-## Code locations
+- `class ShortcutHoldAction` lives at lines 1–122 (place new class after it, before `CardDragDropSystem` at line 124).
+- `CardDragDropSystem` constructor sets `this.keyboardSelection = this._emptyKeyboardSelection()` at line 133; `_emptyKeyboardSelection()` defined at lines 142–155.
+- `_parseAllowance` / `remainingAllowances` at lines 190–205 (parent-owned; passed to control as predicate arrow).
+- `playableKeyboardCards` at lines 218–225; `applyTurnAffordances` at lines 227–272 (stays on parent, calls control via `_isPlayableKeyboardCard_Legacy` wrapper).
+- `_isPlayableKeyboardCard` at lines 544–556.
+- `_isStagedGhost` at lines 559–568.
+- `orderableKeyboardCards` at lines 570–573; `_isOrderableKeyboardCard` at lines 575–579.
+- `_isGhostFlipCandidate` at lines 582–594; `_stagedLaneForGhost` at lines 596–600.
+- `_handCardForId` at lines 602–607.
+- `_noZeroOrdinal` at lines 609–617 (keyboard-only; move into control).
+- `onKeyboardKeyDown` at lines 775–894 (stays on parent; refactored to delegate).
+- `selectOrderedCard` at lines 897–912 (stays on parent; uses predicate arrows).
+- `flipKeyboardFocusedCard` at lines 914–928; `_keyboardFlipTarget` at lines 930–940; `_keyboardHologramRow` at lines 942–945 (move into control).
+- `_selectGhostFlipCard` at lines 947–970; `_confirmGhostFlipSelection` at lines 972–1002 (move into control).
+- Public API: `selectKeyboardCard` at lines 1004–1044; `moveKeyboardSelection` at lines 1046–1080; `confirmKeyboardSelection` at lines 1082–1132; `clearKeyboardSelection` at lines 1134–1150; `cancelKeyboardSelection` at lines 1152–1154 (all move into control).
+- `_mirrorStagedFocus` at lines 1156–1161 (move into control; called by `confirmKeyboardSelection`).
+- `onHandCardClick` at lines 1163–1194 (stays on parent; delegates to `keyboardSelectionControl.selectKeyboardCard`).
+- `onCardDragStart` / `onCardDragEnd` / `onDropZone*` / `_buildPlayHologram` / `_stagePlay` / `_addHoverArrow` / `onFaceDownCardClick` / `_cardIdInput` / `_cardLaneValue` / `_laneValueForCard` stay on parent (called back from control via `parent.*`).
+- `destroy` at lines 1546–1567 (adds `this._keyboardSelectionControl = null` reset).
 
-- `var/www/static/cardDragDrop.js` — extract `KeyboardSelectionControl` near the top of the file (after `ShortcutHoldAction`, before `CardDragDropSystem`); refactor `onKeyboardKeyDown` to delegate to the control's public API.
+## Methods/fields to move into `KeyboardSelectionControl`
 
-## Implementation notes
+State:
+- `keyboardSelection` field (currently `this.keyboardSelection` on parent, lines 133, 143–154).
+- `_emptyKeyboardSelection()` factory (lines 142–155).
 
-- The old scattered surface lives across `CardDragDropSystem`: `keyboardSelection` field, `_emptyKeyboardSelection()`, `playableKeyboardCards()`, `orderableKeyboardCards()`, `_isPlayableKeyboardCard()`, `_isStagedGhost()`, `_isOrderableKeyboardCard()`, `_isGhostFlipCandidate()`, `_handCardForId()`, `_stagedLaneForGhost()`, the public `selectKeyboardCard` / `moveKeyboardSelection` / `confirmKeyboardSelection` / `clearKeyboardSelection` / `cancelKeyboardSelection`, and the supporting helpers (`flipKeyboardFocusedCard`, `_keyboardHologramRow`, `_keyboardFlipTarget`, etc.).
-- Move selection state, predicates, and the public selection API into the new class. Construct the predicates as arrow functions in `CardDragDropSystem.init()` and pass them to the control's constructor.
-- Keep the existing predicate methods on `CardDragDropSystem` as delegating wrappers (renamed to a `_Legacy` suffix on the actual implementations) so rewritten tests can still find them.
-- Stub the focusin/focusout hook points (`onFocusIn(card)`, `onFocusOut(card)`) on the new control; the next goal (`focus-arrow-bindings`) fills in the `_addHoverArrow` calls.
+Per-card predicates (executed via `this.parent.*` arrows from constructor):
+- `_isPlayableKeyboardCard_Legacy(card)` (current lines 544–556).
+- `_isStagedGhost_Legacy(card)` (current lines 559–568).
+- `_isOrderableKeyboardCard_Legacy(card)` (current lines 575–579).
+- `_isGhostFlipCandidate_Legacy(card)` (current lines 582–594).
+- `_stagedLaneForGhost_Legacy(card)` (current lines 596–600).
+- `_handCardForId_Legacy(cardId)` (current lines 602–607).
+
+Public selection API:
+- `playableKeyboardCards()` (current lines 218–225).
+- `orderableKeyboardCards()` (current lines 570–573).
+- `selectKeyboardCard(card, digitBuffer)` (current lines 1004–1044).
+- `moveKeyboardSelection(laneValue)` (current lines 1046–1080).
+- `confirmKeyboardSelection(laneValue = null)` (current lines 1082–1132).
+- `clearKeyboardSelection({removePreview = true} = {})` (current lines 1134–1150).
+- `cancelKeyboardSelection()` (current lines 1152–1154).
+
+Internal helpers:
+- `_selectGhostFlipCard(card, digitBuffer)` (current lines 947–970).
+- `_confirmGhostFlipSelection(event = null)` (current lines 972–1002).
+- `_mirrorStagedFocus(card, hologram)` (current lines 1156–1161).
+- `flipKeyboardFocusedCard(event)` (current lines 914–928).
+- `_keyboardFlipTarget(event)` (current lines 930–940).
+- `_keyboardHologramRow(laneValue)` (current lines 942–945).
+- `_noZeroOrdinal(buffer)` (current lines 609–617).
+- Stubs: `onFocusIn(card) { /* no-op; filled by focus-arrow-bindings */ }` and `onFocusOut(card) { /* no-op; filled by focus-arrow-bindings */ }`.
+
+## Constructor signature for `KeyboardSelectionControl`
+
+Defined at top of `cardDragDrop.js` after `ShortcutHoldAction` (insert at line 123):
+
+```js
+new KeyboardSelectionControl({
+    parent,                       // CardDragDropSystem, for back-calls
+    isPlayableKeyboardCard,       // (card) => boolean  — arrow closed over this.playerHandCards/remainingAllowances
+    isStagedGhost,                // (card) => boolean
+    isOrderableKeyboardCard,      // (card) => boolean
+    isGhostFlipCandidate,         // (card) => boolean
+    handCardForId,                // (cardId) => Element|null
+    stagedLaneForGhost,           // (card) => 1|2|3|4|null
+    handCards,                    // () => Element[]
+    hasPlayerBoard,               // () => boolean
+    remainingAllowances,          // () => {draws, flips, plays}
+    keyboardTransitionActive,     // () => boolean
+    noZeroOrdinal,                // (buffer) => number|null
+});
+```
+
+All predicate arrows are constructed inside `CardDragDropSystem.init()` (after `setupKeyboardSelection` at line 186) so they close over the fresh `this.playerHandCards`, `this.remainingAllowances()`, etc. The control itself never imports `playerHandCards` knowledge directly — it only ever calls the arrows.
+
+## Public-API delegation on `CardDragDropSystem`
+
+Keep these names on `CardDragDropSystem` as thin forwarders to `this._keyboardSelectionControl.*` (used by rewritten tests):
+
+- `keyboardSelection` — getter returning `this._keyboardSelectionControl.state`.
+- `playableKeyboardCards()` — forwards to control.
+- `orderableKeyboardCards()` — forwards to control.
+- `selectKeyboardCard(card, digitBuffer)` — forwards to control.
+- `moveKeyboardSelection(laneValue)` — forwards to control.
+- `confirmKeyboardSelection(laneValue = null)` — forwards to control.
+- `clearKeyboardSelection(opts)` — forwards to control.
+- `cancelKeyboardSelection()` — forwards to control.
+- `flipKeyboardFocusedCard(event)` — forwards to control.
+- `_isPlayableKeyboardCard(card)` — forwards to `this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card)`.
+- `_isStagedGhost(card)` — forwards to `_isStagedGhost_Legacy`.
+- `_isOrderableKeyboardCard(card)` — forwards to `_isOrderableKeyboardCard_Legacy`.
+- `_isGhostFlipCandidate(card)` — forwards to `_isGhostFlipCandidate_Legacy`.
+- `_stagedLaneForGhost(card)` — forwards to `_stagedLaneForGhost_Legacy`.
+- `_handCardForId(cardId)` — forwards to `_handCardForId_Legacy`.
+
+`onKeyboardKeyDown` (lines 775–894) and `onHandCardClick` (lines 1163–1194) stay on parent but route their selection logic through `this._keyboardSelectionControl.selectKeyboardCard` / `clearKeyboardSelection` / `cancelKeyboardSelection`. `applyTurnAffordances` (line 244) and the mutation observer (lines 360–373) keep calling `this._isPlayableKeyboardCard` / `this._isGhostFlipCandidate` via the wrappers. `setupKeyboardSelection` (lines 332–408), the keydown/keyup/click/visibility/blur/pagehide listeners, and the MutationObserver remain on parent — none move into the control.
+
+`CardDragDropSystem.destroy()` (line 1546) clears `this._keyboardSelectionControl = null` after the existing `clearKeyboardSelection()` call so `refresh()` (lines 1541–1544) gets a fresh control on re-init.
+
+## Tests to rewrite in `MMM/tests.py`
+
+These four tests currently grep `cardDragDrop.js` for the OLD scattered predicate shape and need to be updated to assert the new control:
+
+1. `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks` (line 1610) — rewrite to assert `KeyboardSelectionControl` class exists, contains `selectKeyboardCard` / `clearKeyboardSelection` / `flipKeyboardFocusedCard` / `_keyboardFlipTarget` / `_keyboardHologramRow` / `onFocusIn` / `onFocusOut`; assert the `onKeyboardKeyDown` delegation to the control; preserve the structural assertions about the digit-buffer / arrow / step / flip-branch / click-handler ordering.
+2. `test_keyboard_confirmation_contract_preserves_staging_and_guards` (line 1747) — rewrite to assert `confirmKeyboardSelection` and `moveKeyboardSelection` live on the new control; assert the parent delegates from the existing entry points; preserve the `_stagePlay` / `_buildPlayHologram` / `_mirrorStagedFocus` / `focusin`/`focusout` / faceDown contract.
+3. `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently` (line 1832) — rewrite to assert `_isPlayableKeyboardCard_Legacy` lives in the new control and that `applyTurnAffordances` calls it through the delegating wrapper.
+4. `test_ghost_card_numbering_and_flip_contract` (line 2455) — rewrite to assert `_isStagedGhost_Legacy` / `_isOrderableKeyboardCard_Legacy` / `_isGhostFlipCandidate_Legacy` / `_stagedLaneForGhost_Legacy` / `_selectGhostFlipCard` / `_confirmGhostFlipSelection` live on the new control; assert `card.dataset.stagedFlipped` semantics (set in `_confirmGhostFlipSelection` line 996 and in `onFaceDownCardClick` line 1504) remain intact.
+
+`test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable` (line 2578) does NOT need to be rewritten — its `_isStagedGhost(card)` / `_isOrderableKeyboardCard` / `classList.contains('ghost')` assertions still pass against the delegating wrappers on `CardDragDropSystem`.
 
 ## Acceptance criteria
 
-- `KeyboardSelectionControl` class exists in `cardDragDrop.js`.
-- `CardDragDropSystem` public API still works (delegated).
-- The four existing keyboard-selection tests are rewritten and pass.
-- End-turn / draw hold flows and drag-and-drop are unchanged.
+- [ ] `class KeyboardSelectionControl` exists in `var/www/static/cardDragDrop.js`, declared between `ShortcutHoldAction` (ends line 122) and `CardDragDropSystem` (line 124).
+- [ ] The constructor accepts the predicate arrows listed above and stores them on `this.parent` / `this._predicates`.
+- [ ] `this._keyboardSelectionControl = new KeyboardSelectionControl({...})` is constructed at the bottom of `CardDragDropSystem.init()` after `setupKeyboardSelection()` (line 186), with predicate arrows defined immediately before that close over `this.playerHandCards` / `this.remainingAllowances` / `this.playerBoard`.
+- [ ] All methods/fields listed in "Methods/fields to move into `KeyboardSelectionControl`" are now defined on the new class.
+- [ ] All forwarders listed in "Public-API delegation on `CardDragDropSystem`" exist on the parent and call through.
+- [ ] `CardDragDropSystem.keyboardSelection` is a getter returning `this._keyboardSelectionControl.state` (preserves object identity and back-compat).
+- [ ] `KeyboardSelectionControl.onFocusIn(card)` and `onFocusOut(card)` are present as no-op stubs (filled in by `focus-arrow-bindings-20261012`).
+- [ ] `CardDragDropSystem.destroy()` sets `this._keyboardSelectionControl = null` after the existing cleanup.
+- [ ] End-turn (`E`) / draw (`D`) hold flows via `ShortcutHoldAction` (lines 711–733, 747–773) are unchanged.
+- [ ] Drag-and-drop (`onCardDragStart` / `onDropZoneDrop` / `onDropZoneClick` / `setupCardDragListeners`) is unchanged.
+- [ ] The four tests listed above are rewritten and pass: `test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks`, `test_keyboard_confirmation_contract_preserves_staging_and_guards`, `test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently`, `test_ghost_card_numbering_and_flip_contract`.
+- [ ] The control is free of hand-card knowledge (no `playerHandCards()` / `document.querySelector('.playerScreen .deckHand` references inside the class — all such lookups go through the predicate arrows).
 
 ## Notes
 
-- `CardDragDropSystem.keyboardSelection` stays as a getter returning the new control's state for back-compat with rewritten tests and external scripts that probe it.
-- Predicates are passed to the control as constructor arrow functions that close over `playerBoard` / `handCards` / `remainingAllowances`. The control stays free of hand-card knowledge.
-
-## Dependencies
-
-- No dependency on other `keyboard-navigation-20261012/` subgoals.
-- Independent of sibling `hologram-flip-click-fix-20261012` (the refactor preserves the existing `stagedFlipped` dataset semantics).
-- The `arrow-key-routing-20261012` and `focus-arrow-bindings-20261012` subgoals build on the new control.
+- `card.dataset.stagedFlipped` semantics are preserved as-is: `_confirmGhostFlipSelection` sets it on line 996; `onFaceDownCardClick` else-branch sets it on line 1504; the `_isGhostFlipCandidate_Legacy` guard (line 944-style) at line 588 still returns `false` when `stagedFlipped === 'true'`. This refactor is independent of the sibling `hologram-flip-click-fix-20261012` (which adds the source-lane-card flag at line ~1464) — both can land without touching the other's commit.
+- The legacy `_Legacy` suffix on the predicate methods inside `KeyboardSelectionControl` marks them as the "moved-from-parent" implementations. The wrappers on `CardDragDropSystem` keep the original names so back-compat probes (and the rewritten tests that grep for `drag_js.index('    _isOrderableKeyboardCard(card)')` against the parent source) keep working until tests are rewritten to look in the new class.
+- `_keyboardSelectionControl` is rebuilt on every `init()` so the predicate arrows always close over the freshly-read `playerBoard` and `remainingAllowances` after each `refresh()`.

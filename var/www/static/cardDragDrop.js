@@ -121,22 +121,93 @@ class ShortcutHoldAction {
     }
 }
 
-class CardDragDropSystem {
-    constructor() {
-        this.draggedCard = null;
-        this.dropZones = new Map();
-        this.playerBoard = null;
-        this.createdDropZones = [];
-        this.turnAllowances = { int: 0, spd: 0, tactics: 0, drawn: 0, played: 0, flipped: 0 };
-        this.staged = { plays: 0, flips: 0 };
-        this.tooltips = { draw: "", play: "", flip: "" };
-        this.keyboardSelection = this._emptyKeyboardSelection();
-        this.keyboardListenersBound = false;
-        this.keyboardObserver = null;
-        this.lastDragEndedAt = 0;
-        this.endTurnHold = new ShortcutHoldAction();
-        this.drawHold = new ShortcutHoldAction();
-        this.init();
+class RegionNavigator {
+    constructor(system) {
+        this.system = system;
+    }
+
+    regionFor(element) {
+        if (!element || typeof element.closest !== 'function') return null;
+        if (
+            element.closest(
+                '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer, ' +
+                '.playerScreen .deckHand ul.hand li.cardContainer'
+            )
+        ) return 'hand';
+        if (element.closest('.playerScreen .lanes .cardContainer')) return 'field';
+        if (element.closest('.playerScreen .end-turn')) return 'end-turn';
+        if (element.closest('.playerScreen .deckHand .active-deck button.draw')) return 'draw';
+        return null;
+    }
+
+    firstFieldCard() {
+        const cards = Array.from(
+            document.querySelectorAll('.playerScreen .lanes .cardContainer[tabindex="0"]')
+        );
+        if (cards.length === 0) return null;
+        cards.sort((a, b) => {
+            const ra = a.getBoundingClientRect();
+            const rb = b.getBoundingClientRect();
+            if (ra.top !== rb.top) return ra.top - rb.top;
+            return ra.left - rb.left;
+        });
+        return cards[0];
+    }
+
+    handCardAt(slot) {
+        const cards = this.system.orderableKeyboardCards();
+        if (cards.length === 0) return null;
+        const clamped = Math.max(1, Math.min(slot, cards.length));
+        return cards[clamped - 1] || null;
+    }
+
+    endTurnButton() {
+        return this.system._findEndTurnControl()?.button || null;
+    }
+
+    drawButton() {
+        return this.system._findDrawControl()?.button || null;
+    }
+}
+
+class KeyboardSelectionControl {
+    constructor({
+        parent,
+        isPlayableKeyboardCard,
+        isStagedGhost,
+        isOrderableKeyboardCard,
+        isGhostFlipCandidate,
+        handCardForId,
+        stagedLaneForGhost,
+        handCards,
+        hasPlayerBoard,
+        remainingAllowances,
+        keyboardTransitionActive,
+        noZeroOrdinal,
+    }) {
+        this.parent = parent;
+        this.system = parent;
+        this.navigator = new RegionNavigator(parent);
+        this._predicates = {
+            isPlayableKeyboardCard,
+            isStagedGhost,
+            isOrderableKeyboardCard,
+            isGhostFlipCandidate,
+            handCardForId,
+            stagedLaneForGhost,
+            handCards,
+            hasPlayerBoard,
+            remainingAllowances,
+            keyboardTransitionActive,
+            noZeroOrdinal,
+        };
+        this.state = this._emptyKeyboardSelection();
+        this._focusArrow = null;
+        const raw = Number.parseInt(
+            document.getElementById('turnLimits')?.dataset.focusedHandCard ?? '',
+            10,
+        );
+        this.persistedHandSlot = Number.isInteger(raw) && raw >= 1 ? raw : 1;
     }
 
     _emptyKeyboardSelection() {
@@ -152,6 +223,398 @@ class CardDragDropSystem {
             digitBuffer: "",
             ghostFlip: false,
         };
+    }
+
+    _isPlayableKeyboardCard_Legacy(card) {
+        return this._predicates.isPlayableKeyboardCard(card);
+    }
+
+    _isStagedGhost_Legacy(card) {
+        return this._predicates.isStagedGhost(card);
+    }
+
+    _isOrderableKeyboardCard_Legacy(card) {
+        return this._predicates.isOrderableKeyboardCard(card);
+    }
+
+    _isGhostFlipCandidate_Legacy(card) {
+        return this._predicates.isGhostFlipCandidate(card);
+    }
+
+    _stagedLaneForGhost_Legacy(card) {
+        return this._predicates.stagedLaneForGhost(card);
+    }
+
+    _handCardForId_Legacy(cardId) {
+        return this._predicates.handCardForId(cardId);
+    }
+
+    _noZeroOrdinal(buffer) {
+        return this._predicates.noZeroOrdinal(buffer);
+    }
+
+    playableKeyboardCards() {
+        const { hasPlayerBoard, keyboardTransitionActive, remainingAllowances, handCards } = this._predicates;
+        if (
+            !hasPlayerBoard() ||
+            keyboardTransitionActive() ||
+            remainingAllowances().plays <= 0
+        ) return [];
+        return handCards().filter(card => this._isPlayableKeyboardCard_Legacy(card));
+    }
+
+    orderableKeyboardCards() {
+        const { hasPlayerBoard, keyboardTransitionActive, handCards } = this._predicates;
+        if (!hasPlayerBoard() || keyboardTransitionActive()) return [];
+        return handCards().filter(card => this._isOrderableKeyboardCard_Legacy(card));
+    }
+
+    flipKeyboardFocusedCard(event) {
+        if (this._predicates.keyboardTransitionActive()) return;
+        const card = this._keyboardFlipTarget(event);
+        if (!card || event.repeat) return;
+        const laneValue = this.parent._laneValueForCard(card);
+        if (
+            laneValue == null ||
+            this._predicates.remainingAllowances().flips <= 0 ||
+            card.classList.contains('blocked') ||
+            card.closest('.blocked') ||
+            card.classList.contains('ghost')
+        ) return;
+        event.preventDefault();
+        this.parent.onFaceDownCardClick(event, laneValue);
+    }
+
+    _keyboardFlipTarget(event) {
+        for (const candidate of [event.target, document.activeElement]) {
+            if (!candidate || typeof candidate.closest !== 'function') continue;
+            const card = candidate.closest(
+                '.playerBoard ul.cardRow li.cardContainer.faceDown, ' +
+                '.hologram.keyboard-staged .cardContainer.faceDown'
+            );
+            if (card) return card;
+        }
+        return null;
+    }
+
+    _keyboardHologramRow(laneValue) {
+        const zone = this.parent.dropZones.get(laneValue)?.element;
+        return zone?.closest('li.lane')?.querySelector('.hologramRow') || null;
+    }
+
+    _selectGhostFlipCard(card, digitBuffer) {
+        const laneValue = this._stagedLaneForGhost_Legacy(card);
+        const cardIdInput = this.parent._cardIdInput(card);
+        if (!laneValue || !cardIdInput?.value) return false;
+
+        this.clearKeyboardSelection();
+        const input = this.parent.playerBoard?.closest('.playerScreen')
+            ?.querySelector('form.cardActionForm input[name="focused_hand_card"]');
+        if (input) input.value = digitBuffer;
+        card.classList.add('keyboard-selected');
+        card.dataset.keyboardSelected = 'true';
+        card.setAttribute('aria-selected', 'true');
+        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+        this.state = {
+            selectedCard: card,
+            cardId: cardIdInput.value,
+            sourceLane: card.dataset.sourceLane || '0',
+            sourceOrdinal: card.dataset.sourceOrdinal || '0',
+            laneValue,
+            currentLane: laneValue,
+            hologram: null,
+            rotation: null,
+            digitBuffer,
+            ghostFlip: true,
+        };
+        const parsed = Number.parseInt(digitBuffer, 10);
+        this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
+        return true;
+    }
+
+    _confirmGhostFlipSelection(event = null) {
+        const selection = this.state;
+        const card = selection.selectedCard;
+        if (!selection.ghostFlip || !this._isGhostFlipCandidate_Legacy(card)) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+        if (!this.parent._ghostFlipInteractionAllowed(event)) return false;
+
+        const cardId = selection.cardId;
+        const laneValue = selection.laneValue;
+        this.parent.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);
+
+        const stagedCard = document.querySelector(
+            `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"] .cardContainer`
+        );
+        if (stagedCard) {
+            stagedCard.classList.remove('faceDown');
+            const cardFace = stagedCard.querySelector(':scope > .card');
+            if (cardFace) cardFace.classList.remove('back');
+            stagedCard.removeAttribute('tabindex');
+            stagedCard.dataset.stagedFlipped = 'true';
+        }
+        card.dataset.stagedFlipped = 'true';
+        card.classList.add('ghost-flipped');
+        this.parent.staged.flips++;
+        this.parent.applyTurnAffordances();
+        this.clearKeyboardSelection();
+        return true;
+    }
+
+    selectKeyboardCard(card, digitBuffer = this.state.digitBuffer) {
+        const { hasPlayerBoard, keyboardTransitionActive, remainingAllowances } = this._predicates;
+        if (!hasPlayerBoard()) return false;
+        if (keyboardTransitionActive()) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+        if (this._isGhostFlipCandidate_Legacy(card)) {
+            return this._selectGhostFlipCard(card, digitBuffer);
+        }
+        if (remainingAllowances().plays <= 0) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+        if (!this._isPlayableKeyboardCard_Legacy(card)) return false;
+        const laneValue = this.parent._cardLaneValue(card);
+        const holoRow = laneValue ? this._keyboardHologramRow(laneValue) : null;
+        if (!laneValue || !holoRow) return false;
+
+        const hologram = this.parent._buildPlayHologram(card, laneValue, true);
+        if (!hologram) return false;
+
+        this.clearKeyboardSelection();
+        const input = this.parent.playerBoard?.closest('.playerScreen')
+            ?.querySelector('form.cardActionForm input[name="focused_hand_card"]');
+        if (input) input.value = digitBuffer;
+        holoRow.appendChild(hologram);
+        card.classList.add('keyboard-selected');
+        card.dataset.keyboardSelected = 'true';
+        card.setAttribute('aria-selected', 'true');
+        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+        const cardIdInput = this.parent._cardIdInput(card);
+        this.state = {
+            selectedCard: card,
+            cardId: cardIdInput.value,
+            sourceLane: card.dataset.sourceLane || '0',
+            sourceOrdinal: card.dataset.sourceOrdinal || '0',
+            laneValue,
+            currentLane: laneValue,
+            hologram,
+            rotation: hologram.style.getPropertyValue('--card-rotation'),
+            digitBuffer,
+        };
+        const parsed = Number.parseInt(digitBuffer, 10);
+        this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
+        return true;
+    }
+
+    moveKeyboardSelection(laneValue) {
+        const selection = this.state;
+        const parsedLane = Number.parseInt(laneValue, 10);
+        if (
+            !selection.selectedCard ||
+            !Number.isInteger(parsedLane) ||
+            parsedLane < 1 ||
+            parsedLane > 4 ||
+            !this.parent.dropZones.has(parsedLane)
+        ) return false;
+        if (
+            this._predicates.keyboardTransitionActive() ||
+            this._predicates.remainingAllowances().plays <= 0 ||
+            !this._isPlayableKeyboardCard_Legacy(selection.selectedCard)
+        ) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+
+        const holoRow = this._keyboardHologramRow(parsedLane);
+        const hologram = this.parent._buildPlayHologram(
+            selection.selectedCard,
+            parsedLane,
+            true,
+            selection.rotation,
+        );
+        if (!holoRow || !hologram) return false;
+
+        if (selection.hologram?.parentNode) selection.hologram.remove();
+        holoRow.appendChild(hologram);
+        selection.hologram = hologram;
+        selection.laneValue = parsedLane;
+        selection.currentLane = parsedLane;
+        return true;
+    }
+
+    confirmKeyboardSelection(laneValue = null) {
+        if (!this.state.selectedCard) return false;
+        if (
+            this._predicates.keyboardTransitionActive() ||
+            this._predicates.remainingAllowances().plays <= 0 ||
+            !this._isPlayableKeyboardCard_Legacy(this.state.selectedCard)
+        ) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+
+        const requestedLane = laneValue == null
+            ? this.state.currentLane
+            : Number.parseInt(laneValue, 10);
+        if (!Number.isInteger(requestedLane) || requestedLane < 1 || requestedLane > 4) {
+            return false;
+        }
+        if (requestedLane !== this.state.currentLane && !this.moveKeyboardSelection(requestedLane)) {
+            return false;
+        }
+
+        const selection = this.state;
+        const card = selection.selectedCard;
+        if (
+            !card ||
+            !selection.hologram ||
+            !selection.hologram.parentNode ||
+            !this._isPlayableKeyboardCard_Legacy(card) ||
+            this._predicates.keyboardTransitionActive() ||
+            this._predicates.remainingAllowances().plays <= 0
+        ) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+
+        selection.hologram.remove();
+        const hologram = this.parent._buildPlayHologram(card, requestedLane, false, selection.rotation);
+        this._keyboardHologramRow(requestedLane).appendChild(hologram);
+        hologram.classList.add('keyboard-staged');
+        hologram.dataset.keyboardStaged = 'true';
+
+        const staged = this.parent._stagePlay(card, requestedLane, hologram, true, selection);
+        hologram.dataset.stagedForCardId = selection.cardId;
+        if (staged) this._mirrorStagedFocus(card, hologram);
+
+        const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
+        if (staged && faceDownCard && this._predicates.remainingAllowances().flips > 0) {
+            faceDownCard.setAttribute('tabindex', '0');
+        }
+        return staged;
+    }
+
+    clearKeyboardSelection({removePreview = true} = {}) {
+        const selection = this.state;
+        const card = selection.selectedCard;
+        if (card) {
+            card.classList.remove('keyboard-selected');
+            delete card.dataset.keyboardSelected;
+            if (card.getAttribute('aria-selected') === 'true') {
+                card.removeAttribute('aria-selected');
+            }
+            const activeElement = document.activeElement;
+            if (activeElement && (activeElement === card || card.contains(activeElement))) {
+                activeElement.blur();
+            }
+        }
+        if (this._focusArrow) {
+            this._focusArrow.arrow.remove();
+            this._focusArrow = null;
+        }
+        if (removePreview && selection.hologram?.parentNode) selection.hologram.remove();
+        this.state = this._emptyKeyboardSelection();
+    }
+
+    cancelKeyboardSelection() {
+        this.clearKeyboardSelection();
+    }
+
+    navigate(direction, fromElement) {
+        const region = this.navigator.regionFor(fromElement);
+        if (region === null) return false;
+
+        let target = null;
+        let isHandCard = false;
+        if (region === 'hand' && direction === 'ArrowUp') {
+            target = this.navigator.firstFieldCard();
+        } else if (region === 'hand' && direction === 'ArrowDown') {
+            target = this.navigator.endTurnButton();
+        } else if (region === 'field' && direction === 'ArrowUp') {
+            target = this.navigator.endTurnButton();
+        } else if (region === 'field' && direction === 'ArrowDown') {
+            target = this.navigator.handCardAt(this.persistedHandSlot);
+            isHandCard = true;
+        } else if (region === 'end-turn' && direction === 'ArrowUp') {
+            target = this.navigator.handCardAt(this.persistedHandSlot);
+            isHandCard = true;
+        } else if (region === 'end-turn' && direction === 'ArrowDown') {
+            target = this.navigator.drawButton();
+        } else if (region === 'draw' && direction === 'ArrowUp') {
+            target = this.navigator.endTurnButton();
+        } else if (region === 'draw' && direction === 'ArrowDown') {
+            target = this.navigator.handCardAt(this.persistedHandSlot);
+            isHandCard = true;
+        }
+        if (!target) return false;
+
+        if (isHandCard) {
+            const success = this.system.selectKeyboardCard(target, String(this.persistedHandSlot));
+            if (success) {
+                const parsed = Number.parseInt(this.state.digitBuffer, 10);
+                this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
+            }
+            return success;
+        }
+        target.focus({ preventScroll: true });
+        return typeof target.focus === 'function';
+    }
+
+    _mirrorStagedFocus(card, hologram) {
+        const ghostCard = hologram.querySelector('.cardContainer');
+        if (!ghostCard) return;
+        card.addEventListener('focusin', () => ghostCard.classList.add('keyboard-selected'));
+        card.addEventListener('focusout', () => ghostCard.classList.remove('keyboard-selected'));
+    }
+
+    onFocusIn(card) {
+        if (!card) return;
+        const target = this.parent._focusArrowTarget(card);
+        if (!target) return;
+        if (
+            this._focusArrow &&
+            this._focusArrow.source === card &&
+            this._focusArrow.target === target
+        ) return;
+        if (this._focusArrow) {
+            this._focusArrow.arrow.remove();
+            this._focusArrow = null;
+        }
+        this._focusArrow = {
+            source: card,
+            target,
+            arrow: this.parent._createFocusArrow(card, target),
+        };
+    }
+
+    onFocusOut(card) {
+        if (!this._focusArrow) return;
+        if (this._focusArrow.source !== card) return;
+        this._focusArrow.arrow.remove();
+        this._focusArrow = null;
+    }
+}
+
+class CardDragDropSystem {
+    constructor() {
+        this.draggedCard = null;
+        this.dropZones = new Map();
+        this.playerBoard = null;
+        this.createdDropZones = [];
+        this.turnAllowances = { int: 0, spd: 0, tactics: 0, drawn: 0, played: 0, flipped: 0 };
+        this.staged = { plays: 0, flips: 0 };
+        this.tooltips = { draw: "", play: "", flip: "" };
+        this.keyboardListenersBound = false;
+        this.keyboardObserver = null;
+        this.lastDragEndedAt = 0;
+        this.endTurnHold = new ShortcutHoldAction();
+        this.drawHold = new ShortcutHoldAction();
+        this.init();
     }
 
     init() {
@@ -184,6 +647,92 @@ class CardDragDropSystem {
         this.setupDropZoneListeners();
         this.setupFaceDownCardClickListeners();
         this.setupKeyboardSelection();
+
+        const handCardForId = (cardId) => this.playerHandCards().find(card => {
+            const input = this._cardIdInput(card);
+            return input && String(input.value) === String(cardId);
+        }) || null;
+
+        const isPlayableKeyboardCard = (card) => {
+            if (!card || !card.matches('li.cardContainer')) return false;
+            if (!this.playerHandCards().includes(card)) return false;
+            if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+            if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+            if (card.classList.contains('ghost') || card.closest('.ghost')) return false;
+            if (card.classList.contains('staged') || card.dataset.staged === 'true') return false;
+            if (card.classList.contains('loading') || card.closest('.loading')) return false;
+            if (card.getAttribute('draggable') !== 'true') return false;
+            if (card.matches('[aria-disabled="true"], :disabled') || card.querySelector(':disabled')) return false;
+            const cardIdInput = this._cardIdInput(card);
+            return Boolean(cardIdInput?.value);
+        };
+
+        const isStagedGhost = (card) => {
+            if (!card || !card.matches('li.cardContainer')) return false;
+            if (!this.playerHandCards().includes(card)) return false;
+            if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+            if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+            if (!card.classList.contains('ghost')) return false;
+            if (card.classList.contains('loading') || card.closest('.loading')) return false;
+            const cardIdInput = this._cardIdInput(card);
+            return Boolean(cardIdInput?.value);
+        };
+
+        const isOrderableKeyboardCard = (card) => {
+            if (!card || !card.matches('li.cardContainer')) return false;
+            if (isPlayableKeyboardCard(card)) return true;
+            return isStagedGhost(card);
+        };
+
+        const stagedLaneForGhost = (card) => {
+            const stored = Number.parseInt(card.dataset.stagedLane, 10);
+            if (stored >= 1 && stored <= 4) return stored;
+            return null;
+        };
+
+        const isGhostFlipCandidate = (card) => {
+            if (!card || !card.matches('li.cardContainer')) return false;
+            if (!this.playerHandCards().includes(card)) return false;
+            if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
+            if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
+            if (!card.classList.contains('ghost')) return false;
+            if (card.dataset.stagedFlipped === 'true') return false;
+            if (card.classList.contains('loading') || card.closest('.loading')) return false;
+            if (this.remainingAllowances().flips <= 0) return false;
+            if (!stagedLaneForGhost(card)) return false;
+            const cardIdInput = this._cardIdInput(card);
+            return Boolean(cardIdInput?.value);
+        };
+
+        const handCards = () => this.playerHandCards();
+        const hasPlayerBoard = () => this._hasPlayerBoard();
+        const remainingAllowances = () => this.remainingAllowances();
+        const keyboardTransitionActive = () => this._keyboardTransitionActive();
+
+        const noZeroOrdinal = (buffer) => {
+            if (!/^[1-9]+$/.test(buffer)) return null;
+            let ordinal = 0;
+            for (const character of buffer) {
+                ordinal = ordinal * 9 + Number.parseInt(character, 10);
+                if (!Number.isSafeInteger(ordinal)) return Number.POSITIVE_INFINITY;
+            }
+            return ordinal;
+        };
+
+        this._keyboardSelectionControl = new KeyboardSelectionControl({
+            parent: this,
+            isPlayableKeyboardCard,
+            isStagedGhost,
+            isOrderableKeyboardCard,
+            isGhostFlipCandidate,
+            handCardForId,
+            stagedLaneForGhost,
+            handCards,
+            hasPlayerBoard,
+            remainingAllowances,
+            keyboardTransitionActive,
+            noZeroOrdinal,
+        });
         this.applyTurnAffordances();
     }
 
@@ -204,6 +753,14 @@ class CardDragDropSystem {
         };
     }
 
+    get keyboardSelection() {
+        return this._keyboardSelectionControl?.state ?? null;
+    }
+
+    get control() {
+        return this._keyboardSelectionControl;
+    }
+
     playerHandCards() {
         const fanCards = Array.from(document.querySelectorAll(
             '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer'
@@ -216,12 +773,7 @@ class CardDragDropSystem {
     }
 
     playableKeyboardCards() {
-        if (
-            !this._hasPlayerBoard() ||
-            this._keyboardTransitionActive() ||
-            this.remainingAllowances().plays <= 0
-        ) return [];
-        return this.playerHandCards().filter(card => this._isPlayableKeyboardCard(card));
+        return this._keyboardSelectionControl.playableKeyboardCards();
     }
 
     applyTurnAffordances() {
@@ -404,6 +956,21 @@ class CardDragDropSystem {
                 subtree: true,
             });
         }
+        const playerScreen = document.querySelector('.playerScreen');
+        if (playerScreen) {
+            this.focusDelegateHandler = (event) => {
+                const card = event.target.closest('.cardContainer');
+                if (!card || !playerScreen.contains(card)) return;
+                if (card.closest('.playerScreen ul.cardRow[title="trustedCards"]')) return;
+                if (event.type === 'focusin') {
+                    this._keyboardSelectionControl.onFocusIn(card);
+                } else {
+                    this._keyboardSelectionControl.onFocusOut(card);
+                }
+            };
+            playerScreen.addEventListener('focusin', this.focusDelegateHandler, true);
+            playerScreen.addEventListener('focusout', this.focusDelegateHandler, true);
+        }
         this.keyboardListenersBound = true;
     }
 
@@ -542,78 +1109,31 @@ class CardDragDropSystem {
     }
 
     _isPlayableKeyboardCard(card) {
-        if (!card || !card.matches('li.cardContainer')) return false;
-        if (!this.playerHandCards().includes(card)) return false;
-        if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
-        if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
-        if (card.classList.contains('ghost') || card.closest('.ghost')) return false;
-        if (card.classList.contains('staged') || card.dataset.staged === 'true') return false;
-        if (card.classList.contains('loading') || card.closest('.loading')) return false;
-        if (card.getAttribute('draggable') !== 'true') return false;
-        if (card.matches('[aria-disabled="true"], :disabled') || card.querySelector(':disabled')) return false;
-        const cardIdInput = this._cardIdInput(card);
-        return Boolean(cardIdInput?.value);
+        return this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card);
     }
 
-    //TODO: rework this file
     _isStagedGhost(card) {
-        if (!card || !card.matches('li.cardContainer')) return false;
-        if (!this.playerHandCards().includes(card)) return false;
-        if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
-        if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
-        if (!card.classList.contains('ghost')) return false;
-        if (card.classList.contains('loading') || card.closest('.loading')) return false;
-        const cardIdInput = this._cardIdInput(card);
-        return Boolean(cardIdInput?.value);
+        return this._keyboardSelectionControl._isStagedGhost_Legacy(card);
     }
-    
+
     orderableKeyboardCards() {
-        if (!this._hasPlayerBoard() || this._keyboardTransitionActive()) return [];
-        return this.playerHandCards().filter(card => this._isOrderableKeyboardCard(card));
+        return this._keyboardSelectionControl.orderableKeyboardCards();
     }
 
     _isOrderableKeyboardCard(card) {
-        if (!card || !card.matches('li.cardContainer')) return false;
-        if (this._isPlayableKeyboardCard(card)) return true;
-        return this._isStagedGhost(card);
+        return this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card);
     }
 
-    
     _isGhostFlipCandidate(card) {
-        if (!card || !card.matches('li.cardContainer')) return false;
-        if (!this.playerHandCards().includes(card)) return false;
-        if (card.closest('.enemyBoard, .enemyDeckHand, .enemyHand')) return false;
-        if (card.classList.contains('blocked') || card.closest('.blocked')) return false;
-        if (!card.classList.contains('ghost')) return false;
-        if (card.dataset.stagedFlipped === 'true') return false;
-        if (card.classList.contains('loading') || card.closest('.loading')) return false;
-        if (this.remainingAllowances().flips <= 0) return false;
-        if (!this._stagedLaneForGhost(card)) return false;
-        const cardIdInput = this._cardIdInput(card);
-        return Boolean(cardIdInput?.value);
+        return this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card);
     }
 
     _stagedLaneForGhost(card) {
-        const stored = Number.parseInt(card.dataset.stagedLane, 10);
-        if (stored >= 1 && stored <= 4) return stored;
-        return null;
+        return this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card);
     }
 
     _handCardForId(cardId) {
-        return this.playerHandCards().find(card => {
-            const input = this._cardIdInput(card);
-            return input && String(input.value) === String(cardId);
-        }) || null;
-    }
-
-    _noZeroOrdinal(buffer) {
-        if (!/^[1-9]+$/.test(buffer)) return null;
-        let ordinal = 0;
-        for (const character of buffer) {
-            ordinal = ordinal * 9 + Number.parseInt(character, 10);
-            if (!Number.isSafeInteger(ordinal)) return Number.POSITIVE_INFINITY;
-        }
-        return ordinal;
+        return this._keyboardSelectionControl._handCardForId_Legacy(cardId);
     }
 
     _isEndTurnKey(event) {
@@ -774,6 +1294,23 @@ class CardDragDropSystem {
 
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
+        if (event.key === '`') {
+            const target = event.target || document.activeElement;
+            if (this._isTextControlTarget(target) || this._isTextControlTarget(document.activeElement)) {
+                event.preventDefault();
+                return;
+            }
+            event.preventDefault();
+            const playerCounter = document.querySelector('.playerScreen .deckHand > p');
+            if (playerCounter) playerCounter.classList.toggle('debug-overlay-visible');
+            document.querySelectorAll('.playerScreen .enemyDeckHand > p').forEach(element => {
+                element.classList.toggle('debug-overlay-visible');
+            });
+            document.querySelectorAll('.playerScreen .lanes .lane > p').forEach(element => {
+                element.classList.toggle('debug-overlay-visible');
+            });
+            return;
+        }
         if (this._isEndTurnKey(event)) {
             this.onEndTurnKeyDown(event);
             return;
@@ -815,7 +1352,7 @@ class CardDragDropSystem {
         ) {
             if (event.repeat) return;
             if (this.keyboardSelection.ghostFlip) {
-                if (this._confirmGhostFlipSelection(event)) event.preventDefault();
+                if (this._keyboardSelectionControl._confirmGhostFlipSelection(event)) event.preventDefault();
                 return;
             }
             const selection = this.keyboardSelection;
@@ -828,6 +1365,16 @@ class CardDragDropSystem {
             }
             if (!this._keyboardActionAllowed(event)) return;
             if (this.confirmKeyboardSelection()) event.preventDefault();
+            return;
+        }
+
+        if (
+            (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') &&
+            !this.keyboardSelection.selectedCard &&
+            !this.keyboardSelection.ghostFlip
+        ) {
+            if (!this._keyboardInteractionAllowed(event)) return;
+            if (this.control.navigate(key, document.activeElement)) event.preventDefault();
             return;
         }
 
@@ -877,7 +1424,7 @@ class CardDragDropSystem {
         event.preventDefault();
         const digitBuffer = `${this.keyboardSelection.digitBuffer}${key}`;
         this.keyboardSelection.digitBuffer = digitBuffer;
-        const ordinal = this._noZeroOrdinal(digitBuffer);
+        const ordinal = this._keyboardSelectionControl._noZeroOrdinal(digitBuffer);
         if (ordinal) {
             if (ordinal <= orderableCards.length) {
                 this.selectOrderedCard(orderableCards[ordinal - 1], digitBuffer, event);
@@ -885,7 +1432,7 @@ class CardDragDropSystem {
             }
         }
         const lastDigitBuffer = digitBuffer.slice(-1);
-        const lastDigitOrdinal = this._noZeroOrdinal(lastDigitBuffer);
+        const lastDigitOrdinal = this._keyboardSelectionControl._noZeroOrdinal(lastDigitBuffer);
         if (lastDigitOrdinal && lastDigitOrdinal <= orderableCards.length) {
             this.selectOrderedCard(orderableCards[lastDigitOrdinal - 1], lastDigitBuffer, event);
             return;
@@ -912,252 +1459,27 @@ class CardDragDropSystem {
     }
 
     flipKeyboardFocusedCard(event) {
-        if (this._keyboardTransitionActive()) return;
-        const card = this._keyboardFlipTarget(event);
-        if (!card || event.repeat) return;
-        const laneValue = this._laneValueForCard(card);
-        if (
-            laneValue == null ||
-            this.remainingAllowances().flips <= 0 ||
-            card.classList.contains('blocked') ||
-            card.closest('.blocked') ||
-            card.classList.contains('ghost')
-        ) return;
-        event.preventDefault();
-        this.onFaceDownCardClick(event, laneValue);
+        return this._keyboardSelectionControl.flipKeyboardFocusedCard(event);
     }
 
-    _keyboardFlipTarget(event) {
-        for (const candidate of [event.target, document.activeElement]) {
-            if (!candidate || typeof candidate.closest !== 'function') continue;
-            const card = candidate.closest(
-                '.playerBoard ul.cardRow li.cardContainer.faceDown, ' +
-                '.hologram.keyboard-staged .cardContainer.faceDown'
-            );
-            if (card) return card;
-        }
-        return null;
-    }
-
-    _keyboardHologramRow(laneValue) {
-        const zone = this.dropZones.get(laneValue)?.element;
-        return zone?.closest('li.lane')?.querySelector('.hologramRow') || null;
-    }
-
-    _selectGhostFlipCard(card, digitBuffer) {
-        const laneValue = this._stagedLaneForGhost(card);
-        const cardIdInput = this._cardIdInput(card);
-        if (!laneValue || !cardIdInput?.value) return false;
-
-        this.clearKeyboardSelection();
-        card.classList.add('keyboard-selected');
-        card.dataset.keyboardSelected = 'true';
-        card.setAttribute('aria-selected', 'true');
-        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
-        this.keyboardSelection = {
-            selectedCard: card,
-            cardId: cardIdInput.value,
-            sourceLane: card.dataset.sourceLane || '0',
-            sourceOrdinal: card.dataset.sourceOrdinal || '0',
-            laneValue,
-            currentLane: laneValue,
-            hologram: null,
-            rotation: null,
-            digitBuffer,
-            ghostFlip: true,
-        };
-        return true;
-    }
-
-    _confirmGhostFlipSelection(event = null) {
-        const selection = this.keyboardSelection;
-        const card = selection.selectedCard;
-        if (!selection.ghostFlip || !this._isGhostFlipCandidate(card)) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-        if (!this._ghostFlipInteractionAllowed(event)) return false;
-
-        const cardId = selection.cardId;
-        const laneValue = selection.laneValue;
-        this.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);
-
-        const stagedCard = document.querySelector(
-            `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"] .cardContainer`
-        );
-        if (stagedCard) {
-            stagedCard.classList.remove('faceDown');
-            const cardFace = stagedCard.querySelector(':scope > .card');
-            if (cardFace) cardFace.classList.remove('back');
-            // Face-up cards are never focusable; the flip is one-shot.
-            stagedCard.removeAttribute('tabindex');
-            stagedCard.dataset.stagedFlipped = 'true';
-        }
-        card.dataset.stagedFlipped = 'true';
-        card.classList.add('ghost-flipped');
-        this.staged.flips++;
-        this.applyTurnAffordances();
-        this.clearKeyboardSelection();
-        return true;
-    }
-
-    selectKeyboardCard(card, digitBuffer = this.keyboardSelection.digitBuffer) {
-        if (!this._hasPlayerBoard()) return false;
-        if (this._keyboardTransitionActive()) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-        if (this._isGhostFlipCandidate(card)) {
-            return this._selectGhostFlipCard(card, digitBuffer);
-        }
-        if (this.remainingAllowances().plays <= 0) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-        if (!this._isPlayableKeyboardCard(card)) return false;
-        const laneValue = this._cardLaneValue(card);
-        const holoRow = laneValue ? this._keyboardHologramRow(laneValue) : null;
-        if (!laneValue || !holoRow) return false;
-
-        const hologram = this._buildPlayHologram(card, laneValue, true);
-        if (!hologram) return false;
-
-        this.clearKeyboardSelection();
-        holoRow.appendChild(hologram);
-        card.classList.add('keyboard-selected');
-        card.dataset.keyboardSelected = 'true';
-        card.setAttribute('aria-selected', 'true');
-        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
-        const cardIdInput = this._cardIdInput(card);
-        this.keyboardSelection = {
-            selectedCard: card,
-            cardId: cardIdInput.value,
-            sourceLane: card.dataset.sourceLane || '0',
-            sourceOrdinal: card.dataset.sourceOrdinal || '0',
-            laneValue,
-            currentLane: laneValue,
-            hologram,
-            rotation: hologram.style.getPropertyValue('--card-rotation'),
-            digitBuffer,
-        };
-        return true;
+    selectKeyboardCard(card, digitBuffer) {
+        return this._keyboardSelectionControl.selectKeyboardCard(card, digitBuffer);
     }
 
     moveKeyboardSelection(laneValue) {
-        const selection = this.keyboardSelection;
-        const parsedLane = Number.parseInt(laneValue, 10);
-        if (
-            !selection.selectedCard ||
-            !Number.isInteger(parsedLane) ||
-            parsedLane < 1 ||
-            parsedLane > 4 ||
-            !this.dropZones.has(parsedLane)
-        ) return false;
-        if (
-            this._keyboardTransitionActive() ||
-            this.remainingAllowances().plays <= 0 ||
-            !this._isPlayableKeyboardCard(selection.selectedCard)
-        ) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-
-        const holoRow = this._keyboardHologramRow(parsedLane);
-        const hologram = this._buildPlayHologram(
-            selection.selectedCard,
-            parsedLane,
-            true,
-            selection.rotation,
-        );
-        if (!holoRow || !hologram) return false;
-
-        if (selection.hologram?.parentNode) selection.hologram.remove();
-        holoRow.appendChild(hologram);
-        selection.hologram = hologram;
-        selection.laneValue = parsedLane;
-        selection.currentLane = parsedLane;
-        return true;
+        return this._keyboardSelectionControl.moveKeyboardSelection(laneValue);
     }
 
     confirmKeyboardSelection(laneValue = null) {
-        if (!this.keyboardSelection.selectedCard) return false;
-        if (
-            this._keyboardTransitionActive() ||
-            this.remainingAllowances().plays <= 0 ||
-            !this._isPlayableKeyboardCard(this.keyboardSelection.selectedCard)
-        ) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-
-        const requestedLane = laneValue == null
-            ? this.keyboardSelection.currentLane
-            : Number.parseInt(laneValue, 10);
-        if (!Number.isInteger(requestedLane) || requestedLane < 1 || requestedLane > 4) {
-            return false;
-        }
-        if (requestedLane !== this.keyboardSelection.currentLane && !this.moveKeyboardSelection(requestedLane)) {
-            return false;
-        }
-
-        const selection = this.keyboardSelection;
-        const card = selection.selectedCard;
-        if (
-            !card ||
-            !selection.hologram ||
-            !selection.hologram.parentNode ||
-            !this._isPlayableKeyboardCard(card) ||
-            this._keyboardTransitionActive() ||
-            this.remainingAllowances().plays <= 0
-        ) {
-            this.clearKeyboardSelection();
-            return false;
-        }
-
-        selection.hologram.remove();
-        const hologram = this._buildPlayHologram(card, requestedLane, false, selection.rotation);
-        this._keyboardHologramRow(requestedLane).appendChild(hologram);
-        hologram.classList.add('keyboard-staged');
-        hologram.dataset.keyboardStaged = 'true';
-
-        const staged = this._stagePlay(card, requestedLane, hologram, true, selection);
-        hologram.dataset.stagedForCardId = selection.cardId;
-        if (staged) this._mirrorStagedFocus(card, hologram);
-
-        const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
-        if (staged && faceDownCard && this.remainingAllowances().flips > 0) {
-            faceDownCard.setAttribute('tabindex', '0');
-        }
-        return staged;
+        return this._keyboardSelectionControl.confirmKeyboardSelection(laneValue);
     }
 
-    clearKeyboardSelection({removePreview = true} = {}) {
-        const selection = this.keyboardSelection;
-        const card = selection.selectedCard;
-        if (card) {
-            card.classList.remove('keyboard-selected');
-            delete card.dataset.keyboardSelected;
-            if (card.getAttribute('aria-selected') === 'true') {
-                card.removeAttribute('aria-selected');
-            }
-            const activeElement = document.activeElement;
-            if (activeElement && (activeElement === card || card.contains(activeElement))) {
-                activeElement.blur();
-            }
-        }
-        if (removePreview && selection.hologram?.parentNode) selection.hologram.remove();
-        this.keyboardSelection = this._emptyKeyboardSelection();
+    clearKeyboardSelection(opts) {
+        return this._keyboardSelectionControl.clearKeyboardSelection(opts);
     }
 
     cancelKeyboardSelection() {
-        this.clearKeyboardSelection();
-    }
-
-    _mirrorStagedFocus(card, hologram) {
-        const ghostCard = hologram.querySelector('.cardContainer');
-        if (!ghostCard) return;
-        card.addEventListener('focusin', () => ghostCard.classList.add('keyboard-selected'));
-        card.addEventListener('focusout', () => ghostCard.classList.remove('keyboard-selected'));
+        return this._keyboardSelectionControl.cancelKeyboardSelection();
     }
 
     onHandCardClick(event) {
@@ -1379,8 +1701,6 @@ class CardDragDropSystem {
 
         sourceEl.addEventListener('mouseenter', showArrow);
         sourceEl.addEventListener('mouseleave', hideArrow);
-        sourceEl.addEventListener('focusin', showArrow);
-        sourceEl.addEventListener('focusout', hideArrow);
         targetEl.addEventListener('mouseenter', showArrow);
         targetEl.addEventListener('mouseleave', hideArrow);
     }
@@ -1440,6 +1760,36 @@ class CardDragDropSystem {
         return svg;
     }
 
+    _createFocusArrow(sourceEl, targetEl) {
+        const arrow = this._createCurvedArrow(sourceEl, targetEl);
+        document.body.appendChild(arrow);
+        sourceEl.classList.add('hover');
+        targetEl.classList.add('hover');
+        return arrow;
+    }
+
+    _focusArrowTarget(card) {
+        if (!card || typeof card.closest !== 'function') return null;
+        if (card.closest('.playerScreen .deckHand')) {
+            const cardIdInput = this._cardIdInput(card);
+            const cardId = cardIdInput?.value;
+            if (!cardId) return null;
+            const hologram = document.querySelector(
+                `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`
+            );
+            return hologram?.querySelector('.cardContainer') || null;
+        }
+        if (
+            card.closest('.playerScreen .playerBoard ul.cardRow') &&
+            card.dataset.stagedFlipped === 'true'
+        ) {
+            const lane = card.closest('li.lane');
+            const flipHologram = lane?.querySelector(':scope > .hologramRow > .hologram');
+            return flipHologram?.querySelector('.cardContainer') || null;
+        }
+        return null;
+    }
+
     onFaceDownCardClick(e, laneValue) {
         if (this.remainingAllowances().flips <= 0) return;
         const card = (e.currentTarget instanceof Element ? e.currentTarget : null)
@@ -1458,6 +1808,7 @@ class CardDragDropSystem {
 
             // Lane card stays face-down — ghostly to indicate it was flipped
             card.classList.add('ghost');
+            card.dataset.stagedFlipped = 'true';
 
             // Create face-up hologram clone
             const flipHologram = document.createElement('div');
@@ -1489,7 +1840,10 @@ class CardDragDropSystem {
             // One-shot click-to-flip on the hologram (same pattern as play hologram)
             const holoCard = flipHologram.querySelector('.cardContainer');
             if (holoCard) {
-                holoCard.addEventListener('click', (ev) => this.onFaceDownCardClick(ev, laneValue), { once: true });
+                holoCard.addEventListener('click', (ev) => {
+                    if (card.dataset.stagedFlipped === 'true') return;
+                    this.onFaceDownCardClick(ev, laneValue);
+                }, { once: true });
             }
 
             // Hover arrow between lane card and hologram
@@ -1562,8 +1916,17 @@ class CardDragDropSystem {
         this.createdDropZones = [];
         this.dropZones.clear();
         this.draggedCard = null;
+        if (this.focusDelegateHandler) {
+            const playerScreen = document.querySelector('.playerScreen');
+            if (playerScreen) {
+                playerScreen.removeEventListener('focusin', this.focusDelegateHandler, true);
+                playerScreen.removeEventListener('focusout', this.focusDelegateHandler, true);
+            }
+            this.focusDelegateHandler = null;
+        }
         this.keyboardListenersBound = false;
         this.playerBoard = null;
+        this._keyboardSelectionControl = null;
     }
 }
 

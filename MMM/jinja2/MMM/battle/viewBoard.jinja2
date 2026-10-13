@@ -18,6 +18,7 @@
   data-drawn="{{ turnAllowances.drawn }}"
   data-played="{{ turnAllowances.played }}"
   data-flipped="{{ turnAllowances.flipped }}"
+  data-focused-hand-card="{{ turnAllowances.focused_hand_card }}"
   data-draw-blocked-title="{{ turnAllowances.blocked_titles.draw }}"
   data-play-blocked-title="{{ turnAllowances.blocked_titles.play }}"
   data-flip-blocked-title="{{ turnAllowances.blocked_titles.flip }}">
@@ -44,8 +45,8 @@
         {% for enemy in enemyBoards %}
         <li class="enemyBoard" data-participant-id="{{ enemy.participant.id }}">
             <h2>{{ enemy.participant.player.name }} </h2>
-            <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
             <div class="enemyDeckHand">
+                <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
                 <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
                     {% for indicator in enemy.deckIndicators %}
                     <ul class="deck-indicator" aria-hidden="true" inert
@@ -361,6 +362,7 @@
         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
             {{ csrf_input }}
             <input type="hidden" name="action" value="end_turn">
+            <input type="hidden" name="focused_hand_card" value="{{ turnAllowances.focused_hand_card }}">
             <button type="submit" class="end-turn" title="End turn" {% if turnPhase != "enemy" %}autofocus{% endif %}>
                 <span class="suit">End turn</span>
             </button>
