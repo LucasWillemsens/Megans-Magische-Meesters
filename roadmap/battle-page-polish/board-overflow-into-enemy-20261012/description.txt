@@ -1,7 +1,206 @@
-BUG: playerboard can never overflow into enemyBoard.
+BUG: the player board can never overflow into the enemy board.
 
-Let the player board push the enemy board up when it gets tall, which should work in combination with the wider field. Fewer cards should then overflow vertically.
+When a player lane overflows (e.g. an Intelligence lane with 8+ cards), the
+extra rows are positioned absolutely *above* the first card row inside a
+fixed-height lane. With the current layout that height is hard-capped by:
 
-no max on the player board
+  div.playerScreen         min-height: 1080px
+  .playerBoard             height: 100%   (1080px)
+  li.playerBoard > ul.basic-mat   height: 50%   (~540px)
+  ul.lanes                 height: 85%   (~459px)
+  ul.lanes li.lane         (= each lane, ~459px)
 
-- The deckHand (hand + draw + end-turn) should not change when the player lanes get taller
+Because the lane is 459px tall and each card row is ~7.5rem (≈120px), only
+~3 rows fit. The fourth row clips into the lane title or off the top of
+the lane, and on long games the extra cards are simply invisible. The
+player board is also locked to a fixed height (50% of .basic-mat) so it
+can never grow even if the lane wanted to.
+
+The user-facing fix:
+
+  * The player board must grow vertically when the lanes grow, and that
+    growth must push the enemy boards *up* (away from the player board).
+    The browser does this automatically if the playerScreen is a flex
+    column with `align-items: flex-start` and the deckHand is anchored at
+    the bottom with `margin-top: auto`.
+  * The deckHand (deck stack + hand fan + end-turn button) must stay the
+    same size and stay at the bottom of the screen. It must not stretch
+    with the player board.
+  * There must be no max-height on the player board container anymore.
+  * The lane-indicator `<p>` (`value | name`) and the trustedCards row
+    must stay vertically centred / anchored to the lane even when the
+    lane grows beyond a single card row. The existing absolute positioning
+    of the lane indicator already handles this; the trustedCards row sits
+    below the cardRow and grows with the lane naturally.
+
+Implementation:
+
+1. `var/www/static/cards.css`
+
+   a. Remove the fixed `height: 85%` and the implicit `height: 50%` of
+      `li.playerBoard > ul.basic-mat` so the player board expands to fit
+      the lanes. Concretely:
+
+      - `li.playerBoard > ul.basic-mat` (around line 771-775):
+          * remove `height: 50%` (was hard-capping the player board at
+            half the .playerScreen height);
+          * change `display: block` to `display: flex` with
+            `flex-direction: column` and no `height` so it follows its
+            content;
+          * `flex: 1 1 auto` so it still takes any leftover vertical
+            space when the player board is short.
+      - `ul.lanes` (around line 787-800):
+          * remove `height: 85%`; replace with `min-height: 7.5rem` (one
+            card row) and let `align-items: stretch` equalize the four
+            lanes;
+          * keep the existing `display: flex; flex-direction: row;
+            align-items: stretch;` so the four lanes stay the same
+            height and grow together;
+          * keep `flex-wrap: nowrap`.
+      - `div.playerScreen` (line 750): keep `min-height: 1080px` so a
+        short game still fills the viewport, but change the column
+        layout so the player board can grow: set
+        `justify-content: flex-start` (already set) and ensure the
+        deckHand is `flex: 0 0 auto` / `margin-top: auto` so it is
+        pinned to the bottom and never grows.
+
+   b. Confirm `ul.lanes li.lane > p` (the lane indicator, lines 823-848)
+      still uses `position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%)` so the indicator stays centred
+      inside a lane of any height. This is already the case — keep it.
+
+   c. The overflow rows in `ul.lanes li.lane > ul.cardRow.overflow-row`
+      (line 1233-1239) are positioned absolutely with
+      `bottom: calc(100% - var(--lane-row-height) * var(--overflow-row-index, 1))`.
+      This positions overflow rows above the first card row inside the
+      lane. With the new layout the lane grows to fit all overflow rows
+      naturally, so the absolute positioning is harmless (rows are
+      absolutely positioned within a lane that is tall enough to contain
+      them). No change required for these rules, but verify that
+      `position: relative` is set on the lane (line 804, already true).
+
+   d. The trustedCards row (no class, sits under the cardRow inside the
+      lane) is currently laid out in normal flow. With the lane growing
+      to fit the overflow rows, the trustedCards row sits below the
+      last overflow row as expected. No change required.
+
+2. `var/www/static/loadingAnimations.js`
+
+   No structural change. `duplicateCard()` uses
+   `findCardRowForOrdinal()` (line 908) which already targets the
+   correct overflow row by ordinal. `findCardRowForOrdinal` walks
+   `ul.cardRow[title="cards"]` rows and respects
+   `data-cards-per-row`. With taller lanes it still works.
+
+3. `var/www/static/laneStacking.js`
+
+   No change. `LaneCardStacking.MAX_CARDS_PER_ROW = 15` and
+   `splitIntoRows()` already split cards into overflow rows correctly;
+   the new layout simply gives those rows more room to render.
+
+4. `MMM/jinja2/MMM/battle/viewBoard.jinja2`
+
+   No change. The structure (`ul.lanes` → `li.lane` →
+   `ul.hologramRow`, `ul.cardRow[title="cards"]`, `<p>`,
+   `ul.cardRow[title="trustedCards"]`) is already correct.
+
+5. `MMM/tests.py` — update or add tests
+
+   a. `test_lane_heights_stretch_equal_across_board` (line 2316) asserts
+      that `ul.lanes` has `display: flex; flex-direction: row;
+      align-items: stretch` and that `ul.lanes li.lane` does *not*
+      declare a `height:` property. The fix removes `height: 85%` from
+      `ul.lanes` itself, but the test is on `li.lane`, so it still
+      passes. Verify the test still passes; tighten it to also assert
+      that `ul.lanes` itself does not declare a fixed `height:`.
+
+   b. New test `test_player_board_grows_with_overflow_rows`:
+        - render the board with a long Intelligence lane (>= 16 cards
+          to force overflow into a second cardRow);
+        - assert that the four lanes have equal clientHeight (via
+          Playwright or via parsing the rendered cardRow positions);
+        - assert that the playerBoard's offsetHeight is at least
+          `lanes * 2 * card-row-height` so the second row is not
+          clipped.
+        - assert that the deckHand's offsetHeight is unchanged before
+          and after the overflow is added (the deckHand should not
+          grow with the player board).
+
+   c. New test `test_deck_hand_does_not_grow_with_player_lanes`:
+        - render the board at empty state (0 cards in hand) and at
+          12 cards in hand with 16 cards in lanes;
+        - parse the deckHand height from the rendered HTML / CSS;
+        - assert the heights are equal.
+
+   d. New test `test_overflow_rows_visible_under_long_lane`:
+        - load `laneStacking.js` and `cards.css` as text;
+        - assert the `.cardRow.overflow-row` rule has
+          `position: absolute; bottom: calc(100% - ...)` so the second
+          row sits visually above the first row inside a tall lane;
+        - assert no `overflow: hidden` on `ul.lanes li.lane` (that
+          would clip overflow rows).
+
+Files to create / modify:
+- `var/www/static/cards.css` — remove `height: 85%` from `ul.lanes`,
+  remove `height: 50%` from `li.playerBoard > ul.basic-mat`,
+  switch `.basic-mat` to flex-column, ensure `.playerScreen` lays
+  out the deckHand with `margin-top: auto`.
+- `MMM/tests.py` — add three new tests above; tighten
+  `test_lane_heights_stretch_equal_across_board` to also assert
+  `ul.lanes` itself has no `height:` rule.
+
+Acceptance criteria:
+- [ ] A player lane with 16 cards renders 2 card rows and the second
+      row is fully visible (not clipped).
+- [ ] A player lane with 32 cards renders 3 card rows and the third
+      row is fully visible.
+- [ ] The deckHand offsetHeight is the same whether the player has
+      0 hand cards and empty lanes, or 12 hand cards and 16 cards
+      in lanes.
+- [ ] The four lanes stay equal-height when one lane is much taller
+      than the others.
+- [ ] The lane indicator `<p>` (`value | name`) stays centred inside
+      its lane regardless of how many overflow rows the lane has.
+- [ ] The trustedCards row sits below the last overflow row, not
+      above it.
+- [ ] The enemy board is pushed *up* by the player board growing
+      (so the enemy board can scroll off-screen on long games);
+      the playerScreen never scrolls horizontally.
+- [ ] `python3 manage.py test` is green.
+
+Dependencies:
+- `roadmap/battle-page-polish/horizontal-lane-spread-20261012` should
+  land first or together: widening the field means more cards fit per
+  row, which reduces the frequency of overflow. Both nodes touch
+  `cards.css` and `laneStacking.js`, so coordinate the changes in the
+  same PR or land horizontal-spread first.
+- `roadmap/battle-page-polish/board-overflow-into-enemy-20261012` has
+  no dependency on `keyboard-navigation-20261012` or the focus
+  bugfixes, but they all touch the same `.playerScreen` flex column
+  so prefer landing this node before the focus-affordance changes.
+
+Risks / notes:
+- Removing `height: 50%` from `li.playerBoard > ul.basic-mat` and
+  `height: 85%` from `ul.lanes` is a one-way door. Existing tests that
+  pinned fixed heights must be updated; the new layout depends on
+  flex stretch for the four-lane equal-height invariant.
+- The `.playerScreen` is `display: flex; flex-direction: column;
+  align-items: flex-start;` and the deckHand is `margin-top: auto`
+  (line 856). That already pins the deckHand to the bottom in a
+  column flex container. Verify after the change by checking
+  `getComputedStyle('.playerScreen .deckHand').marginTop === 'auto'`
+  or by visual inspection.
+- The overflow rows remain absolutely positioned inside the lane
+  (`ul.lanes li.lane > ul.cardRow.overflow-row`). They position
+  relative to the lane's bottom edge. With the lane now growing to
+  fit, the absolute positioning still works as long as the lane
+  itself is the positioning context (`position: relative` on the
+  lane, line 804, already set).
+- If a single lane has 50+ cards (very long game), the lane grows
+  proportionally. The `.playerScreen` is allowed to scroll vertically
+  (no `overflow: hidden` on `.playerScreen`), so the user can scroll
+  to see the bottom of the player board. The deckHand stays fixed
+  at the viewport bottom because it is the last flex item in a
+  `min-height: 1080px` column — but it is *not* `position: fixed`,
+  so on small viewports it scrolls with the page. That is the
+  current behavior and the user said it must not change.

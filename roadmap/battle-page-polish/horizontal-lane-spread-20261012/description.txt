@@ -1,8 +1,274 @@
-Lanes need more horizontal space. The field should always take up around 90% 
+The four player lanes are too narrow: at the current 56% field width
+with 14% horizontal padding on each side, only ~5 cards fit per row
+in a typical lane before the lane-stacking JS adds an overflow row.
+The field should be roughly 90% of the viewport width, so the same
+lane comfortably fits ~9 cards per row on a 1920px monitor.
 
-- Widen `.playingCards .boardContainer` / `.lanes` to ~90vw, with a sensible max for huge screens.
-- Re-tune the MAX_CARDS_PER_ROW constant in laneStacking.js — it was tuned for a narrower field; with 90% width, more cards should fit per row before overflow kicks in.
+Both player fields (lanes + trustedCards rows) must stay
+symmetric — the four lanes are equal width and the trustedCards
+row is centred under its lane. The change widens `ul.lanes` to
+~90vw with a sensible cap for very large screens, and re-tunes
+`LaneCardStacking.MAX_CARDS_PER_ROW` in `laneStacking.js` so the
+overflow trigger matches the new per-row capacity.
 
-Don't worry about Mobile / narrow viewports
+Mobile / narrow viewports are explicitly out of scope — the
+existing `@media (max-width: 700px)` block (cards.css line 984) is
+untouched and continues to handle small screens.
 
-Both player fields should remain symmetric in width
+> Note: the original description referenced
+> `.playingCards .boardContainer`, but no such class exists in the
+> codebase. The player field is rendered as
+> `div.playerScreen.playingCards` → `li.playerBoard` →
+> `ul.basic-mat` → `ul.lanes` (viewBoard.jinja2 lines 169-170,
+> 172-174). The class to widen is `ul.lanes`.
+
+Implementation:
+
+1. `var/www/static/cards.css` — widen the `ul.lanes` rule (around
+   lines 787-800).
+
+   Current values:
+       width: 56%;
+       padding: 0 14%;
+       gap: 2%;
+
+   New values (target ~90vw on a 1920px screen, capped at a
+   sensible max so a 4K monitor does not get absurdly wide lanes):
+       width: min(90vw, 1600px);
+       padding: 0 2%;
+       gap: 1.5%;
+
+   Reasoning:
+   - `min(90vw, 1600px)` gives 90vw on viewports up to ~1778px
+     wide, then caps at 1600px so the lanes do not exceed
+     ~1600px total field width on a 4K display. The player
+     deckHand is still anchored to the bottom of the playerScreen
+     flex column, so extra horizontal space on the lanes does
+     not affect vertical layout.
+   - Reducing the side padding from 14% to 2% gives the four
+     lanes more room. Combined with the wider field, each lane
+     is now ~22% of `min(90vw, 1600px)`, which is roughly
+     22% of 1728px = ~380px per lane on a 1920px monitor. That
+     is enough for 9 overlapping cards at the existing
+     1.4em overlap offset.
+   - Tightening `gap: 2%` to `gap: 1.5%` recovers some of the
+     space taken by the wider field, but the gap can be left
+     at 2% if the visual result is fine. Either value is
+     acceptable; prefer 1.5% for a slightly tighter field.
+
+   Also update `ul.lanes li.lane` (line 801-805):
+       min-width: 8rem;
+   so a very narrow viewport (e.g. 700px) still produces lanes
+   that are at least 8rem wide. The `min-width` is already
+   there; keep it.
+
+   Keep `display: flex; flex-direction: row; align-items: stretch;`
+   unchanged so the existing
+   `test_lane_heights_stretch_equal_across_board` invariant
+   (all four lanes equal-height via flex stretch) still holds.
+
+   Keep `flex-wrap: nowrap` unchanged.
+
+   No other rule in `cards.css` needs to change. The
+   `ul.lanes li.lane > p` lane indicator (lines 823-848) is
+   already absolutely positioned and remains centred inside
+   each lane regardless of width.
+
+2. `var/www/static/laneStacking.js` — re-tune `MAX_CARDS_PER_ROW`.
+
+   Current value (line 3):
+       static MAX_CARDS_PER_ROW = 15;
+
+   New value:
+       static MAX_CARDS_PER_ROW = 25;
+
+   The existing `reflowRowGroup()` math (line 31-53) clamps the
+   effective per-row count to `Math.min(MAX_CARDS_PER_ROW,
+   Math.max(1, Math.floor((laneWidth - firstCardWidth) /
+   overlapPx) + 1))`. The 25 cap is a safety net so an
+   extremely wide viewport (e.g. 4K) does not try to fit 50
+   cards in one row and produce a single-row layout that is
+   impossible to read. The nth-child offset rules in
+   `cards.css` (`ul.cardRow li.cardContainer:nth-child(N) { left: ... }`)
+   define explicit per-card left positions for N up to 20 (see
+   `cards.css` lines 1199-1218); the existing test
+   `test_lane_overflow_splits_rows_without_merging_back` (tests.py
+   line 2304-2314) asserts that `MAX_CARDS_PER_ROW <= max defined
+   nth-child offset` and that overflow rows use the absolute
+   positioning. After raising the cap to 25, the
+   `nth-child(N)` rules only need to cover up to 25. Add the
+   missing rules for nth-child(21)-(25) in `cards.css`:
+
+       .playingCards ul.cardRow li.cardContainer:nth-child(21) { left: 29.8em; z-index: 21; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(22) { left: 31.2em; z-index: 22; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(23) { left: 32.6em; z-index: 23; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(24) { left: 34.0em; z-index: 24; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(25) { left: 35.4em; z-index: 25; }
+
+   The left-offset delta per card is 1.4em (matching the
+   `overlapOffset` of 1.4 in `LaneCardStacking`), so each
+   subsequent card is 1.4em to the right of the previous one.
+   For nth-child(21): 20 * 1.4em = 28.0em, plus the
+   `0.0em` starting offset adjustment is 28.0em; following
+   the pattern of existing rules, use `29.8em` (21 * 1.4em ≈
+   29.4em + 0.4em rounding). Match the existing
+   `nth-child(1) { left: 0 }` baseline; the empirical pattern
+   from `cards.css` (lines 1199-1218) is `left: ((N - 1) * 1.4)
+   + 0` rounded, so:
+       nth-child(21) → 20 * 1.4 = 28.0em  → 28.0em
+       nth-child(22) → 21 * 1.4 = 29.4em  → 29.4em
+       nth-child(23) → 22 * 1.4 = 30.8em  → 30.8em
+       nth-child(24) → 23 * 1.4 = 32.2em  → 32.2em
+       nth-child(25) → 24 * 1.4 = 33.6em  → 33.6em
+
+   Adjust the z-index to match. The existing pattern uses
+   `z-index: N` for nth-child(N) where N goes 1..20.
+
+   Wait — the existing CSS uses a different pattern. Look at
+   the actual deltas in `cards.css` lines 1199-1218:
+       nth-child(1)  left: 0
+       nth-child(2)  left: 3.2em
+       nth-child(3)  left: 4.6em
+       ...
+       nth-child(20) left: 28.4em
+
+   The deltas are: 3.2, 1.4, 1.4, 1.4, ..., 1.4. The first
+   delta is 3.2em (the card width is ~3.2em including margin),
+   and the rest are 1.4em (the overlap). So the formula is
+   `left: 3.2em + (N - 2) * 1.4em` for N >= 2, and `left: 0`
+   for N = 1.
+
+   For N=21..25:
+       nth-child(21) left: 3.2em + 19 * 1.4em = 3.2em + 26.6em = 29.8em
+       nth-child(22) left: 3.2em + 20 * 1.4em = 3.2em + 28.0em = 31.2em
+       nth-child(23) left: 3.2em + 21 * 1.4em = 3.2em + 29.4em = 32.6em
+       nth-child(24) left: 3.2em + 22 * 1.4em = 3.2em + 30.8em = 34.0em
+       nth-child(25) left: 3.2em + 23 * 1.4em = 3.2em + 32.2em = 35.4em
+
+   So:
+       .playingCards ul.cardRow li.cardContainer:nth-child(21) { left: 29.8em; z-index: 21; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(22) { left: 31.2em; z-index: 22; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(23) { left: 32.6em; z-index: 23; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(24) { left: 34.0em; z-index: 24; }
+       .playingCards ul.cardRow li.cardContainer:nth-child(25) { left: 35.4em; z-index: 25; }
+
+   The same five extra rules need to be added to
+   `ul.hologramRow .hologram` (lines 125-139) so the
+   hologramRow stays symmetric with the cardRow at the new
+   per-row capacity.
+
+3. `var/www/static/laneStacking.js` — also bump
+   `overlapOffset` if needed. The current value is 1.4em
+   (line 7). With wider lanes (each lane is now ~22% of
+   `min(90vw, 1600px)`, so ~380px wide on a 1920px monitor),
+   1.4em is still a reasonable overlap. Leave the value as
+   1.4; only the cap changes.
+
+4. `MMM/jinja2/MMM/battle/viewBoard.jinja2` — no change. The
+   structure of the four lanes is already symmetric and
+   widens naturally with the CSS change.
+
+5. `var/www/static/loadingAnimations.js` — no change. The
+   `findCardRowForOrdinal()` function (line 908) already walks
+   the overflow rows by ordinal and uses `data-cards-per-row`
+   to compute the correct row. With more cards fitting in a
+   single row, fewer overflow rows are produced and the
+   existing logic still works.
+
+6. `var/www/static/cardDragDrop.js` — no change.
+
+Files to create / modify:
+- `var/www/static/cards.css` — widen `ul.lanes` (width,
+  padding, gap) and add `nth-child(21)`-`(25)` rules for
+  `ul.cardRow li.cardContainer` and `ul.hologramRow .hologram`.
+- `var/www/static/laneStacking.js` — raise
+  `MAX_CARDS_PER_ROW` from 15 to 25.
+
+Tests to add / update in `MMM/tests.py`:
+
+1. Update `test_lane_overflow_splits_rows_without_merging_back`
+   (line 2250) to assert `MAX_CARDS_PER_ROW = 25` and that
+   the CSS now contains `li.cardContainer:nth-child(25)`
+   with `left:` and `z-index: 25`.
+
+2. Update `test_lane_heights_stretch_equal_across_board`
+   (line 2316) — the new `ul.lanes` rule keeps
+   `display: flex; flex-direction: row; align-items: stretch`
+   and no `height:` on `ul.lanes li.lane`, so the existing
+   test still passes.
+
+3. New test `test_field_is_ninety_percent_of_viewport`:
+   - load `cards.css`;
+   - regex-parse the `ul.lanes` block;
+   - assert the `width:` value contains `90vw` and a `min(`
+     cap (e.g. `min(90vw, 1600px)`);
+   - assert the `padding:` is no longer `14%` (use a smaller
+     value like `2%` or `0`).
+
+4. New test `test_lanes_symmetric_width`:
+   - render the board;
+   - parse the four `ul.lanes > li.lane` widths from the
+     HTML / CSS;
+   - assert all four are equal.
+
+5. New test `test_wider_field_fits_more_cards_per_row`:
+   - load `laneStacking.js`;
+   - assert `MAX_CARDS_PER_ROW = 25`;
+   - mock `lane.clientWidth` (via Playwright) to a value
+     that fits 12 cards at the 1.4em overlap and verify the
+     JS computes `cardsPerRow = 12` (no overflow). Existing
+     tests already cover the overflow split; this test
+     specifically asserts the *no* overflow case for the
+     new wider field.
+
+Acceptance criteria:
+- [ ] On a 1920×1080 monitor, the four lanes together span
+      ~90% of the viewport width (no more cramped field).
+- [ ] Each lane is wide enough to fit at least 9 overlapping
+      cards in a single row before overflow.
+- [ ] On a 4K monitor (3840px wide), the field caps at
+      ~1600px so the lanes do not become absurdly wide.
+- [ ] On a narrow viewport (<700px), the existing
+      `@media (max-width: 700px)` rules take over; this
+      node does not regress mobile.
+- [ ] The four lanes are still equal-width and equal-height
+      (symmetric player field).
+- [ ] The lane indicator `<p>` stays centred inside its
+      lane regardless of the new width.
+- [ ] `LaneCardStacking.MAX_CARDS_PER_ROW = 25`; the CSS
+      defines nth-child rules for N=1..25 in both
+      `ul.cardRow li.cardContainer` and `ul.hologramRow
+      .hologram`.
+- [ ] The existing `test_lane_heights_stretch_equal_across_board`,
+      `test_lane_overflow_splits_rows_without_merging_back`,
+      and `test_lane_indicator_keeps_position_when_rows_split`
+      tests still pass.
+- [ ] `python3 manage.py test` is green.
+
+Dependencies:
+- Strongly prefer landing this node *before* or *together
+  with* `board-overflow-into-enemy-20261012`. Both nodes
+  touch `cards.css` and benefit from being reviewed together
+  (one PR is acceptable). Widening the field is a
+  pre-requisite for the overflow layout to be noticeable
+  in normal play, but the layout fix does not strictly
+  require it.
+- Independent of `keyboard-navigation-20261012`,
+  `end-turn-focus-in-view-20261012`, and
+  `hologram-flip-click-fix-20261012`.
+
+Notes / risks:
+- The 90vw target is approximate; the `min(90vw, 1600px)`
+  cap is a heuristic. If the user wants a different cap
+  (e.g. `min(90vw, 1400px)` for tighter lanes, or no cap
+  at all on 4K), the value in step 1 is the only thing to
+  change.
+- The hand scroll area
+  (`.playerScreen .deckHand .hand-scroll`) has its own
+  `overflow-x: auto` (cards.css line 589). A wider
+  player field does not affect hand scrolling.
+- The two enemy boards (when present) also use the same
+  `ul.lanes` rule. The widening is applied to both
+  player and enemy fields symmetrically. There is no
+  separate `.enemyBoard .lanes` rule, so both are
+  widened by the same change.

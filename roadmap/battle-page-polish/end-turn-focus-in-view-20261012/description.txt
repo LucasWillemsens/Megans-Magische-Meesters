@@ -1,12 +1,179 @@
-BUG: End-turn focused when turn starts but not in view.
+BUG: the end-turn button is focused when the player phase starts, but the
+focused button is not in view.
 
+This is a small, surgical fix in `loadingAnimations.js`. The
+just-shipped player-phase branch is:
 
-Likely failure modes:
-The just-shipped fix in loadingAnimations.js (player-phase branch: `requestAnimationFrame(() => endTurnBtn.focus({ preventScroll: false }))`) is not working in practice. The smooth-scroll on `.playerScreen .deckHand` races with the focus call.
-- rAF fires before the smooth scroll completes (smooth scroll can take ~300ms in Chrome).
-- `preventScroll: false` lets the browser re-scroll, but the smooth scrollIntoView on the parent overwrites that and parks the button off-screen.
-- On first paint (no prior animation), both autofocus and the rAF focus fire, and the page hasn't scrolled yet — the focus lands correctly but a subsequent scroll moves the button out.
+  if (phase === 'player') {
+      turnMarker(delay, 'Your turn', this._scheduler);
+      animationsElements.forEach((element) => element.classList.remove('loading'));
+      const deckHand = document.querySelector('.playerScreen .deckHand');
+      if (deckHand) {
+          deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+      const endTurnBtn = document.querySelector(
+          '.playerScreen .deckHand .end-turn'
+      );
+      if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+          requestAnimationFrame(() => {
+              endTurnBtn.focus({ preventScroll: false });
+          });
+      }
+      return;
+  }
 
-implement:
-- Drop the deckHand-level smooth scrollIntoView when the focus target is the end-turn button — let `end-turn.focus({ preventScroll: true })` drive the scroll. remove `scroll-margin` because there is no need for button breathing room from the viewport edge.
-- On first paint, trust the browser's autofocus; only override after a player-phase animation. The bug is only the post-animation case.
+Two race conditions make the focused button fall off-screen.
+
+1. The `requestAnimationFrame` focus fires before the smooth
+   scrollIntoView on `.playerScreen .deckHand` completes. Smooth
+   scroll in Chrome can take ~300ms; the rAF callback runs in ~16ms
+   and calls `focus({ preventScroll: false })`. The browser starts
+   a *second* scroll to bring the focused element into view, and
+   that second scroll races with the in-flight smooth scroll, parking
+   the button off-screen.
+
+2. On the first paint of a fresh player turn (no prior animation),
+   the Jinja template's `autofocus` attribute on the end-turn button
+   (viewBoard.jinja2 line 364) lands the focus correctly, but the
+   smooth scrollIntoView on the deckHand then runs *after* the
+   browser's autofocus, moving the button out of the viewport.
+
+Implementation (one-file change in `var/www/static/loadingAnimations.js`):
+
+1. Drop the deckHand-level smooth scrollIntoView when the focus target
+   is the end-turn button. Replace the two-line
+
+       const deckHand = document.querySelector('.playerScreen .deckHand');
+       if (deckHand) {
+           deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
+       }
+
+   with a guarded scrollIntoView that only runs when the
+   `animationsElements` array is non-empty (i.e. some animation is
+   actually still finishing) AND only when the end-turn button is
+   not the focus target. Practically:
+
+       const hasAnimations = animationsElements.length > 0;
+       const deckHand = document.querySelector('.playerScreen .deckHand');
+       if (hasAnimations && deckHand) {
+           // Bring the deck/hand into view only when there are leftover
+           // .loading animations to play; otherwise let the end-turn
+           // button's own scroll-into-view drive the scroll.
+           deckHand.scrollIntoView({ block: 'end' });
+       }
+
+   (Switch from `behavior: 'smooth'` to the default `'auto'` so the
+   scroll completes synchronously in the same task and the rAF focus
+   callback can rely on the final scroll position.)
+
+2. Switch the focus call to `endTurnBtn.focus({ preventScroll: true })`
+   so the browser does not try to re-scroll. The button is then
+   positioned purely by the deckHand scrollIntoView above (or by
+   the browser's autofocus on first paint). Concretely:
+
+       if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+           requestAnimationFrame(() => {
+               endTurnBtn.focus({ preventScroll: true });
+           });
+       }
+
+3. On first paint, trust the browser's autofocus; only override
+   after a player-phase animation. The trigger for the rAF focus
+   call must be `hasAnimations`. Move the focus call inside the
+   `if (hasAnimations)` branch, or guard it with `if (hasAnimations)`:
+
+       if (endTurnBtn && typeof endTurnBtn.focus === 'function' && hasAnimations) {
+           requestAnimationFrame(() => {
+               endTurnBtn.focus({ preventScroll: true });
+           });
+       }
+
+   On the no-animation branch (first paint of a fresh player turn)
+   the browser's `autofocus` attribute on the end-turn button
+   (viewBoard.jinja2 line 364) handles the focus and the browser
+   scrolls the button into view once. We do not double-scroll.
+
+4. Remove any `scroll-margin` CSS rules on the end-turn button. There
+   are currently none in the codebase (search confirms no
+   `scroll-margin` in `var/www/static/*.css`), so this is a no-op
+   cleanup, but verify and document it.
+
+5. The `turnMarker(delay, 'Your turn', this._scheduler)` call stays;
+   it is the "Your turn" banner and is independent of focus.
+
+Files to modify:
+- `var/www/static/loadingAnimations.js` — the `if (phase === 'player')`
+  branch (around lines 312-328). Three small edits:
+  (a) gate the deckHand scrollIntoView on `animationsElements.length > 0`,
+  (b) drop the `behavior: 'smooth'` to default `'auto'`,
+  (c) change `endTurnBtn.focus({ preventScroll: false })` to
+      `endTurnBtn.focus({ preventScroll: true })` and gate the
+      focus call on `hasAnimations`.
+
+No template, no CSS, no model, no migration changes.
+
+Tests to add / update in `MMM/tests.py`:
+
+1. Existing test `test_player_phase_focuses_end_turn_button_after_scroll`
+   (line 2673) reads the player-phase branch from
+   `loadingAnimations.js` and asserts:
+   - `.playerScreen .deckHand .end-turn` selector is present
+   - `endTurnBtn.focus` is called
+   - `requestAnimationFrame` is used
+   - the template has `autofocus` on the end-turn button.
+   These assertions still hold after the fix. Update the test to
+   also assert:
+   - the focus call is `endTurnBtn.focus({ preventScroll: true })`
+     (the bug was the missing `preventScroll: true`);
+   - the deckHand scrollIntoView is gated on
+     `animationsElements.length > 0` (or on a `hasAnimations` /
+     `hasLoading` variable in scope);
+   - the deckHand scrollIntoView no longer passes
+     `behavior: 'smooth'`.
+
+   The test extracts the player-phase block with
+   `_extract_js_brace_block(loading_js, "if (phase === 'player')")`
+   and inspects its body, so the new assertions slot in at the end
+   of the existing test.
+
+2. New test `test_first_paint_trusts_browser_autofocus`:
+   - load the template and the JS;
+   - assert that when `animationsElements` is empty (the
+     no-animation first-paint case), the JS does NOT call
+     `endTurnBtn.focus` from inside the player-phase branch;
+   - the template still has `autofocus` on the end-turn button
+     (already covered by the existing test).
+
+Acceptance criteria:
+- [ ] After end turn → enemy phase → reload → player phase, the
+      end-turn button is focused *and* the focused button is visible
+      in the viewport on a 1920×1080 monitor.
+- [ ] On the first paint of a fresh game (no prior animation), the
+      browser's `autofocus` brings the end-turn button into view
+      exactly once; the JS does not double-scroll.
+- [ ] The deckHand scrollIntoView still runs when there are leftover
+      `.loading` animations to play (e.g. right after a draw) so
+      the deck→hand flight is measured while the deck is on screen.
+- [ ] `python3 manage.py test` is green; the existing
+      `test_player_phase_focuses_end_turn_button_after_scroll`
+      test is updated and still passes.
+
+Dependencies:
+- None. This is a pure JS fix; no model, migration, template or
+  CSS changes.
+- Lands independently from the other four nodes in this folder.
+
+Notes / risks:
+- The `animationsElements.length > 0` gate is what distinguishes
+  "first paint of a fresh player turn" from "player turn starts
+  after a previous animation just finished". The
+  `phase === 'player'` branch only runs when the viewBoard render
+  has no `.loading` markers (the markers are stripped at line 314
+  via `animationsElements.forEach((element) =>
+  element.classList.remove('loading'))`), so by the time we reach
+  the focus call, `animationsElements.length` is exactly the
+  number of markers that *were* on the page at render time, not
+  zero. We can use this as a proxy for "previous animation
+  happened" (a player-phase render that has no loading markers
+  means the player was just handed the turn with no leftover
+  animations to play — i.e. a fresh turn).

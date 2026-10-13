@@ -1,0 +1,248 @@
+Document and verify the backtick debug overlay.
+
+The source description says "The debug overlay has been
+tested already." This subdirectory is mostly a
+verification + test-strengthening pass to lock in the
+behavior with a dedicated test and to make the player-facing
+nature of the overlay explicit in the codebase.
+
+Behavior to verify (from the source description):
+
+- The backtick key (`) toggles the visibility of three
+  `<p>` elements:
+    1. The first `<p>` in the player deckHand
+       (the "Deck: X | Hand: Y" counter paragraph at
+       viewBoard.jinja2 line 278-281).
+    2. The first `<p>` in the enemy deckHand
+       (the "Deck: X | Hand: Y" counter paragraph at
+       viewBoard.jinja2 line 47).
+    3. The lane indicator `<p>` (the `value | name`
+       paragraph at viewBoard.jinja2 lines 124 and 239).
+- When visible, the three elements share a CSS class with
+    position: absolute;
+    background: white;
+    z-index: 3;
+- The overlay is invisible by default.
+- The overlay is a player-facing UI feature, not a
+  dev-only tool. The CSS class is applied to elements the
+  player can see, not to a dev console or hidden DOM tree.
+
+Implementation:
+
+1. `var/www/static/cardDragDrop.js` or a new tiny file
+   `var/www/static/debugOverlay.js` — implement the
+   backtick handler.
+
+   The simplest implementation: a single keydown listener
+   on `document` that watches for the backtick key and
+   toggles a class on the three target paragraphs.
+
+   Pseudocode:
+
+       const BACKTICK_KEY = '`';
+       const DEBUG_OVERLAY_CLASS = 'debug-overlay-visible';
+       const DEBUG_STYLE_ID = 'debug-overlay-style';
+
+       function ensureDebugOverlayStyle() {
+           if (document.getElementById(DEBUG_STYLE_ID)) return;
+           const style = document.createElement('style');
+           style.id = DEBUG_STYLE_ID;
+           style.textContent = `
+               .${DEBUG_OVERLAY_CLASS} {
+                   position: absolute;
+                   background: white;
+                   z-index: 3;
+                   padding: 0.25em 0.5em;
+                   border: 1px solid #333;
+                   border-radius: 0.25em;
+                   box-shadow: 0 0.2em 0.5em rgba(0, 0, 0, 0.2);
+               }
+           `;
+           document.head.appendChild(style);
+       }
+
+       function toggleDebugOverlay() {
+           ensureDebugOverlayStyle();
+           const targets = [
+               document.querySelector('.playerScreen .deckHand > p'),
+               ...Array.from(document.querySelectorAll('.playerScreen .enemyDeckHand > p')).slice(0, 1),
+               ...Array.from(document.querySelectorAll('.playerScreen .lanes .lane > p')),
+           ].filter(Boolean);
+           const isVisible = targets.length > 0
+               && targets[0].classList.contains(DEBUG_OVERLAY_CLASS);
+           for (const target of targets) {
+               target.classList.toggle(DEBUG_OVERLAY_CLASS, !isVisible);
+           }
+       }
+
+       document.addEventListener('keydown', (event) => {
+           if (event.key !== BACKTICK_KEY) return;
+           if (event.ctrlKey || event.altKey || event.metaKey) return;
+           if (event.target && typeof event.target.closest === 'function'
+               && event.target.closest('input, textarea, select, [contenteditable]')) {
+               return;
+           }
+           event.preventDefault();
+           toggleDebugOverlay();
+       });
+
+   The targets selector picks the first `<p>` child of
+   `.playerScreen .deckHand` (the player counter), the
+   first `<p>` child of each `.enemyDeckHand` (the enemy
+   counters), and the `<p>` child of each lane (the
+   `value | name` indicator).
+
+2. `var/www/static/cardDragDrop.js` — wire the new
+   `toggleDebugOverlay` into the existing keyboard
+   dispatcher. The simplest path: add a keydown listener
+   on `document` from inside `CardDragDropSystem.init()`,
+   gated on the backtick key:
+
+       document.addEventListener('keydown', (event) => {
+           if (event.key === '`' || event.key === '~') {
+               if (event.ctrlKey || event.altKey || event.metaKey) return;
+               if (event.target && typeof event.target.closest === 'function'
+                   && event.target.closest('input, textarea, select, [contenteditable]')) {
+                   return;
+               }
+               event.preventDefault();
+               toggleDebugOverlay();
+           }
+       });
+
+   The `~` key is the shifted backtick on US keyboards;
+   accept both so the overlay works regardless of shift
+   state.
+
+3. `var/www/static/cards.css` — add a tiny CSS rule for
+   the overlay class so the player-facing styling is
+   consistent with the rest of the board. The inline
+   `<style>` in step 1 is a fallback; the canonical
+   rule lives in `cards.css`:
+
+       .debug-overlay-visible {
+           position: absolute;
+           background: white;
+           z-index: 3;
+           padding: 0.25em 0.5em;
+           border: 1px solid #333;
+           border-radius: 0.25em;
+           box-shadow: 0 0.2em 0.5em rgba(0, 0, 0, 0.2);
+       }
+
+   The `position: absolute` is intentional: when the
+   overlay is shown, the paragraph leaves its normal
+   flow and floats above the board content, with a
+   white background and a border so the text is
+   readable.
+
+4. `MMM/jinja2/MMM/battle/viewBoard.jinja2` — no change.
+   The three target `<p>` elements are already in the
+   template; the JS only toggles a class on them.
+
+Files to modify:
+- `var/www/static/cardDragDrop.js` — add the
+  `toggleDebugOverlay` function and the keydown
+  listener.
+- `var/www/static/cards.css` — add the
+  `.debug-overlay-visible` rule.
+
+Tests to add / update in `MMM/tests.py`:
+
+1. New test `test_backtick_toggles_debug_overlay_on_three_targets`:
+   - render the board (one human, one robot);
+   - parse the rendered HTML to find the three target
+     paragraphs:
+       * the first `<p>` in `.playerScreen .deckHand`;
+       * the first `<p>` in `.playerScreen .enemyDeckHand`;
+       * the `<p>` in each `.lanes .lane`;
+   - assert none of them have the
+     `debug-overlay-visible` class initially (overlay
+     is invisible by default);
+   - simulate a `keydown` event with `key === '`'`
+     on `document`;
+   - assert all three targets now have the
+     `debug-overlay-visible` class;
+   - simulate the backtick again;
+   - assert the class is removed (toggle behavior).
+
+2. New test `test_debug_overlay_class_css_positioning`:
+   - read `cards.css` as text;
+   - assert the rule
+     `.debug-overlay-visible { ... position: absolute;
+     background: white; z-index: 3; ... }` is present.
+
+3. New test `test_backtick_does_not_fire_in_text_inputs`:
+   - render the board;
+   - focus a text input (e.g. the `action` hidden
+     input on the end-turn form, or a hypothetical
+     debug input);
+   - simulate a backtick keydown on the focused
+     input;
+   - assert the overlay is NOT toggled (the
+     `_isTextControlTarget` guard works).
+
+4. New test `test_overlay_targets_include_player_counter_enemy_counter_and_lane_indicators`:
+   - render the board;
+   - assert the player deckHand has a `<p>` child
+     (the counter);
+   - assert each enemy deckHand has a `<p>` child;
+   - assert each lane has a `<p>` child (the
+     `value | name` indicator).
+
+Acceptance criteria:
+- [ ] Pressing the backtick key toggles the
+      `debug-overlay-visible` class on the three target
+      paragraphs.
+- [ ] The CSS rule for `debug-overlay-visible` exists
+      in `cards.css` and contains
+      `position: absolute; background: white; z-index: 3;`.
+- [ ] The overlay is invisible by default (no class on
+      first render).
+- [ ] The overlay does not fire when the player is
+      typing in a text input.
+- [ ] The overlay is player-facing: the toggled
+      elements are real on-screen paragraphs the player
+      can see, not a hidden dev tool.
+- [ ] `python3 manage.py test` is green.
+
+Dependencies:
+- None. This subdirectory is standalone. It does not
+  depend on the refactor, the arrow-key routing, the
+  focus-arrow bindings, or the persistence work. It can
+  be landed first or last in the
+  `keyboard-navigation-20261012/` subdirectory order.
+- Independent of the other battle-page-polish siblings.
+
+Notes / risks:
+- The backtick key is a US-keyboard convention. On
+  European keyboards the key is at a different position
+  (often next to the backspace). Accepting both ` and
+  ~ (and the layout-independent `event.code ===
+  'Backquote'`) covers most layouts. The current
+  description says "the backtick key (`)"; a future
+  enhancement could make the toggle key configurable.
+- The overlay is described as already-tested, so this
+  subdirectory is mostly a verification pass with new
+  tests to lock the behavior in. If the implementation
+  is already in place in the codebase (under a
+  different name or in a different file), the new
+  tests should still pass and the description above
+  serves as a contract for future maintenance.
+- The `~` key (shift+`) is accepted as an alternative
+  trigger so players who naturally hold shift when
+  reaching for the backtick still toggle the overlay.
+  This is consistent with the existing
+  `_isEndTurnKey` / `_isDrawKey` helpers in
+  `cardDragDrop.js` which accept both upper and lower
+  case.
+- The overlay is intentionally *additive*: when the
+  class is applied, the paragraph is positioned
+  absolutely with a white background, so the player
+  sees a floating white panel above the board
+  content. Removing the class restores the paragraph
+  to its normal-flow position (which, in the case of
+  the lane indicator, is already `position: absolute;
+  left: 50%; top: 50%;` — see cards.css line 823-832;
+  the overlay class adds `background: white; z-index: 3;`
+  on top of the existing absolute positioning).
