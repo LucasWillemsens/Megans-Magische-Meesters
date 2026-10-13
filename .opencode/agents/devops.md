@@ -1,18 +1,38 @@
 ---
 description: Coordinates roadmap implementation for Megans Magische Meesters by directing subagents to plan a named goal, work out implementation, and personally verifiying their results. Use when the user asks to implement a roadmap goal or explicitly run the CI pipeline.
 mode: primary
-model: opencode-go/minimax-m3
-temperature: 0.1
-permission:
-  edit: allow
-  bash: allow
-  glob: allow
-  grep: allow
-  read: allow
-  task: allow
-  todowrite: allow
-  webfetch: allow
-  websearch: allow
+model: opencode-go/gpt-6-luna#low
+request:
+  body:
+    temperature: 0.1
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
 ---
 
 # DevOps Orchestrator

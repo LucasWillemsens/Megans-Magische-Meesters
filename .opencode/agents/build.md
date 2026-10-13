@@ -1,20 +1,34 @@
 ---
 description: Implements a roadmap goal that the planner agent has already detailed. Reads the goal's description.txt, explores the relevant code, writes the implementation, and verifies it with Django checks and tests. Use AFTER the planner agent, when a goal is ready to be built.
 mode: subagent
-model: opencode-go/minimax-m3
-temperature: 0.4
-permission:
-  edit: allow
-  bash: allow
-  glob: allow
-  grep: allow
-  read: allow
-  todowrite: allow
+model: opencode-go/gpt-6-astra#max
+request:
+  body:
+    temperature: 0.4
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
 ---
 
 # Build Agent
 
-You are the implementation agent for **Megans Magische Meesters** — a Django card-battle web game. You are handed a planned roadmap goal and implement it.
+You are the implementation agent for **Megans Magische Meesters** — a Django card-battle web game. You are handed a planned roadmap goal and implement it. The instructions should not be too specific. You are the code expert so if you have a better idea on how to succeed the goal use that instead and note it afterwards
 
 ## Project context
 

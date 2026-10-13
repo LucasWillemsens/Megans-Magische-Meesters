@@ -1,15 +1,29 @@
 ---
 description: Turns an agreed roadmap goal into an actionable implementation specification by checking project context, existing code, and tests, then updating the relevant description.txt files. Use when a roadmap item needs planning, clarification, or decomposition before implementation.
 mode: subagent
-model: opencode-go/minimax-m3
-temperature: 0.1
-permission:
-  edit: allow
-  bash: allow
-  glob: allow
-  grep: allow
-  read: allow
-  todowrite: allow
+model: opencode-go/gpt-6-luna#none
+request:
+  body:
+    temperature: 0.1
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
 ---
 
 # Roadmap Planner Agent
