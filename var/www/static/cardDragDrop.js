@@ -139,18 +139,39 @@ class RegionNavigator {
         return null;
     }
 
-    firstFieldCard() {
-        const cards = Array.from(
-            document.querySelectorAll('.playerScreen .lanes .cardContainer[tabindex="0"]')
+    fieldCardForFocus(fromElement) {
+        if (!fromElement || typeof fromElement.closest !== 'function') return null;
+        return fromElement.closest('.playerScreen .lanes .cardContainer');
+    }
+
+    focusableFieldCards() {
+        return Array.from(
+            document.querySelectorAll(
+                '.playerScreen .playerBoard .lanes .cardContainer[tabindex="0"]'
+            )
         );
-        if (cards.length === 0) return null;
-        cards.sort((a, b) => {
+    }
+
+    firstFieldCard() {
+        const cards = this.focusableFieldCards().sort((a, b) => {
             const ra = a.getBoundingClientRect();
             const rb = b.getBoundingClientRect();
             if (ra.top !== rb.top) return ra.top - rb.top;
             return ra.left - rb.left;
         });
-        return cards[0];
+        return cards[0] || null;
+    }
+
+    nextFieldCard(fromElement, step) {
+        const cards = this.focusableFieldCards().sort((a, b) => {
+            const ra = a.getBoundingClientRect();
+            const rb = b.getBoundingClientRect();
+            if (ra.left !== rb.left) return ra.left - rb.left;
+            return ra.top - rb.top;
+        });
+        const currentIndex = cards.indexOf(this.fieldCardForFocus(fromElement));
+        if (currentIndex === -1) return null;
+        return cards[currentIndex + step] ?? null;
     }
 
     handCardAt(slot) {
@@ -166,13 +187,23 @@ class RegionNavigator {
     }
 
     nextHandCard(fromElement, step) {
-        const playableCards = this.system.playableKeyboardCards();
-        if (playableCards.length === 0) return null;
-        const currentIndex = playableCards.indexOf(this.handCardForFocus(fromElement));
-        const nextIndex = currentIndex === -1
-            ? (step > 0 ? 0 : playableCards.length - 1)
-            : (((currentIndex + step) % playableCards.length) + playableCards.length) % playableCards.length;
-        return playableCards[nextIndex] ?? null;
+        const orderableCards = this.system.orderableKeyboardCards();
+        if (orderableCards.length === 0) return null;
+        const currentIndex = orderableCards.indexOf(this.handCardForFocus(fromElement));
+        const fallbackIndex = step > 0 ? 0 : orderableCards.length - 1;
+        const nextIndex = currentIndex === -1 ? fallbackIndex : currentIndex + step;
+        return orderableCards[nextIndex] ?? null;
+    }
+
+    handArrowAtBoundary(fromElement, step) {
+        const orderableCards = this.system.orderableKeyboardCards();
+        const currentIndex = orderableCards.indexOf(this.handCardForFocus(fromElement));
+        if (currentIndex === -1) return false;
+        return step < 0 ? currentIndex === 0 : currentIndex === orderableCards.length - 1;
+    }
+
+    handArrowExitButton(step) {
+        return step < 0 ? this.drawButton() : this.endTurnButton();
     }
 
     endTurnButton() {
@@ -412,6 +443,7 @@ class KeyboardSelectionControl {
         card.dataset.keyboardSelected = 'true';
         card.setAttribute('aria-selected', 'true');
         if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+        if (document.activeElement === card) this.onFocusIn(card);
         const cardIdInput = this.parent._cardIdInput(card);
         this.state = {
             selectedCard: card,
@@ -517,11 +549,6 @@ class KeyboardSelectionControl {
         const staged = this.parent._stagePlay(card, requestedLane, hologram, true, selection);
         hologram.dataset.stagedForCardId = selection.cardId;
         if (staged) this._mirrorStagedFocus(card, hologram);
-
-        const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
-        if (staged && faceDownCard && this._predicates.remainingAllowances().flips > 0) {
-            faceDownCard.setAttribute('tabindex', '0');
-        }
         return staged;
     }
 
@@ -562,10 +589,17 @@ class KeyboardSelectionControl {
         } else if (region === 'hand' && direction === 'ArrowDown') {
             target = this.navigator.endTurnButton();
         } else if (region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')) {
-            target = this.navigator.nextHandCard(fromElement, direction === 'ArrowRight' ? 1 : -1);
-            isHandCard = true;
+            const handStep = direction === 'ArrowRight' ? 1 : -1;
+            if (this.navigator.handArrowAtBoundary(fromElement, handStep)) {
+                target = this.navigator.handArrowExitButton(handStep);
+            } else {
+                target = this.navigator.nextHandCard(fromElement, handStep);
+                isHandCard = true;
+            }
         } else if (region === 'field' && direction === 'ArrowUp') {
             target = this.navigator.endTurnButton();
+        } else if (region === 'field' && (direction === 'ArrowLeft' || direction === 'ArrowRight')) {
+            target = this.navigator.nextFieldCard(fromElement, direction === 'ArrowRight' ? 1 : -1);
         } else if (region === 'field' && direction === 'ArrowDown') {
             target = this.navigator.handCardAt(this.persistedHandSlot);
             isHandCard = true;
@@ -588,15 +622,18 @@ class KeyboardSelectionControl {
                 const targetIndex = this.system.playableKeyboardCards().indexOf(target);
                 if (targetIndex >= 0) ordinal = targetIndex + 1;
             }
-            const success = this.system.selectKeyboardCard(target, String(ordinal));
-            if (success) {
+            if (this.system.selectKeyboardCard(target, String(ordinal))) {
                 const parsed = Number.parseInt(this.state.digitBuffer, 10);
                 this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
+                return true;
             }
-            return success;
+            if (typeof target.focus !== 'function') return false;
+            target.focus({ preventScroll: true });
+            return true;
         }
+        if (typeof target.focus !== 'function') return false;
         target.focus({ preventScroll: true });
-        return typeof target.focus === 'function';
+        return true;
     }
 
     _mirrorStagedFocus(card, hologram) {
@@ -869,7 +906,7 @@ class CardDragDropSystem {
             });
         } else {
             this.playerHandCards().forEach(card => {
-                if (!card.hasAttribute('tabindex') && this._isPlayableKeyboardCard(card)) {
+                if (!card.hasAttribute('tabindex') && this._isOrderableKeyboardCard(card)) {
                     card.setAttribute('tabindex', '0');
                 }
             });
@@ -1887,7 +1924,7 @@ class CardDragDropSystem {
 
         card.classList.add('ghost');
         card.setAttribute('draggable', 'false');
-        card.removeAttribute('tabindex');
+        card.setAttribute('tabindex', '0');
         card.dataset.stagedLane = String(laneValue);
         hologram.dataset.stagedForCardId = String(cardId);
         this._addHoverArrow(card, hologram);
@@ -1917,7 +1954,7 @@ class CardDragDropSystem {
             copycard.classList.remove('keyboard-selected');
             copycard.removeAttribute('aria-selected');
             delete copycard.dataset.keyboardSelected;
-            copycard.removeAttribute('tabindex');
+            copycard.setAttribute('tabindex', '0');
             const cardFace = copycard.querySelector(':scope > .card');
             if (cardFace) cardFace.classList.add('back');
             const button = copycard.querySelector('button');
@@ -2084,7 +2121,11 @@ class CardDragDropSystem {
             card.dataset.stagedFlipped === 'true'
         ) {
             const lane = card.closest('li.lane');
-            const flipHologram = lane?.querySelector(':scope > .hologramRow > .hologram');
+            const cardId = this._cardIdInput(card)?.value;
+            if (!cardId) return null;
+            const flipHologram = lane?.querySelector(
+                `:scope > .hologramRow > .hologram[data-flip-for-card-id="${CSS.escape(cardId)}"]`
+            );
             return flipHologram?.querySelector('.cardContainer') || null;
         }
         return null;
@@ -2124,14 +2165,11 @@ class CardDragDropSystem {
             // The lane card is still face-down (back class present), so strip back from clone
             const cloneCardDiv = holoClone.querySelector(':scope > .card');
             if (cloneCardDiv) cloneCardDiv.classList.remove('back');
-            const cloneCardContainer = holoClone.querySelector('.cardContainer');
-            if (cloneCardContainer) {
-                cloneCardContainer.classList.remove('faceDown');
-                // Face-up lane cards are never focusable.
-                cloneCardContainer.removeAttribute('tabindex');
-            }
+            holoClone.classList.remove('faceDown');
+            holoClone.removeAttribute('tabindex');
 
             flipHologram.classList.add('hologram');
+            flipHologram.dataset.flipForCardId = String(cardId);
             flipHologram.appendChild(holoClone);
             // Small random rotation for stacking look
             flipHologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
