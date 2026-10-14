@@ -1,7 +1,7 @@
 ---
 description: Implements a roadmap goal that the planner agent has already detailed. Reads the goal's description.txt, explores the relevant code, writes the implementation, and verifies it with Django checks and tests. Use AFTER the planner agent, when a goal is ready to be built.
 mode: subagent
-model: opencode-go/gpt-6-astra#max
+model: opencode-go/glm-5.3-flash#max
 request:
   body:
     temperature: 0.4
