@@ -371,20 +371,6 @@
 
     </div>
 
-<div id="debugOverlay" hidden>
-    <p class="debug-title">Turn affordances</p>
-    <p>Draws left: <span data-debug="draws-left">{{ turnAllowances.draws_left }}</span></p>
-    <p>Plays left: <span data-debug="plays-left">{{ turnAllowances.plays_left }}</span></p>
-    <p>Flips left: <span data-debug="flips-left">{{ turnAllowances.flips_left }}</span></p>
-    <p>Intelligence: <span data-debug="int-count">{{ turnAllowances.int_count }}</span> | Speed: <span data-debug="spd-count">{{ turnAllowances.spd_count }}</span> | Tactics: <span data-debug="tactics">{{ turnAllowances.tactics }}</span></p>
-    <p>Drawn: <span data-debug="drawn">{{ turnAllowances.drawn }}</span> | Played: <span data-debug="played">{{ turnAllowances.played }}</span> | Flipped: <span data-debug="flipped">{{ turnAllowances.flipped }}</span></p>
-    <p class="debug-title">Player deck/hand</p>
-    <p>Deck: <span data-debug="own-deck-count">{{ ownDeckCount }}</span> | Hand: <span data-debug="own-hand-count">{{ handCards|length }}</span></p>
-    {% for lane in ownLaneRows %}
-    <p>{{ lane.name }} value: <span data-debug="lane-value-{{ loop.index0 }}">{{ lane.value }}</span></p>
-    {% endfor %}
-</div>
-
 <a href="{{ returnURL }}">back</a>
 <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>

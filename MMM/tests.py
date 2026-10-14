@@ -2993,23 +2993,44 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn('lanePreviewActive: false', empty_state_block)
 
-    def test_reset_lane_selection_keeps_card_selected(self):
+    def test_escape_handler_cancels_selection_without_lane_preview_reset(self):
         import os
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
-        control_class_start = drag_js.index('class KeyboardSelectionControl {')
-        control_class_end = drag_js.index('class CardDragDropSystem {')
-        control_class = drag_js[control_class_start:control_class_end]
-        helper_start = control_class.index('    resetLaneSelection() {')
-        helper_end = control_class.index('    navigate(direction, fromElement) {')
-        reset_helper = control_class[helper_start:helper_end]
-        self.assertIn('selection.hologram?.parentNode', reset_helper)
-        self.assertIn('lanePreviewActive: false', reset_helper)
-        self.assertIn('selectedCard: card', reset_helper)
-        self.assertIn('card.focus({ preventScroll: true })', reset_helper)
+        self.assertNotIn('resetLaneSelection', drag_js)
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        escape_start = keydown_code.index("if (key === 'Escape') {")
+        end_of_branch = keydown_code.index('if (!activeSelection && (key === \'Enter\' || key === \' \'))', escape_start)
+        escape_branch = keydown_code[escape_start:end_of_branch]
+        self.assertIn('if (!activeSelection) return;', escape_branch)
+        self.assertIn('this._cancelKeyboardSelectionFromEvent(event)', escape_branch)
+        self.assertNotIn('lanePreviewActive', escape_branch)
 
-    def test_escape_handler_resets_lane_preview_before_clearing(self):
+    def test_keyboard_cancellation_restores_selectable_hand_card_focus(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        method_start = drag_js.index('    cancelKeyboardSelection() {')
+        method_end = drag_js.index('    onHandCardClick(event) {', method_start)
+        cancel_method = drag_js[method_start:method_end]
+        self.assertIn('this.clearKeyboardSelection();', cancel_method)
+        restore_index = cancel_method.index('card.focus({ preventScroll: true })')
+        self.assertIn('orderableKeyboardCards().includes(card)', cancel_method)
+        self.assertLess(cancel_method.index('selectedCard'), restore_index)
+
+        cancel_from_event = drag_js[
+            drag_js.index('    _cancelKeyboardSelectionFromEvent(event) {'):
+            drag_js.index('    _keyboardSelectableHandCard(event) {')
+        ]
+        self.assertIn('event.preventDefault()', cancel_from_event)
+        self.assertIn('this.cancelKeyboardSelection()', cancel_from_event)
+
+    def test_enter_without_selection_selects_the_focused_hand_card(self):
         import os
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
@@ -3018,12 +3039,32 @@ class BattleFlowTests(TestCase):
             drag_js.index('    onKeyboardKeyDown(event)'):
             drag_js.index('    selectOrderedCard(')
         ]
-        escape_start = keydown_code.index("if (key === 'Escape') {")
-        end_of_branch = keydown_code.index('if (!activeSelection && (key === \'Enter\' || key === \' \'))', escape_start)
-        escape_branch = keydown_code[escape_start:end_of_branch]
-        self.assertIn('lanePreviewActive', escape_branch)
-        self.assertIn('resetLaneSelection()', escape_branch)
-        self.assertIn('_cancelKeyboardSelectionFromEvent(event)', escape_branch)
+        enter_start = keydown_code.index(
+            "if (!activeSelection && (key === 'Enter' || key === ' ')) {"
+        )
+        confirm_route_index = keydown_code.index(
+            'this.confirmKeyboardSelection()) event.preventDefault();'
+        )
+        enter_branch = keydown_code[
+            enter_start:keydown_code.index(
+                "if (\n            this.keyboardSelection.selectedCard &&",
+                enter_start,
+            )
+        ]
+        self.assertIn('this._keyboardSelectableHandCard(event)', enter_branch)
+        self.assertIn('this.selectOrderedCard(', enter_branch)
+        self.assertIn('this.orderableKeyboardCards().indexOf(selectableHandCard) + 1', enter_branch)
+        flip_fallback_index = enter_branch.index('this.flipKeyboardFocusedCard(event)')
+        self.assertLess(flip_fallback_index, enter_branch.index('if (event.repeat) return;'))
+        self.assertLess(enter_start, confirm_route_index)
+
+        helper_code = drag_js[
+            drag_js.index('    _keyboardSelectableHandCard(event) {'):
+            drag_js.index('    _isDisabledControlTarget(target) {')
+        ]
+        self.assertIn('orderableKeyboardCards()', helper_code)
+        self.assertIn('playerHandCards().find(', helper_code)
+        self.assertIn('item.contains(candidate)', helper_code)
 
     def test_arrow_keys_cycle_hand_cards_when_no_lane_preview(self):
         import os
@@ -3047,7 +3088,7 @@ class BattleFlowTests(TestCase):
             drag_js.index('    onHandCardClick(event)'):
             drag_js.index('    onCardDragStart(e)')
         ]
-        self.assertIn('selectHandCardByMouse(card, String(index + 1))', click_code)
+        self.assertIn('selectHandCardByMouse(card, String(index + 1), event)', click_code)
         self.assertNotIn('selectHandCardByMouse', drag_js[:drag_js.index('class KeyboardSelectionControl {')])
         method_start = drag_js.index('    selectHandCardByMouse(card, digitBuffer')
         method_end = drag_js.index('\n    _updateMousePreviewCursor(', method_start)
@@ -3150,7 +3191,7 @@ class BattleFlowTests(TestCase):
             setup_keyboard,
         )
         self.assertIn(
-            "this._keyboardSelectionControl.onFocusOut(card);",
+            "this._keyboardSelectionControl.onFocusOut(card, event.relatedTarget);",
             setup_keyboard,
         )
         self.assertIn(
@@ -3204,7 +3245,7 @@ class BattleFlowTests(TestCase):
         control_class = drag_js[control_class_start:control_class_end]
         on_focus_in = control_class[
             control_class.index('    onFocusIn(card) {'):
-            control_class.index('    onFocusOut(card) {')
+            control_class.index('    onFocusOut(card, relatedTarget) {')
         ]
         self.assertIn('this.parent._focusArrowTarget(card)', on_focus_in)
         self.assertIn('this._focusArrow.source === card', on_focus_in)
@@ -3215,7 +3256,7 @@ class BattleFlowTests(TestCase):
         self.assertIn('target,', on_focus_in)
         self.assertIn('arrow:', on_focus_in)
 
-    def test_keyboard_selection_control_on_focus_out_removes_arrow_only_for_source(self):
+    def test_keyboard_selection_control_clears_focus_arrow_only_for_source(self):
         import os
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
@@ -3224,13 +3265,80 @@ class BattleFlowTests(TestCase):
         control_class_end = drag_js.index('class CardDragDropSystem {')
         control_class = drag_js[control_class_start:control_class_end]
         on_focus_out = control_class[
-            control_class.index('    onFocusOut(card) {'):
-            control_class.index('}\n', control_class.index('    onFocusOut(card) {'))
+            control_class.index('    onFocusOut(card, relatedTarget) {'):
+            control_class.index('    _clearFocusArrow(card) {')
         ]
-        self.assertIn('if (!this._focusArrow) return;', on_focus_out)
-        self.assertIn('if (this._focusArrow.source !== card) return;', on_focus_out)
-        self.assertIn('this._focusArrow.arrow.remove();', on_focus_out)
-        self.assertIn('this._focusArrow = null;', on_focus_out)
+        self.assertIn('this._clearFocusArrow(card);', on_focus_out)
+        self.assertIn('if (relatedTarget === undefined) return;', on_focus_out)
+        self.assertIn('this._clearSelectionStylingAfterFocusLoss(card, relatedTarget);', on_focus_out)
+
+        clear_focus_arrow = control_class[
+            control_class.index('    _clearFocusArrow(card) {'):
+            control_class.index('    _restoreSelectionStylingOnFocus(card) {')
+        ]
+        self.assertIn('if (!this._focusArrow) return;', clear_focus_arrow)
+        self.assertIn('if (this._focusArrow.source !== card) return;', clear_focus_arrow)
+        self.assertIn('this._focusArrow.arrow.remove();', clear_focus_arrow)
+        self.assertIn('this._focusArrow = null;', clear_focus_arrow)
+
+    def test_focus_loss_clears_selection_styling_unless_staged_play(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+
+        cleanup = control_class[
+            control_class.index('    _clearSelectionStylingAfterFocusLoss(card, relatedTarget) {'):
+            control_class.index('    _isWithinSelectionFocusRegion(selectedCard, element) {')
+        ]
+        self.assertIn('const selectedCard = this.state.selectedCard;', cleanup)
+        self.assertIn('if (!selectedCard) return;', cleanup)
+        self.assertIn('if (!this._isWithinSelectionFocusRegion(selectedCard, card)) return;', cleanup)
+        self.assertIn('if (this._isWithinSelectionFocusRegion(selectedCard, relatedTarget)) return;', cleanup)
+        self.assertIn('if (this._isPlayedToLane(selectedCard)) return;', cleanup)
+        self.assertIn('this._clearSelectionStyling(selectedCard);', cleanup)
+
+        region = control_class[
+            control_class.index('    _isWithinSelectionFocusRegion(selectedCard, element) {'):
+            control_class.index('    _isPlayedToLane(card) {')
+        ]
+        self.assertIn('if (!element) return false;', region)
+        self.assertIn('if (element === selectedCard) return true;', region)
+        self.assertIn('selectedCard.contains(element)', region)
+        self.assertIn('this.parent._focusArrowTarget(selectedCard)', region)
+
+        played = control_class[
+            control_class.index('    _isPlayedToLane(card) {'):
+            control_class.index('}\n', control_class.index('    _isPlayedToLane(card) {'))
+        ]
+        self.assertIn('this._stagedLaneForGhost_Legacy(card)', played)
+        self.assertIn(
+            '`.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`',
+            played,
+        )
+
+        restore = control_class[
+            control_class.index('    _restoreSelectionStylingOnFocus(card) {'):
+            control_class.index('    _clearSelectionStylingAfterFocusLoss(card, relatedTarget) {')
+        ]
+        self.assertIn('this.state.selectedCard !== card', restore)
+        self.assertIn("card.setAttribute('aria-selected', 'true');", restore)
+
+        on_focus_in = control_class[
+            control_class.index('    onFocusIn(card) {'):
+            control_class.index('    onFocusOut(card, relatedTarget) {')
+        ]
+        self.assertIn('this._restoreSelectionStylingOnFocus(card);', on_focus_in)
+
+        clear_block = control_class[
+            control_class.index('    clearKeyboardSelection({removePreview'):
+            control_class.index('    navigate(direction, fromElement) {')
+        ]
+        self.assertIn('this._clearSelectionStyling(card);', clear_block)
+        self.assertIn('card.contains(activeElement)', clear_block)
 
     def test_clear_keyboard_selection_resets_focus_arrow_before_state(self):
         import os
@@ -3242,7 +3350,7 @@ class BattleFlowTests(TestCase):
         control_class = drag_js[control_class_start:control_class_end]
         clear_block = control_class[
             control_class.index('    clearKeyboardSelection({removePreview'):
-            control_class.index('    cancelKeyboardSelection() {')
+            control_class.index('    navigate(direction, fromElement) {')
         ]
         self.assertIn('this._focusArrow.arrow.remove()', clear_block)
         self.assertIn('this._focusArrow = null', clear_block)
@@ -3436,7 +3544,1320 @@ class BattleFlowTests(TestCase):
             )
         self.assertIn('focus-arrow lifecycle ok', completed.stdout)
 
-    def test_focus_within_background_excludes_face_down_cards(self):
+    def test_move_keyboard_selection_refreshes_focus_arrow(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+
+        move_start = control_class.index('    moveKeyboardSelection(laneValue) {')
+        helper_start = control_class.index('    _refreshFocusArrowAfterLaneMove(card) {')
+        move_body = control_class[move_start:helper_start]
+        self.assertIn('this._refreshFocusArrowAfterLaneMove(selection.selectedCard);', move_body)
+        self.assertLess(
+            move_body.index('selection.currentLane = parsedLane;'),
+            move_body.index('this._refreshFocusArrowAfterLaneMove(selection.selectedCard);'),
+        )
+        self.assertIn('selection.hologram.remove()', move_body)
+        self.assertNotIn('onFocusIn(', move_body)
+        self.assertNotIn('onFocusOut(', move_body)
+
+        helper_end = control_class.index('    confirmKeyboardSelection(laneValue = null) {')
+        helper_body = control_class[helper_start:helper_end]
+        self.assertIn('if (!this._focusArrow || this._focusArrow.source !== card) return;', helper_body)
+        self.assertIn('this.onFocusOut(card);', helper_body)
+        self.assertIn('this.onFocusIn(card);', helper_body)
+
+    def test_move_keyboard_selection_refreshes_focus_arrow_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const makeElement = (tag) => {
+    const classes = new Set();
+    const attributes = new Map();
+    const element = {
+        tagName: tag,
+        classes,
+        attributes,
+        children: [],
+        parentNode: null,
+        dataset: {},
+        removed: false,
+        style: {
+            setProperty() {},
+            getPropertyValue() { return ''; },
+            removeProperty() {},
+        },
+        classList: {
+            add: (...names) => names.forEach((name) => classes.add(name)),
+            remove: (...names) => names.forEach((name) => classes.delete(name)),
+            contains: (name) => classes.has(name),
+        },
+        setAttribute(name, value) { attributes.set(name, String(value)); },
+        getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null; },
+        removeAttribute(name) { attributes.delete(name); },
+        hasAttribute(name) { return attributes.has(name); },
+        appendChild(child) { element.children.push(child); child.parentNode = element; return child; },
+        remove() {
+            if (element.parentNode) {
+                const index = element.parentNode.children.indexOf(element);
+                if (index !== -1) element.parentNode.children.splice(index, 1);
+            }
+            element.parentNode = null;
+            element.removed = true;
+        },
+        closest(selector) {
+            const tagMatch = selector.match(/^[a-zA-Z]+/);
+            const wantedClasses = (selector.match(/\.([a-zA-Z-]+)/g) || []).map((cls) => cls.slice(1));
+            let node = element;
+            while (node) {
+                const tagOk = !tagMatch || node.tagName.toLowerCase() === tagMatch[0].toLowerCase();
+                const classesOk = wantedClasses.every(
+                    (name) => node.classList && node.classList.contains(name)
+                );
+                if (tagOk && classesOk) return node;
+                node = node.parentNode;
+            }
+            return null;
+        },
+        querySelector(selector) {
+            if (!selector.startsWith('.')) return null;
+            const wanted = selector.slice(1).trim();
+            const stack = [...element.children];
+            while (stack.length) {
+                const node = stack.shift();
+                if (node.classList && node.classList.contains(wanted)) return node;
+                stack.push(...node.children);
+            }
+            return null;
+        },
+        querySelectorAll(selector) {
+            const wanted = selector.split(',').map((part) => part.trim().split('[')[0]);
+            const results = [];
+            const stack = [...element.children];
+            while (stack.length) {
+                const node = stack.shift();
+                if (wanted.some((w) => w === node.tagName ||
+                    (w.startsWith('.') && node.classList.contains(w.slice(1))))) results.push(node);
+                stack.push(...node.children);
+            }
+            return results;
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        focus() {},
+        getBoundingClientRect() { return { left: 0, top: 0, width: 10, height: 10 }; },
+        contains() { return true; },
+        cloneNode(deep) {
+            const clone = makeElement(element.tagName);
+            classes.forEach((name) => clone.classList.add(name));
+            attributes.forEach((value, name) => clone.setAttribute(name, value));
+            Object.assign(clone.dataset, element.dataset);
+            if (deep) element.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+            return clone;
+        },
+    };
+    return element;
+};
+
+const fakePlayerBoard = makeElement('div');
+const fakePlayerScreen = makeElement('div');
+const listeners = {};
+fakePlayerScreen.addEventListener = (event, handler, capture) => {
+    if (!listeners[event]) listeners[event] = [];
+    listeners[event].push({ handler, capture: !!capture });
+};
+fakePlayerScreen.removeEventListener = (event, handler, capture) => {
+    if (!listeners[event]) return;
+    listeners[event] = listeners[event].filter(
+        (entry) => entry.handler !== handler || entry.capture !== !!capture
+    );
+};
+
+const lanes = [1, 2, 3, 4].map(() => {
+    const lane = makeElement('li');
+    lane.classList.add('lane');
+    return lane;
+});
+const holoRows = lanes.map((lane) => {
+    const row = makeElement('ul');
+    row.classList.add('hologramRow');
+    lane.appendChild(row);
+    return row;
+});
+fakePlayerBoard.querySelectorAll = (selector) => {
+    if (selector === ':scope > ul.lanes > li.lane') return lanes;
+    return [];
+};
+
+const handCard = makeElement('li');
+handCard.classList.add('cardContainer');
+handCard.setAttribute('draggable', 'true');
+handCard.dataset.cardLane = '1';
+const cardIdInput = makeElement('input');
+cardIdInput.type = 'hidden';
+cardIdInput.value = '101';
+handCard.appendChild(cardIdInput);
+handCard.closest = (selector) => {
+    if (selector === '.cardContainer') return handCard;
+    if (selector === '.playerScreen .deckHand') return makeElement('div');
+    return null;
+};
+handCard.matches = (selector) => selector === 'li.cardContainer';
+
+const documentListeners = {};
+const fakeDocument = {
+    listeners: documentListeners,
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        if (selector === '.playerBoard') return fakePlayerBoard;
+        if (selector === '.playerScreen') return fakePlayerScreen;
+        const sourceMatch = selector.match(/data-source-card-id="([^"]+)"/);
+        if (sourceMatch) {
+            const holograms = holoRows.flatMap((row) => row.children);
+            return holograms.find((holo) =>
+                holo.classList.contains('keyboard-preview') &&
+                holo.dataset.keyboardPreview === 'true' &&
+                holo.dataset.sourceCardId === sourceMatch[1]
+            ) || null;
+        }
+        return null;
+    },
+    querySelectorAll(selector) {
+        if (selector.includes('li.cardContainer')) return [handCard];
+        return [];
+    },
+    getElementById() { return null; },
+    createElement: (tag) => makeElement(tag),
+    createElementNS: () => makeElement('svg'),
+    addEventListener(event, handler, capture) {
+        if (!documentListeners[event]) documentListeners[event] = [];
+        documentListeners[event].push({ handler, capture: !!capture });
+    },
+    removeEventListener(event, handler, capture) {
+        if (!documentListeners[event]) return;
+        documentListeners[event] = documentListeners[event].filter(
+            (entry) => entry.handler !== handler || entry.capture !== !!capture
+        );
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body: makeElement('body'),
+    activeElement: null,
+};
+
+const fakeWindow = { addEventListener() {}, removeEventListener() {}, cardDragDrop: null };
+
+global.document = fakeDocument;
+global.window = fakeWindow;
+global.CSS = { escape: (value) => String(value).replace(/"/g, '\\"') };
+global.MutationObserver = function (handler) { this.observe = () => {}; this.disconnect = () => {}; };
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+const domReadyHandlers = documentListeners['DOMContentLoaded'] || [];
+if (domReadyHandlers.length === 0) throw new Error('DOMContentLoaded handler missing');
+domReadyHandlers.forEach((entry) => entry.handler());
+
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const arrowTargets = [];
+const realCreateCurvedArrow = system._createCurvedArrow.bind(system);
+system._createCurvedArrow = (source, target) => {
+    arrowTargets.push(target);
+    return realCreateCurvedArrow(source, target);
+};
+
+const bodyArrows = () => fakeDocument.body.children.filter(
+    (child) => child.classList && child.classList.contains('hologram-arrow')
+);
+
+const pressKey = (key) => {
+    let prevented = false;
+    const event = { key, repeat: false, target: handCard, preventDefault() { prevented = true; } };
+    (documentListeners['keydown'] || []).forEach((entry) => entry.handler(event));
+    return prevented;
+};
+
+const fireFocusIn = () => {
+    (listeners['focusin'] || []).forEach((entry) => entry.handler({ type: 'focusin', target: handCard }));
+};
+
+if (!pressKey('1')) throw new Error('digit selection did not preventDefault');
+const selection = system.keyboardSelection;
+if (!selection.selectedCard) throw new Error('digit did not select hand card');
+if (selection.currentLane !== 1) throw new Error('typed selection landed in lane ' + selection.currentLane);
+const oldHologram = selection.hologram;
+if (oldHologram.parentNode !== holoRows[0]) throw new Error('hologram not appended to lane 1 row');
+
+fireFocusIn();
+if (arrowTargets.length !== 1) throw new Error('expected 1 arrow after focus, got ' + arrowTargets.length);
+const initialClone = oldHologram.querySelector('.cardContainer');
+if (arrowTargets[0] !== initialClone) throw new Error('initial arrow does not target the clone');
+if (bodyArrows().length !== 1) throw new Error('expected exactly 1 arrow svg after focus');
+if (!initialClone.classList.contains('hover')) throw new Error('clone missing hover class');
+
+if (!pressKey('ArrowRight')) throw new Error('arrow lane move did not preventDefault');
+if (system.keyboardSelection.currentLane !== 2) {
+    throw new Error('expected lane 2 after ArrowRight, got ' + system.keyboardSelection.currentLane);
+}
+let newHologram = system.keyboardSelection.hologram;
+if (newHologram === oldHologram) throw new Error('lane move did not rebuild the hologram');
+if (newHologram.parentNode !== holoRows[1]) throw new Error('new hologram not in lane 2 row');
+if (oldHologram.parentNode !== null || !oldHologram.removed) throw new Error('old hologram still attached');
+
+if (arrowTargets.length !== 2) throw new Error('expected 2 arrows after lane move, got ' + arrowTargets.length);
+let newClone = newHologram.querySelector('.cardContainer');
+if (arrowTargets[1] !== newClone) throw new Error('refreshed arrow does not target the new clone');
+if (system._keyboardSelectionControl._focusArrow.target !== newClone) {
+    throw new Error('stored arrow target is not the current clone');
+}
+if (system._keyboardSelectionControl._focusArrow.source !== handCard) {
+    throw new Error('stored arrow source is not the selected hand card');
+}
+if (bodyArrows().length !== 1) {
+    throw new Error('expected exactly 1 arrow svg after lane move, got ' + bodyArrows().length);
+}
+if (!newClone.classList.contains('hover')) throw new Error('new clone missing hover class');
+
+if (!pressKey('ArrowDown')) throw new Error('second lane move did not preventDefault');
+if (system.keyboardSelection.currentLane !== 3) {
+    throw new Error('expected lane 3 after ArrowDown, got ' + system.keyboardSelection.currentLane);
+}
+newHologram = system.keyboardSelection.hologram;
+if (newHologram.parentNode !== holoRows[2]) throw new Error('second hologram not in lane 3 row');
+if (arrowTargets.length !== 3) throw new Error('expected 3 arrows after second move, got ' + arrowTargets.length);
+newClone = newHologram.querySelector('.cardContainer');
+if (system._keyboardSelectionControl._focusArrow.target !== newClone) {
+    throw new Error('stored arrow target did not follow the second lane move');
+}
+if (bodyArrows().length !== 1) {
+    throw new Error('expected exactly 1 arrow svg after second lane move, got ' + bodyArrows().length);
+}
+
+system.destroy();
+if (bodyArrows().length !== 0) throw new Error('destroy left an arrow svg in the body');
+
+console.log('move-keyboard-selection arrow refresh ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping keyboard lane-move arrow test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping keyboard lane-move arrow test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard lane-move arrow harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('move-keyboard-selection arrow refresh ok', completed.stdout)
+
+    def test_keyboard_flow_after_escape_cancellation_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+const fieldCards = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const fieldCard = new FakeElement('li', 'cardContainer');
+    fieldCard.setAttribute('tabindex', '0');
+    fieldCard.dataset.cardLane = String(laneIndex + 1);
+    const fieldId = new FakeElement('input');
+    fieldId.setAttribute('type', 'hidden');
+    fieldId.setAttribute('name', 'card_id');
+    fieldId.setAttribute('value', `500${laneIndex + 1}`);
+    fieldCard.appendChild(fieldId);
+    lane.appendChild(fieldCard);
+    fieldCards.push(fieldCard);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2);
+const handB = makeHandCard(202, 3);
+const handC = makeHandCard(203, 1);
+const handCards = [handA, handB, handC];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, ...handCards, ...fieldCards, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = { addEventListener() {}, removeEventListener() {}, cardDragDrop: null, location: { pathname: '/x/action' } };
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const clickHandlers = documentListeners['click'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const clickCard = (card) => {
+    clickHandlers.forEach((entry) => entry({
+        type: 'click', button: 0, target: card, clientX: 5, clientY: 5,
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const stagedClones = () => holoRows.flatMap((row) => row.children);
+const activeIs = (element) => fakeDocument.activeElement === element;
+
+fakeDocument.activeElement = body;
+
+assert('typing digit 1 selects card A', pressKey('1') && state().selectedCard === handA && activeIs(handA));
+assert('hand selection writes clone into lane 2 row', stagedClones().length === 1 && stagedClones()[0].parentNode === holoRows[1]);
+assert('selection ordinal lands in hidden input', focusedHandCardInput.value === '1');
+pressKey('0');
+assert('cancel keeps focus but clears selection', state().selectedCard === null && activeIs(handA));
+assert('ArrowUp focuses first field card', pressKey('ArrowUp') && activeIs(fieldCards[0]) && state().selectedCard === null);
+assert('ArrowDown from field re-selects persisted hand slot', pressKey('ArrowDown') && state().selectedCard === handA && activeIs(handA));
+assert('Escape clears selection and restores focus', pressKey('Escape') && state().selectedCard === null && state().digitBuffer === '' && activeIs(handA));
+assert('clone removed after Escape', stagedClones().length === 0);
+assert('Enter re-selects the focused hand card', pressKey('Enter') && state().selectedCard === handA);
+assert('each selection keeps exactly one clone', stagedClones().length === 1);
+assert('Escape again keeps focus', pressKey('Escape') && activeIs(handA));
+assert('Space re-selects the focused hand card', pressKey(' ') && state().selectedCard === handA);
+pressKey('Escape');
+assert('ArrowRight cycles to the next hand card', pressKey('ArrowRight') && state().selectedCard === handB && activeIs(handB));
+assert('cycling writes the playable ordinal to the hidden input', focusedHandCardInput.value === '2');
+pressKey('Escape');
+assert('ArrowLeft cycles back to the previous hand card', pressKey('ArrowLeft') && state().selectedCard === handA && activeIs(handA));
+pressKey('Escape');
+fakeDocument.activeElement = handC;
+assert('wraparound forward lands on the first card', pressKey('ArrowRight') && state().selectedCard === handA);
+pressKey('Escape');
+assert('wraparound backward lands on the last card', pressKey('ArrowLeft') && state().selectedCard === handC);
+pressKey('Escape');
+assert('ArrowUp from the hand focuses field cards again', pressKey('ArrowUp') && activeIs(fieldCards[0]) && state().selectedCard === null);
+fakeDocument.activeElement = handA;
+assert('ArrowDown from the hand focuses the end turn button', pressKey('ArrowDown') && activeIs(endTurnButton) && state().selectedCard === null);
+
+clickCard(handA);
+assert('mouse click selects card A', state().selectedCard === handA && activeIs(handA));
+assert('Escape cancels the mouse selection and keeps focus',
+    pressKey('Escape') && state().selectedCard === null && state().mouseSelecting === false && activeIs(handA));
+assert('mouse preview cursor removed after Escape',
+    fakeDocument.body.querySelectorAll('#mousePreviewCursor').length === 0);
+assert('Enter re-selects after mouse Escape', pressKey('Enter') && state().selectedCard === handA);
+pressKey('Escape');
+assert('ArrowRight resumes the same cycle from the focused card',
+    pressKey('ArrowRight') && state().selectedCard === handB);
+pressKey('Escape');
+fakeDocument.activeElement = endTurnButton;
+pressKey('Enter');
+assert('focus on the end turn button does not re-select a hand card via Enter', state().selectedCard === null);
+
+console.log('keyboard flow after escape cancellation ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping keyboard flow DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping keyboard flow DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard flow after escape harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('keyboard flow after escape cancellation ok', completed.stdout)
+
+    def test_keyboard_selected_property_cleared_on_focus_loss_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            removeProperty: () => {},
+        };
+        this.dataset = new Proxy({}, {
+            set: (target, key, value) => {
+                target[key] = value;
+                this.setAttribute('data-' + String(key).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()), value);
+                return true;
+            },
+            deleteProperty: (target, key) => {
+                delete target[key];
+                this.removeAttribute('data-' + String(key).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+                return true;
+            },
+        });
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+const fieldCards = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const fieldCard = new FakeElement('li', 'cardContainer');
+    fieldCard.setAttribute('tabindex', '0');
+    fieldCard.dataset.cardLane = String(laneIndex + 1);
+    const fieldId = new FakeElement('input');
+    fieldId.setAttribute('type', 'hidden');
+    fieldId.setAttribute('name', 'card_id');
+    fieldId.setAttribute('value', `500${laneIndex + 1}`);
+    fieldCard.appendChild(fieldId);
+    lane.appendChild(fieldCard);
+    fieldCards.push(fieldCard);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 1);
+const handB = makeHandCard(202, 2);
+const cardButton = new FakeElement('button');
+cardButton.setAttribute('type', 'button');
+handA.appendChild(cardButton);
+const handCards = [handA, handB];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+for (const el of [handA, handB, cardButton, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '1', tactics: '2',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const clickHandlers = documentListeners['click'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const clickCard = (card) => {
+    clickHandlers.forEach((entry) => entry({
+        type: 'click', button: 0, target: card, clientX: 5, clientY: 5,
+    }));
+};
+const fireScreenFocus = (type, target, relatedTarget) => {
+    (playerScreen.eventHandlers[type] || []).forEach((entry) => entry({
+        type, target, relatedTarget,
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const activeIs = (element) => fakeDocument.activeElement === element;
+const bodyArrowsCount = () => body.children.filter(
+    (child) => child.classes && child.classes.has('hologram-arrow'),
+).length;
+
+fakeDocument.activeElement = body;
+
+assert('typing digit 1 selects card A with a lane preview while focused',
+    pressKey('1') && state().selectedCard === handA && state().lanePreviewActive === true && activeIs(handA));
+assert('hand selection writes the preview clone into lane 1 row',
+    holoRows[0].children.length === 1 &&
+    holoRows[0].children[0].classList.contains('hologram') &&
+    holoRows[0].children[0].classList.contains('keyboard-preview'));
+assert('lane preview keeps the property on the focused card',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, cardButton);
+assert('focus moving inside the card keeps the selection styling',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, endTurnButton);
+assert('true focus loss removes the property even for the last selected card',
+    handA.getAttribute('data-keyboard-selected') === null &&
+    handA.getAttribute('aria-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('the lane preview survives focus loss so a lane click can still confirm',
+    state().selectedCard === handA && holoRows[0].children.length === 1);
+
+fireScreenFocus('focusin', handA, undefined);
+assert('refocusing the still selected card restores the property',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    system.control._focusArrow !== null && system.control._focusArrow.source === handA);
+assert('filtering the focus arrow keeps exactly one svg in the body', bodyArrowsCount() === 1);
+
+fakeDocument.activeElement = handA;
+assert('Enter stages the play into the preview lane',
+    pressKey('Enter') && handA.classList.contains('ghost') && handA.dataset.stagedLane === '1');
+const stagedHologram = holoRows[0].children.filter((child) => !child.classList.contains('drop-zone'))[0];
+assert('staged hologram replaces the preview clone in lane 1 row',
+    holoRows[0].children.length === 1 && stagedHologram.classList.contains('hologram') &&
+    stagedHologram.classList.contains('keyboard-staged'));
+const stagedClone = stagedHologram.querySelector('.cardContainer');
+assert('staged hologram links the played card id',
+    stagedHologram.getAttribute('data-staged-for-card-id') === '201');
+assert('staged play removes the property from the hand card',
+    handA.getAttribute('data-keyboard-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('staged clone gains a flip tab stop while flips remain',
+    stagedClone.getAttribute('tabindex') === '0');
+
+fakeDocument.activeElement = handA;
+assert('digit 1 selects the played ghost for its flip',
+    pressKey('1') && state().ghostFlip === true && state().selectedCard === handA);
+assert('ghost-flip selection carries the property again',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, stagedClone);
+assert('focus moving between the ghost and its lane clone keeps the property',
+    handA.getAttribute('data-keyboard-selected') === 'true' && state().ghostFlip === true);
+
+fireScreenFocus('focusout', handA, endTurnButton);
+assert('focus loss keeps the property while the card is being played to a lane',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true' && state().ghostFlip === true);
+
+assert('Enter confirms the ghost flip and clears the property',
+    pressKey('Enter') && handA.dataset.stagedFlipped === 'true' &&
+    handA.getAttribute('data-keyboard-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('the flipped predecessor stays face up after the flip confirm',
+    stagedClone.classList.contains('faceDown') === false);
+
+fakeDocument.activeElement = body;
+clickCard(handB);
+assert('mouse click selects card B',
+    state().selectedCard === handB && state().mouseSelecting === true && activeIs(handB));
+assert('mouse selection carries the property',
+    handB.getAttribute('data-keyboard-selected') === 'true');
+assert('mouse preview cursor follows the selection',
+    fakeDocument.getElementById('mousePreviewCursor') !== null);
+assert('mousemove route is installed for the mouse selection',
+    (documentListeners['mousemove'] || []).length === 1);
+
+fireScreenFocus('focusout', handB, null);
+assert('mouse selection styling is removed when focus truly leaves the card',
+    handB.getAttribute('data-keyboard-selected') === null &&
+    handB.getAttribute('aria-selected') === null &&
+    !handB.classList.contains('keyboard-selected'));
+assert('the mouse selection stays confirmable after focus loss',
+    state().selectedCard === handB && state().mouseSelecting === true &&
+    fakeDocument.getElementById('mousePreviewCursor') !== null);
+
+assert('Escape cancels the abandoned mouse selection and repairs focus',
+    pressKey('Escape') && state().selectedCard === null && state().digitBuffer === '' &&
+    state().mouseSelecting === false && activeIs(handB));
+assert('Escape teardown removes the cursor marker and mousemove route',
+    fakeDocument.getElementById('mousePreviewCursor') === null &&
+    (documentListeners['mousemove'] || []).length === 0);
+assert('no selection property lingers after Escape',
+    handB.getAttribute('data-keyboard-selected') === null);
+
+system.destroy();
+assert('destroy cleans up', bodyArrowsCount() === 0);
+
+console.log('keyboard-selected property focus lifecycle ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping focus-loss property DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping focus-loss property DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard-selected property focus lifecycle harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('keyboard-selected property focus lifecycle ok', completed.stdout)
+
+
         import os
         css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')
         with open(css_path) as css_file:
@@ -3598,11 +5019,19 @@ class BattleFlowTests(TestCase):
         self.assertIn('endTurnButton()', navigate_method)
         self.assertIn('drawButton()', navigate_method)
         self.assertIn('handCardAt(this.persistedHandSlot)', navigate_method)
-        self.assertIn('this.system.selectKeyboardCard(target, String(this.persistedHandSlot))', navigate_method)
+        self.assertIn(
+            "region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')",
+            navigate_method,
+        )
+        self.assertIn('this.navigator.nextHandCard(fromElement, direction === \'ArrowRight\' ? 1 : -1)', navigate_method)
+        self.assertIn('const targetIndex = this.system.playableKeyboardCards().indexOf(target);', navigate_method)
+        self.assertIn('let ordinal = this.persistedHandSlot;', navigate_method)
+        self.assertNotIn("region === 'field' && direction === 'ArrowLeft'", navigate_method)
+        self.assertNotIn("region === 'end-turn' && direction === 'ArrowLeft'", navigate_method)
+        self.assertNotIn("region === 'draw' && direction === 'ArrowLeft'", navigate_method)
+        self.assertIn('this.system.selectKeyboardCard(target, String(ordinal))', navigate_method)
         self.assertIn('target.focus({ preventScroll: true })', navigate_method)
         self.assertIn("return typeof target.focus === 'function';", navigate_method)
-        self.assertNotIn("'ArrowLeft'", navigate_method)
-        self.assertNotIn("'ArrowRight'", navigate_method)
 
         parent_class = drag_js[card_drag_drop_start:]
         self.assertIn('    onKeyboardKeyDown(event)', parent_class)
@@ -4818,6 +6247,11 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
             drag_js.index('    selectOrderedCard(')
         ]
 
+    def _slice_js_method(self, source, signature, end_marker):
+        start = source.index(signature)
+        end = source.index(end_marker, start)
+        return source[start:end]
+
     def _read_cards_css(self):
         import os
 
@@ -4832,6 +6266,8 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         keydown_code = self._slice_on_keyboard_key_down(drag_js)
 
         self.assertIn("event.key === '`'", keydown_code)
+        self.assertIn("event.code === 'Backquote'", keydown_code)
+        self.assertIn("event.key !== '~'", keydown_code)
         self.assertNotIn("event.key === '~'", keydown_code)
         self.assertIn("classList.toggle('debug-overlay-visible'", keydown_code)
 
@@ -4957,92 +6393,39 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
                 f"Lane <p> for {lane_name} must not be inside dev-only blocks",
             )
 
-    def test_backtick_overlay_panel_renders_turn_affordances_and_counters(self):
-        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
-        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
-        content = response.content.decode()
-
-        overlay_match = re.search(
-            r'<div\s+id="debugOverlay"[^>]*>([\s\S]*?)</div>\s*<a\b',
-            content,
-        )
-        self.assertIsNotNone(
-            overlay_match,
-            "Rendered board must include a <div id=\"debugOverlay\"> panel",
-        )
-        overlay_body = overlay_match.group(1)
-
-        for label in (
-            'Turn affordances',
-            'Draws left',
-            'Plays left',
-            'Flips left',
-            'Intelligence',
-            'Tactics',
-            'Drawn',
-            'Played',
-            'Flipped',
-            'Player deck/hand',
-        ):
-            self.assertIn(label, overlay_body, f"debug overlay missing {label!r}")
-
-        for data_key in (
-            'draws-left',
-            'plays-left',
-            'flips-left',
-            'int-count',
-            'spd-count',
-            'tactics',
-            'drawn',
-            'played',
-            'flipped',
-            'own-deck-count',
-            'own-hand-count',
-        ):
-            self.assertIn(f'data-debug="{data_key}"', overlay_body)
-
-    def test_backtick_overlay_panel_hidden_by_default(self):
-        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
-        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
-        content = response.content.decode()
-
-        overlay_match = re.search(
-            r'<div\s+id="debugOverlay"([^>]*)>',
-            content,
-        )
-        self.assertIsNotNone(overlay_match, "Rendered board must include #debugOverlay")
-        opening_attrs = overlay_match.group(1)
-        self.assertIn('hidden', opening_attrs)
-
-    def test_backtick_overlay_panel_css_positions_panel_floating(self):
-        cards_css = self._read_cards_css()
-        overlay_rule = re.search(r'#debugOverlay\s*\{[^}]*\}', cards_css)
-        self.assertIsNotNone(overlay_rule, "No #debugOverlay CSS rule found")
-        body = overlay_rule.group(0)
-        self.assertIn('position: fixed', body)
-        self.assertIn('background: white', body)
-        self.assertIn('z-index: 1000', body)
-        self.assertIn('pointer-events: none', body)
-
-        visible_rule = re.search(r'#debugOverlay\[hidden\]\s*\{[^}]*\}', cards_css)
-        self.assertIsNotNone(visible_rule, "No #debugOverlay[hidden] CSS rule found")
-        self.assertIn('display: none', visible_rule.group(0))
-
-    def test_backtick_overlay_panel_toggles_via_keydown_branch(self):
+    def test_backtick_debug_branch_toggles_only_paragraph_groups_without_panel(self):
         drag_js = self._read_card_drag_drop_js()
         keydown_code = self._slice_on_keyboard_key_down(drag_js)
 
-        backtick_index = keydown_code.index("event.key === '`'")
-        end_of_branch = keydown_code.index('if (this._isEndTurnKey(event))')
-        branch = keydown_code[backtick_index:end_of_branch]
+        self.assertNotIn('debugOverlay', keydown_code)
+        self.assertNotIn('getElementById', keydown_code)
 
-        self.assertIn("getElementById('debugOverlay')", branch)
-        self.assertIn("'debug-overlay-visible'", branch)
+        branch_index = keydown_code.index(
+            "event.key === '`' || (event.code === 'Backquote' && event.key !== '~')"
+        )
+        toggle_call_index = keydown_code.index(
+            'this.toggleDebugParagraphOverlay()', branch_index
+        )
+        end_of_branch = keydown_code.index('if (this._isEndTurnKey(event))', branch_index)
+        branch = keydown_code[branch_index:end_of_branch]
+        self.assertIn('event.preventDefault()', branch)
+        self.assertIn('this.toggleDebugParagraphOverlay();', branch)
 
-        visible_count = branch.count("classList.toggle('debug-overlay-visible'")
-        self.assertGreaterEqual(visible_count, 4)
+        self.assertEqual(
+            keydown_code.count("classList.toggle('debug-overlay-visible'"), 1
+        )
+        self.assertEqual(keydown_code.count('document.querySelectorAll'), 1)
 
-    def test_backtick_overlay_panel_styling_applies_visibility_class(self):
+        combined_selector = keydown_code[keydown_code.index('.playerScreen .deckHand > p'):]
+        combined_selector = combined_selector[:combined_selector.index(')')]
+        for selector in (
+            ".playerScreen .deckHand > p",
+            ".playerScreen .enemyDeckHand > p",
+            ".playerScreen .lanes .lane > p",
+        ):
+            self.assertIn(selector, combined_selector)
+
+    def test_backtick_debug_paragraph_css_styling_applies_visibility_class(self):
         cards_css = self._read_cards_css()
         visible_rule = re.search(
             r'\.playerScreen\s+\.deckHand\s*>\s*p\.debug-overlay-visible[^{]*\{[^}]*\}',
@@ -5053,6 +6436,174 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         self.assertIn('position: absolute', body)
         self.assertIn('background: white', body)
         self.assertIn('z-index: 3', body)
+
+    def test_backtick_dead_key_and_grave_dispatch_toggles_paragraphs_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        drag_js = self._read_card_drag_drop_js()
+        text_control_target = self._slice_js_method(
+            drag_js,
+            '    _isTextControlTarget(target) {',
+            '    _keyboardTransitionActive() {',
+        )
+        end_turn_key = self._slice_js_method(
+            drag_js,
+            '    _isEndTurnKey(event) {',
+            '    _isDrawKey(event) {',
+        )
+        draw_key = self._slice_js_method(
+            drag_js,
+            '    _isDrawKey(event) {',
+            '    _findEndTurnControl() {',
+        )
+        keydown_handler = self._slice_js_method(
+            drag_js,
+            '    onKeyboardKeyDown(event) {',
+            '    toggleDebugParagraphOverlay() {',
+        )
+        paragraph_toggle = self._slice_js_method(
+            drag_js,
+            '    toggleDebugParagraphOverlay() {',
+            '    selectOrderedCard(',
+        )
+
+        harness_parts = [
+            'const expectedSelector =',
+            repr(
+                '.playerScreen .deckHand > p, '
+                '.playerScreen .enemyDeckHand > p, '
+                '.playerScreen .lanes .lane > p'
+            ) + ';',
+            '',
+            'const makeFakeParagraph = (name) => {',
+            '    const paragraph = { name, toggledUp: 0 };',
+            '    paragraph.classList = {',
+            '        toggle(className) {',
+            "            if (className !== 'debug-overlay-visible') {",
+            '                throw new Error("unexpected toggled class " + className);',
+            '            }',
+            '            paragraph.toggledUp += 1;',
+            '        },',
+            '    };',
+            '    return paragraph;',
+            '};',
+            '',
+            'const playerCounter = makeFakeParagraph("player");',
+            'const enemyCounter = makeFakeParagraph("enemy");',
+            'const laneIndicator = makeFakeParagraph("lane");',
+            'const paragraphTargets = [playerCounter, enemyCounter, laneIndicator];',
+            '',
+            'let recordedSelector = null;',
+            'global.document = {',
+            '    activeElement: null,',
+            '    querySelectorAll(selector) {',
+            '        if (!recordedSelector) recordedSelector = selector;',
+            '        return paragraphTargets;',
+            '    },',
+            '};',
+            '',
+            'const system = { keyboardSelection: { selectedCard: null, digitBuffer: "" } };',
+            'system._isTextControlTarget = eval(`(function ${' + repr(text_control_target) + '})`);',
+            'system._isEndTurnKey = eval(`(function ${' + repr(end_turn_key) + '})`);',
+            'system._isDrawKey = eval(`(function ${' + repr(draw_key) + '})`);',
+            'system.onKeyboardKeyDown = eval(`(function ${' + repr(keydown_handler) + '})`);',
+            'system.toggleDebugParagraphOverlay = eval(`(function ${' + repr(paragraph_toggle) + '})`);',
+            '',
+            'const dispatch = (descriptor) => {',
+            '    playerCounter.toggledUp = 0;',
+            '    enemyCounter.toggledUp = 0;',
+            '    laneIndicator.toggledUp = 0;',
+            '    recordedSelector = null;',
+            '    const event = {',
+            '        key: descriptor.key,',
+            '        code: descriptor.code,',
+            '        defaultPrevented: false,',
+            '        repeat: false,',
+            '        target: descriptor.target,',
+            '        preventDefault() { event.prevented = true; },',
+            '    };',
+            '    system.onKeyboardKeyDown(event);',
+            '    return { selector: recordedSelector, prevented: Boolean(event.prevented) };',
+            '};',
+            '',
+            'const expectToggled = (dispatched) => {',
+            '    if (dispatched.selector !== expectedSelector) {',
+            '        throw new Error("querySelectorAll selector mismatch: " + dispatched.selector);',
+            '    }',
+            '    for (const paragraph of paragraphTargets) {',
+            '        if (paragraph.toggledUp !== 1) {',
+            '            throw new Error(paragraph.name + " did not receive the debug class");',
+            '        }',
+            '    }',
+            '};',
+            '',
+            'let dispatchResult = dispatch({ key: "Dead", code: "Backquote" });',
+            'expectToggled(dispatchResult);',
+            'if (!dispatchResult.prevented) throw new Error("Dead backtick was not consumed");',
+            '',
+            'dispatchResult = dispatch({ key: "`", code: "Backquote" });',
+            'expectToggled(dispatchResult);',
+            'if (!dispatchResult.prevented) throw new Error("grave backtick was not consumed");',
+            '',
+            'dispatchResult = dispatch({ key: "Dead", code: "Backquote", target: { closest: () => null } });',
+            'expectToggled(dispatchResult);',
+            '',
+            'const textControlTarget = { closest: (selector) => ({ matches: () => true }) };',
+            'dispatchResult = dispatch({ key: "Dead", code: "Backquote", target: textControlTarget });',
+            'if (playerCounter.toggledUp !== 0 || enemyCounter.toggledUp !== 0 || laneIndicator.toggledUp !== 0) {',
+            '    throw new Error("text-control target must not trigger the debug toggle");',
+            '}',
+            'if (!dispatchResult.prevented) throw new Error("backtick in text control was not consumed");',
+            '',
+            'global.document.activeElement = textControlTarget;',
+            'dispatchResult = dispatch({ key: "`", code: "Backquote" });',
+            'if (playerCounter.toggledUp !== 0) {',
+            '    throw new Error("focused text control must block the debug toggle");',
+            '}',
+            'global.document.activeElement = null;',
+            '',
+            'dispatchResult = dispatch({ key: "~", code: "Backquote" });',
+            'if (playerCounter.toggledUp !== 0 || enemyCounter.toggledUp !== 0 || laneIndicator.toggledUp !== 0) {',
+            '    throw new Error("shifted tilde must not trigger the debug toggle");',
+            '}',
+            'if (dispatchResult.prevented) throw new Error("tilde keydown should reach other handlers");',
+            '',
+            'console.log("backtick debug paragraphs ok");',
+        ]
+        harness = '\n'.join(harness_parts)
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping backtick dispatch test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping backtick dispatch test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'backtick dispatch harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('backtick debug paragraphs ok', completed.stdout)
 
 
 class _LaneIndicatorFinder(HTMLParser):

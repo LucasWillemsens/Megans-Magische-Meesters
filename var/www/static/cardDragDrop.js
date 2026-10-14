@@ -122,18 +122,17 @@ class ShortcutHoldAction {
 }
 
 class RegionNavigator {
+    static handCardSelector =
+        '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer, ' +
+        '.playerScreen .deckHand ul.hand li.cardContainer';
+
     constructor(system) {
         this.system = system;
     }
 
     regionFor(element) {
         if (!element || typeof element.closest !== 'function') return null;
-        if (
-            element.closest(
-                '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer, ' +
-                '.playerScreen .deckHand ul.hand li.cardContainer'
-            )
-        ) return 'hand';
+        if (element.closest(RegionNavigator.handCardSelector)) return 'hand';
         if (element.closest('.playerScreen .lanes .cardContainer')) return 'field';
         if (element.closest('.playerScreen .end-turn')) return 'end-turn';
         if (element.closest('.playerScreen .deckHand .active-deck button.draw')) return 'draw';
@@ -159,6 +158,21 @@ class RegionNavigator {
         if (cards.length === 0) return null;
         const clamped = Math.max(1, Math.min(slot, cards.length));
         return cards[clamped - 1] || null;
+    }
+
+    handCardForFocus(fromElement) {
+        if (!fromElement || typeof fromElement.closest !== 'function') return null;
+        return fromElement.closest(RegionNavigator.handCardSelector);
+    }
+
+    nextHandCard(fromElement, step) {
+        const playableCards = this.system.playableKeyboardCards();
+        if (playableCards.length === 0) return null;
+        const currentIndex = playableCards.indexOf(this.handCardForFocus(fromElement));
+        const nextIndex = currentIndex === -1
+            ? (step > 0 ? 0 : playableCards.length - 1)
+            : (((currentIndex + step) % playableCards.length) + playableCards.length) % playableCards.length;
+        return playableCards[nextIndex] ?? null;
     }
 
     endTurnButton() {
@@ -449,7 +463,14 @@ class KeyboardSelectionControl {
         selection.hologram = hologram;
         selection.laneValue = parsedLane;
         selection.currentLane = parsedLane;
+        this._refreshFocusArrowAfterLaneMove(selection.selectedCard);
         return true;
+    }
+
+    _refreshFocusArrowAfterLaneMove(card) {
+        if (!this._focusArrow || this._focusArrow.source !== card) return;
+        this.onFocusOut(card);
+        this.onFocusIn(card);
     }
 
     confirmKeyboardSelection(laneValue = null) {
@@ -507,52 +528,26 @@ class KeyboardSelectionControl {
     clearKeyboardSelection({removePreview = true} = {}) {
         const selection = this.state;
         const card = selection.selectedCard;
+        if (this._focusArrow) {
+            this._focusArrow.arrow.remove();
+            this._focusArrow = null;
+        }
+        this.state = this._emptyKeyboardSelection();
         if (card) {
-            card.classList.remove('keyboard-selected');
-            delete card.dataset.keyboardSelected;
-            if (card.getAttribute('aria-selected') === 'true') {
-                card.removeAttribute('aria-selected');
-            }
+            this._clearSelectionStyling(card);
             const activeElement = document.activeElement;
             if (activeElement && (activeElement === card || card.contains(activeElement))) {
                 activeElement.blur();
             }
         }
-        if (this._focusArrow) {
-            this._focusArrow.arrow.remove();
-            this._focusArrow = null;
-        }
         if (removePreview && selection.hologram?.parentNode) selection.hologram.remove();
-        this.state = this._emptyKeyboardSelection();
     }
 
-    cancelKeyboardSelection() {
-        this.clearKeyboardSelection();
-    }
-
-    resetLaneSelection() {
-        const selection = this.state;
-        const card = selection.selectedCard;
-        if (selection.hologram?.parentNode) selection.hologram.remove();
-        if (this._focusArrow) {
-            this._focusArrow.arrow.remove();
-            this._focusArrow = null;
-        }
-        this.state = {
-            selectedCard: card,
-            cardId: selection.cardId,
-            sourceLane: selection.sourceLane,
-            sourceOrdinal: selection.sourceOrdinal,
-            laneValue: null,
-            currentLane: null,
-            hologram: null,
-            rotation: selection.rotation,
-            digitBuffer: selection.digitBuffer,
-            ghostFlip: false,
-            lanePreviewActive: false,
-        };
-        if (card && typeof card.focus === 'function') {
-            card.focus({ preventScroll: true });
+    _clearSelectionStyling(card) {
+        card.classList.remove('keyboard-selected');
+        delete card.dataset.keyboardSelected;
+        if (card.getAttribute('aria-selected') === 'true') {
+            card.removeAttribute('aria-selected');
         }
     }
 
@@ -566,6 +561,9 @@ class KeyboardSelectionControl {
             target = this.navigator.firstFieldCard();
         } else if (region === 'hand' && direction === 'ArrowDown') {
             target = this.navigator.endTurnButton();
+        } else if (region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')) {
+            target = this.navigator.nextHandCard(fromElement, direction === 'ArrowRight' ? 1 : -1);
+            isHandCard = true;
         } else if (region === 'field' && direction === 'ArrowUp') {
             target = this.navigator.endTurnButton();
         } else if (region === 'field' && direction === 'ArrowDown') {
@@ -585,7 +583,12 @@ class KeyboardSelectionControl {
         if (!target) return false;
 
         if (isHandCard) {
-            const success = this.system.selectKeyboardCard(target, String(this.persistedHandSlot));
+            let ordinal = this.persistedHandSlot;
+            if (region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')) {
+                const targetIndex = this.system.playableKeyboardCards().indexOf(target);
+                if (targetIndex >= 0) ordinal = targetIndex + 1;
+            }
+            const success = this.system.selectKeyboardCard(target, String(ordinal));
             if (success) {
                 const parsed = Number.parseInt(this.state.digitBuffer, 10);
                 this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
@@ -605,6 +608,7 @@ class KeyboardSelectionControl {
 
     onFocusIn(card) {
         if (!card) return;
+        this._restoreSelectionStylingOnFocus(card);
         const target = this.parent._focusArrowTarget(card);
         if (!target) return;
         if (
@@ -623,11 +627,52 @@ class KeyboardSelectionControl {
         };
     }
 
-    onFocusOut(card) {
+    onFocusOut(card, relatedTarget) {
+        this._clearFocusArrow(card);
+        if (relatedTarget === undefined) return;
+        this._clearSelectionStylingAfterFocusLoss(card, relatedTarget);
+    }
+
+    _clearFocusArrow(card) {
         if (!this._focusArrow) return;
         if (this._focusArrow.source !== card) return;
         this._focusArrow.arrow.remove();
         this._focusArrow = null;
+    }
+
+    _restoreSelectionStylingOnFocus(card) {
+        if (this.state.selectedCard !== card || card.classList.contains('keyboard-selected')) return;
+        card.classList.add('keyboard-selected');
+        card.dataset.keyboardSelected = 'true';
+        card.setAttribute('aria-selected', 'true');
+    }
+
+    _clearSelectionStylingAfterFocusLoss(card, relatedTarget) {
+        const selectedCard = this.state.selectedCard;
+        if (!selectedCard) return;
+        if (!this._isWithinSelectionFocusRegion(selectedCard, card)) return;
+        if (this._isWithinSelectionFocusRegion(selectedCard, relatedTarget)) return;
+        if (this._isPlayedToLane(selectedCard)) return;
+        this._clearSelectionStyling(selectedCard);
+    }
+
+    _isWithinSelectionFocusRegion(selectedCard, element) {
+        if (!element) return false;
+        if (element === selectedCard) return true;
+        if (typeof selectedCard.contains === 'function' && selectedCard.contains(element)) return true;
+        const clone = this.parent._focusArrowTarget(selectedCard);
+        if (!clone) return false;
+        return clone === element ||
+            (typeof clone.contains === 'function' && clone.contains(element));
+    }
+
+    _isPlayedToLane(card) {
+        if (this._stagedLaneForGhost_Legacy(card)) return true;
+        const cardId = this.parent._cardIdInput(card)?.value;
+        if (!cardId) return false;
+        return Boolean(document.querySelector(
+            `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`
+        ));
     }
 }
 
@@ -1031,7 +1076,7 @@ class CardDragDropSystem {
                 if (event.type === 'focusin') {
                     this._keyboardSelectionControl.onFocusIn(card);
                 } else {
-                    this._keyboardSelectionControl.onFocusOut(card);
+                    this._keyboardSelectionControl.onFocusOut(card, event.relatedTarget);
                 }
             };
             playerScreen.addEventListener('focusin', this.focusDelegateHandler, true);
@@ -1134,6 +1179,19 @@ class CardDragDropSystem {
         event.preventDefault();
         this.cancelKeyboardSelection();
         return true;
+    }
+
+    _keyboardSelectableHandCard(event) {
+        const orderableCards = this.orderableKeyboardCards();
+        if (orderableCards.length === 0) return null;
+        for (const candidate of [event.target, document.activeElement]) {
+            if (!candidate || typeof candidate.closest !== 'function') continue;
+            const card = this.playerHandCards().find(
+                (item) => item === candidate || item.contains(candidate)
+            );
+            if (card && orderableCards.includes(card)) return card;
+        }
+        return null;
     }
 
     _isDisabledControlTarget(target) {
@@ -1360,27 +1418,14 @@ class CardDragDropSystem {
 
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
-        if (event.key === '`') {
+        if (event.key === '`' || (event.code === 'Backquote' && event.key !== '~')) {
             const target = event.target || document.activeElement;
             if (this._isTextControlTarget(target) || this._isTextControlTarget(document.activeElement)) {
                 event.preventDefault();
                 return;
             }
             event.preventDefault();
-            const playerCounter = document.querySelector('.playerScreen .deckHand > p');
-            if (playerCounter) playerCounter.classList.toggle('debug-overlay-visible');
-            document.querySelectorAll('.playerScreen .enemyDeckHand > p').forEach(element => {
-                element.classList.toggle('debug-overlay-visible');
-            });
-            document.querySelectorAll('.playerScreen .lanes .lane > p').forEach(element => {
-                element.classList.toggle('debug-overlay-visible');
-            });
-            const debugOverlay = document.getElementById('debugOverlay');
-            if (debugOverlay) {
-                const shouldShow = !debugOverlay.classList.contains('debug-overlay-visible');
-                debugOverlay.classList.toggle('debug-overlay-visible');
-                debugOverlay.hidden = !shouldShow;
-            }
+            this.toggleDebugParagraphOverlay();
             return;
         }
         if (this._isEndTurnKey(event)) {
@@ -1409,18 +1454,20 @@ class CardDragDropSystem {
 
         if (key === 'Escape') {
             if (!activeSelection) return;
-            if (this.keyboardSelection.lanePreviewActive) {
-                if (!this._keyboardInteractionAllowed(event)) return;
-                event.preventDefault();
-                this._keyboardSelectionControl.resetLaneSelection();
-                return;
-            }
             this._cancelKeyboardSelectionFromEvent(event);
             return;
         }
 
         if (!activeSelection && (key === 'Enter' || key === ' ')) {
-            this.flipKeyboardFocusedCard(event);
+            const selectableHandCard = this._keyboardSelectableHandCard(event);
+            if (!selectableHandCard) {
+                this.flipKeyboardFocusedCard(event);
+                return;
+            }
+            if (event.repeat) return;
+            event.preventDefault();
+            const ordinal = String(this.orderableKeyboardCards().indexOf(selectableHandCard) + 1);
+            this.selectOrderedCard(selectableHandCard, ordinal, event);
             return;
         }
 
@@ -1545,7 +1592,14 @@ class CardDragDropSystem {
         this.clearKeyboardSelection();
     }
 
-    
+    toggleDebugParagraphOverlay() {
+        document.querySelectorAll(
+            '.playerScreen .deckHand > p, .playerScreen .enemyDeckHand > p, .playerScreen .lanes .lane > p'
+        ).forEach(element => {
+            element.classList.toggle('debug-overlay-visible');
+        });
+    }
+
     selectOrderedCard(card, digitBuffer, event) {
         if (this._isPlayableKeyboardCard(card)) {
             if (!this._keyboardActionAllowed(event)) return;
@@ -1587,7 +1641,11 @@ class CardDragDropSystem {
     }
 
     cancelKeyboardSelection() {
-        return this._keyboardSelectionControl.cancelKeyboardSelection();
+        const card = this.keyboardSelection?.selectedCard ?? null;
+        this.clearKeyboardSelection();
+        if (card && this.orderableKeyboardCards().includes(card)) {
+            card.focus({ preventScroll: true });
+        }
     }
 
     onHandCardClick(event) {
@@ -1606,7 +1664,7 @@ class CardDragDropSystem {
         if (index === -1) return;
         if (this.playableKeyboardCards().includes(card)) {
             if (!this._keyboardActionAllowed(event)) return;
-            this.selectHandCardByMouse(card, String(index + 1));
+            this.selectHandCardByMouse(card, String(index + 1), event);
             return;
         }
         if (!card.classList.contains('ghost')) {
@@ -1623,7 +1681,7 @@ class CardDragDropSystem {
         this.selectKeyboardCard(card, String(index + 1));
     }
 
-    selectHandCardByMouse(card, digitBuffer = this.keyboardSelection?.digitBuffer ?? '') {
+    selectHandCardByMouse(card, digitBuffer = this.keyboardSelection?.digitBuffer ?? '', event = null) {
         if (!this._hasPlayerBoard() || this._keyboardTransitionActive()) {
             this.clearKeyboardSelection();
             return false;
