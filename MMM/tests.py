@@ -2955,6 +2955,177 @@ class BattleFlowTests(TestCase):
         self.assertIn('if (!card || typeof card.closest !== \'function\') return null;', focus_target_helper)
         self.assertIn('return null;', focus_target_helper)
 
+    def test_focus_arrow_target_resolves_keyboard_preview_hologram(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('.hologram.keyboard-preview', focus_target_helper)
+        self.assertIn('data-source-card-id', focus_target_helper)
+        self.assertIn('data-keyboard-preview="true"', focus_target_helper)
+
+    def test_build_play_hologram_tags_keyboard_preview_with_source_card_id(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _buildPlayHologram(sourceCard, laneValue, keyboardPreview = false, rotation = null) {')
+        helper_end = drag_js.index('    _removePreviewControls(card) {')
+        build_helper = drag_js[helper_start:helper_end]
+        self.assertIn("hologram.dataset.keyboardPreview = 'true'", build_helper)
+        self.assertIn('hologram.dataset.sourceCardId', build_helper)
+        self.assertIn('this._cardIdInput(sourceCard)?.value', build_helper)
+
+    def test_keyboard_selection_state_includes_lane_preview_flag(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        empty_state_block = control_class[
+            control_class.index('    _emptyKeyboardSelection() {'):
+            control_class.index('    _isPlayableKeyboardCard_Legacy')
+        ]
+        self.assertIn('lanePreviewActive: false', empty_state_block)
+
+    def test_reset_lane_selection_keeps_card_selected(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        helper_start = control_class.index('    resetLaneSelection() {')
+        helper_end = control_class.index('    navigate(direction, fromElement) {')
+        reset_helper = control_class[helper_start:helper_end]
+        self.assertIn('selection.hologram?.parentNode', reset_helper)
+        self.assertIn('lanePreviewActive: false', reset_helper)
+        self.assertIn('selectedCard: card', reset_helper)
+        self.assertIn('card.focus({ preventScroll: true })', reset_helper)
+
+    def test_escape_handler_resets_lane_preview_before_clearing(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        escape_start = keydown_code.index("if (key === 'Escape') {")
+        end_of_branch = keydown_code.index('if (!activeSelection && (key === \'Enter\' || key === \' \'))', escape_start)
+        escape_branch = keydown_code[escape_start:end_of_branch]
+        self.assertIn('lanePreviewActive', escape_branch)
+        self.assertIn('resetLaneSelection()', escape_branch)
+        self.assertIn('_cancelKeyboardSelectionFromEvent(event)', escape_branch)
+
+    def test_arrow_keys_cycle_hand_cards_when_no_lane_preview(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        self.assertIn('!this.keyboardSelection.lanePreviewActive', keydown_code)
+        self.assertIn("key === 'ArrowLeft' || key === 'ArrowRight'", keydown_code)
+        self.assertIn('playableKeyboardCards()', keydown_code)
+
+    def test_select_hand_card_by_mouse_skips_immediate_clone(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        click_code = drag_js[
+            drag_js.index('    onHandCardClick(event)'):
+            drag_js.index('    onCardDragStart(e)')
+        ]
+        self.assertIn('selectHandCardByMouse(card, String(index + 1))', click_code)
+        self.assertNotIn('selectHandCardByMouse', drag_js[:drag_js.index('class KeyboardSelectionControl {')])
+        method_start = drag_js.index('    selectHandCardByMouse(card, digitBuffer')
+        method_end = drag_js.index('\n    _updateMousePreviewCursor(', method_start)
+        method_body = drag_js[method_start:method_end]
+        self.assertIn('mouseSelecting: true', method_body)
+        self.assertIn('hologram: null', method_body)
+        self.assertIn('lanePreviewActive: false', method_body)
+
+    def test_mouse_selection_creates_cursor_marker_and_tracks_mouse(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertIn('mousePreviewCursor', drag_js)
+        self.assertIn('_updateMousePreviewCursor', drag_js)
+        self.assertIn("addEventListener('mousemove'", drag_js)
+        self.assertIn('_installMouseSelectionListeners', drag_js)
+        self.assertIn('_teardownMouseSelectionListeners', drag_js)
+
+    def test_dropzone_mouse_hover_creates_clone_for_mouse_selection(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertIn('onDropZoneMouseEnter(event, laneValue)', drag_js)
+        self.assertIn('onDropZoneMouseLeave(event, laneValue)', drag_js)
+        self.assertIn("addEventListener('mouseenter'", drag_js)
+        self.assertIn("addEventListener('mouseleave'", drag_js)
+
+        enter_start = drag_js.index('    onDropZoneMouseEnter(event, laneValue) {')
+        enter_end = drag_js.index('    onDropZoneMouseLeave(event, laneValue) {')
+        enter_body = drag_js[enter_start:enter_end]
+        self.assertIn('state?.mouseSelecting', enter_body)
+        self.assertIn('_buildPlayHologram', enter_body)
+        self.assertIn('holoRow.appendChild(hologram)', enter_body)
+        self.assertIn('lanePreviewActive = true', enter_body)
+
+        leave_body = drag_js[enter_end:drag_js.index('    setupKeyboardSelection() {', enter_end)]
+        self.assertIn('state?.mouseSelecting', leave_body)
+        self.assertIn('state.hologram?.parentNode', leave_body)
+        self.assertIn('lanePreviewActive = false', leave_body)
+
+    def test_focus_arrow_target_returns_mouse_cursor_when_mouse_selecting(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('this.parent._mouseFocusTarget', focus_target_helper)
+        self.assertIn('mousePreviewCursor', focus_target_helper)
+        self.assertIn('this.state.mouseSelecting', focus_target_helper)
+
+    def test_clear_keyboard_selection_removes_mouse_preview_cursor(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    clearKeyboardSelection(opts) {')
+        helper_end = drag_js.index('    cancelKeyboardSelection() {', helper_start)
+        clear_helper = drag_js[helper_start:helper_end]
+        self.assertIn('_teardownMouseSelectionListeners()', clear_helper)
+        self.assertIn("getElementById('mousePreviewCursor')", clear_helper)
+
+    def test_mouse_preview_cursor_css_uses_fixed_positioning(self):
+        import os
+        cards_css_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css'
+        )
+        with open(cards_css_path) as css_file:
+            cards_css = css_file.read()
+        rule = re.search(r'\.mouse-preview-cursor\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(rule, "No .mouse-preview-cursor CSS rule found")
+        body = rule.group(0)
+        self.assertIn('position: fixed', body)
+        self.assertIn('pointer-events: none', body)
+
     def test_focus_delegation_registers_capture_phase_on_player_screen(self):
         import os
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
@@ -4785,6 +4956,103 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
                 rf'<p[^>]*>[\s\S]*?\|\s*{lane_name}\s*</p>',
                 f"Lane <p> for {lane_name} must not be inside dev-only blocks",
             )
+
+    def test_backtick_overlay_panel_renders_turn_affordances_and_counters(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        overlay_match = re.search(
+            r'<div\s+id="debugOverlay"[^>]*>([\s\S]*?)</div>\s*<a\b',
+            content,
+        )
+        self.assertIsNotNone(
+            overlay_match,
+            "Rendered board must include a <div id=\"debugOverlay\"> panel",
+        )
+        overlay_body = overlay_match.group(1)
+
+        for label in (
+            'Turn affordances',
+            'Draws left',
+            'Plays left',
+            'Flips left',
+            'Intelligence',
+            'Tactics',
+            'Drawn',
+            'Played',
+            'Flipped',
+            'Player deck/hand',
+        ):
+            self.assertIn(label, overlay_body, f"debug overlay missing {label!r}")
+
+        for data_key in (
+            'draws-left',
+            'plays-left',
+            'flips-left',
+            'int-count',
+            'spd-count',
+            'tactics',
+            'drawn',
+            'played',
+            'flipped',
+            'own-deck-count',
+            'own-hand-count',
+        ):
+            self.assertIn(f'data-debug="{data_key}"', overlay_body)
+
+    def test_backtick_overlay_panel_hidden_by_default(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        overlay_match = re.search(
+            r'<div\s+id="debugOverlay"([^>]*)>',
+            content,
+        )
+        self.assertIsNotNone(overlay_match, "Rendered board must include #debugOverlay")
+        opening_attrs = overlay_match.group(1)
+        self.assertIn('hidden', opening_attrs)
+
+    def test_backtick_overlay_panel_css_positions_panel_floating(self):
+        cards_css = self._read_cards_css()
+        overlay_rule = re.search(r'#debugOverlay\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(overlay_rule, "No #debugOverlay CSS rule found")
+        body = overlay_rule.group(0)
+        self.assertIn('position: fixed', body)
+        self.assertIn('background: white', body)
+        self.assertIn('z-index: 1000', body)
+        self.assertIn('pointer-events: none', body)
+
+        visible_rule = re.search(r'#debugOverlay\[hidden\]\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(visible_rule, "No #debugOverlay[hidden] CSS rule found")
+        self.assertIn('display: none', visible_rule.group(0))
+
+    def test_backtick_overlay_panel_toggles_via_keydown_branch(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        backtick_index = keydown_code.index("event.key === '`'")
+        end_of_branch = keydown_code.index('if (this._isEndTurnKey(event))')
+        branch = keydown_code[backtick_index:end_of_branch]
+
+        self.assertIn("getElementById('debugOverlay')", branch)
+        self.assertIn("'debug-overlay-visible'", branch)
+
+        visible_count = branch.count("classList.toggle('debug-overlay-visible'")
+        self.assertGreaterEqual(visible_count, 4)
+
+    def test_backtick_overlay_panel_styling_applies_visibility_class(self):
+        cards_css = self._read_cards_css()
+        visible_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*>\s*p\.debug-overlay-visible[^{]*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(visible_rule, "No <p> debug-overlay-visible CSS rule found")
+        body = visible_rule.group(0)
+        self.assertIn('position: absolute', body)
+        self.assertIn('background: white', body)
+        self.assertIn('z-index: 3', body)
 
 
 class _LaneIndicatorFinder(HTMLParser):

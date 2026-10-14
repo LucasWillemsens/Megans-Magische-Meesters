@@ -222,6 +222,9 @@ class KeyboardSelectionControl {
             rotation: null,
             digitBuffer: "",
             ghostFlip: false,
+            lanePreviewActive: false,
+            mouseSelecting: false,
+            hoveredLaneValue: null,
         };
     }
 
@@ -326,6 +329,7 @@ class KeyboardSelectionControl {
             rotation: null,
             digitBuffer,
             ghostFlip: true,
+            lanePreviewActive: false,
         };
         const parsed = Number.parseInt(digitBuffer, 10);
         this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
@@ -405,6 +409,7 @@ class KeyboardSelectionControl {
             hologram,
             rotation: hologram.style.getPropertyValue('--card-rotation'),
             digitBuffer,
+            lanePreviewActive: true,
         };
         const parsed = Number.parseInt(digitBuffer, 10);
         this.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1 ? parsed : this.persistedHandSlot;
@@ -523,6 +528,32 @@ class KeyboardSelectionControl {
 
     cancelKeyboardSelection() {
         this.clearKeyboardSelection();
+    }
+
+    resetLaneSelection() {
+        const selection = this.state;
+        const card = selection.selectedCard;
+        if (selection.hologram?.parentNode) selection.hologram.remove();
+        if (this._focusArrow) {
+            this._focusArrow.arrow.remove();
+            this._focusArrow = null;
+        }
+        this.state = {
+            selectedCard: card,
+            cardId: selection.cardId,
+            sourceLane: selection.sourceLane,
+            sourceOrdinal: selection.sourceOrdinal,
+            laneValue: null,
+            currentLane: null,
+            hologram: null,
+            rotation: selection.rotation,
+            digitBuffer: selection.digitBuffer,
+            ghostFlip: false,
+            lanePreviewActive: false,
+        };
+        if (card && typeof card.focus === 'function') {
+            card.focus({ preventScroll: true });
+        }
     }
 
     navigate(direction, fromElement) {
@@ -878,7 +909,42 @@ class CardDragDropSystem {
             zone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
             zone.addEventListener('drop', this.onDropZoneDrop.bind(this));
             zone.addEventListener('click', this.onDropZoneClick.bind(this));
+            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index + 1));
+            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index + 1));
         });
+    }
+
+    onDropZoneMouseEnter(event, laneValue) {
+        const state = this._keyboardSelectionControl?.state;
+        if (!state?.mouseSelecting) return;
+        if (!this._isPlayableKeyboardCard(state.selectedCard)) return;
+        if (this.remainingAllowances().plays <= 0) return;
+        state.hoveredLaneValue = laneValue;
+        if (state.hologram?.parentNode) state.hologram.remove();
+        const dropZone = this.dropZones.get(laneValue)?.element;
+        const holoRow = dropZone?.closest('li.lane')?.querySelector('.hologramRow');
+        if (!holoRow) return;
+        const hologram = this._buildPlayHologram(state.selectedCard, laneValue, true, state.rotation);
+        if (!hologram) return;
+        holoRow.appendChild(hologram);
+        state.hologram = hologram;
+        state.laneValue = laneValue;
+        state.currentLane = laneValue;
+        state.lanePreviewActive = true;
+        this._refreshFocusArrowFromMouse();
+    }
+
+    onDropZoneMouseLeave(event, laneValue) {
+        const state = this._keyboardSelectionControl?.state;
+        if (!state?.mouseSelecting) return;
+        if (state.hoveredLaneValue !== laneValue) return;
+        state.hoveredLaneValue = null;
+        if (state.hologram?.parentNode) state.hologram.remove();
+        state.hologram = null;
+        state.laneValue = null;
+        state.currentLane = null;
+        state.lanePreviewActive = false;
+        this._refreshFocusArrowFromMouse();
     }
 
     setupKeyboardSelection() {
@@ -1309,6 +1375,12 @@ class CardDragDropSystem {
             document.querySelectorAll('.playerScreen .lanes .lane > p').forEach(element => {
                 element.classList.toggle('debug-overlay-visible');
             });
+            const debugOverlay = document.getElementById('debugOverlay');
+            if (debugOverlay) {
+                const shouldShow = !debugOverlay.classList.contains('debug-overlay-visible');
+                debugOverlay.classList.toggle('debug-overlay-visible');
+                debugOverlay.hidden = !shouldShow;
+            }
             return;
         }
         if (this._isEndTurnKey(event)) {
@@ -1337,6 +1409,12 @@ class CardDragDropSystem {
 
         if (key === 'Escape') {
             if (!activeSelection) return;
+            if (this.keyboardSelection.lanePreviewActive) {
+                if (!this._keyboardInteractionAllowed(event)) return;
+                event.preventDefault();
+                this._keyboardSelectionControl.resetLaneSelection();
+                return;
+            }
             this._cancelKeyboardSelectionFromEvent(event);
             return;
         }
@@ -1384,11 +1462,38 @@ class CardDragDropSystem {
             ArrowRight: 1,
             ArrowDown: 1,
         }[key];
-        if (this.keyboardSelection.selectedCard && !this.keyboardSelection.ghostFlip && laneStep) {
+        if (
+            this.keyboardSelection.selectedCard &&
+            !this.keyboardSelection.ghostFlip &&
+            this.keyboardSelection.lanePreviewActive &&
+            laneStep
+        ) {
             if (!this._keyboardActionAllowed(event)) return;
             const currentLane = this.keyboardSelection.currentLane;
             const nextLane = ((currentLane - 1 + laneStep + 4) % 4) + 1;
             if (this.moveKeyboardSelection(nextLane)) event.preventDefault();
+            return;
+        }
+
+        if (
+            this.keyboardSelection.selectedCard &&
+            !this.keyboardSelection.ghostFlip &&
+            !this.keyboardSelection.lanePreviewActive &&
+            (key === 'ArrowLeft' || key === 'ArrowRight')
+        ) {
+            if (!this._keyboardActionAllowed(event)) return;
+            const eligibleCards = this.playableKeyboardCards();
+            if (eligibleCards.length === 0) return;
+            const currentIndex = eligibleCards.indexOf(this.keyboardSelection.selectedCard);
+            const direction = key === 'ArrowRight' ? 1 : -1;
+            const fallbackIndex = direction > 0 ? 0 : eligibleCards.length - 1;
+            const nextIndex = currentIndex === -1
+                ? fallbackIndex
+                : (((currentIndex + direction) % eligibleCards.length) + eligibleCards.length) % eligibleCards.length;
+            const nextCard = eligibleCards[nextIndex];
+            this._keyboardSelectionControl.clearKeyboardSelection({ removePreview: false });
+            this._keyboardSelectionControl.selectKeyboardCard(nextCard, String(nextIndex + 1));
+            event.preventDefault();
             return;
         }
 
@@ -1475,6 +1580,9 @@ class CardDragDropSystem {
     }
 
     clearKeyboardSelection(opts) {
+        this._teardownMouseSelectionListeners();
+        const marker = document.getElementById('mousePreviewCursor');
+        if (marker) marker.remove();
         return this._keyboardSelectionControl.clearKeyboardSelection(opts);
     }
 
@@ -1498,7 +1606,7 @@ class CardDragDropSystem {
         if (index === -1) return;
         if (this.playableKeyboardCards().includes(card)) {
             if (!this._keyboardActionAllowed(event)) return;
-            this.selectKeyboardCard(card, String(index + 1));
+            this.selectHandCardByMouse(card, String(index + 1));
             return;
         }
         if (!card.classList.contains('ghost')) {
@@ -1513,6 +1621,126 @@ class CardDragDropSystem {
         }
         if (!this._ghostFlipInteractionAllowed(event)) return;
         this.selectKeyboardCard(card, String(index + 1));
+    }
+
+    selectHandCardByMouse(card, digitBuffer = this.keyboardSelection?.digitBuffer ?? '') {
+        if (!this._hasPlayerBoard() || this._keyboardTransitionActive()) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+        if (this.remainingAllowances().plays <= 0) {
+            this.clearKeyboardSelection();
+            return false;
+        }
+        if (!this._isPlayableKeyboardCard(card)) return false;
+        const laneValue = this._cardLaneValue(card);
+        if (!laneValue) return false;
+        const cardIdInput = this._cardIdInput(card);
+        if (!cardIdInput?.value) return false;
+
+        this._keyboardSelectionControl.clearKeyboardSelection();
+        const input = this.playerBoard?.closest('.playerScreen')
+            ?.querySelector('form.cardActionForm input[name="focused_hand_card"]');
+        if (input) input.value = digitBuffer;
+        card.classList.add('keyboard-selected');
+        card.dataset.keyboardSelected = 'true';
+        card.setAttribute('aria-selected', 'true');
+        if (typeof card.focus === 'function') card.focus({ preventScroll: true });
+        this._keyboardSelectionControl.state = {
+            selectedCard: card,
+            cardId: cardIdInput.value,
+            sourceLane: card.dataset.sourceLane || '0',
+            sourceOrdinal: card.dataset.sourceOrdinal || '0',
+            laneValue,
+            currentLane: laneValue,
+            hologram: null,
+            rotation: null,
+            digitBuffer,
+            ghostFlip: false,
+            lanePreviewActive: false,
+            mouseSelecting: true,
+            hoveredLaneValue: null,
+        };
+        const parsed = Number.parseInt(digitBuffer, 10);
+        this._keyboardSelectionControl.persistedHandSlot = Number.isInteger(parsed) && parsed >= 1
+            ? parsed
+            : this._keyboardSelectionControl.persistedHandSlot;
+        this._updateMousePreviewCursor(event);
+        this._refreshFocusArrowFromMouse();
+        this._installMouseSelectionListeners();
+        return true;
+    }
+
+    _updateMousePreviewCursor(event = null) {
+        const state = this._keyboardSelectionControl?.state;
+        if (!state?.mouseSelecting) return;
+        let x = state.mouseCursorX;
+        let y = state.mouseCursorY;
+        if (event) {
+            x = event.clientX;
+            y = event.clientY;
+            state.mouseCursorX = x;
+            state.mouseCursorY = y;
+        }
+        if (x == null || y == null) {
+            if (!event) return;
+        }
+        let marker = document.getElementById('mousePreviewCursor');
+        if (!marker) {
+            marker = document.createElement('div');
+            marker.id = 'mousePreviewCursor';
+            marker.className = 'mouse-preview-cursor';
+            document.body.appendChild(marker);
+        }
+        if (x != null && y != null) {
+            marker.style.left = `${x}px`;
+            marker.style.top = `${y}px`;
+        }
+    }
+
+    _refreshFocusArrowFromMouse() {
+        const state = this._keyboardSelectionControl?.state;
+        if (!state?.mouseSelecting || !state.selectedCard) return;
+        const card = state.selectedCard;
+        const target = this._mouseFocusTarget(card);
+        this._keyboardSelectionControl.onFocusOut(card);
+        if (!target) return;
+        this._keyboardSelectionControl._focusArrow = {
+            source: card,
+            target,
+            arrow: this._createFocusArrow(card, target),
+        };
+    }
+
+    _mouseFocusTarget(card) {
+        if (!card) return null;
+        const state = this._keyboardSelectionControl?.state;
+        if (!state?.mouseSelecting) return null;
+        if (state.hoveredLaneValue && state.hologram) {
+            return state.hologram.querySelector('.cardContainer') || state.hologram;
+        }
+        return document.getElementById('mousePreviewCursor');
+    }
+
+    _installMouseSelectionListeners() {
+        if (this._mouseSelectionListenersInstalled) return;
+        this._mouseMoveHandler = (event) => {
+            const state = this._keyboardSelectionControl?.state;
+            if (!state?.mouseSelecting) return;
+            this._updateMousePreviewCursor(event);
+            this._refreshFocusArrowFromMouse();
+        };
+        document.addEventListener('mousemove', this._mouseMoveHandler);
+        this._mouseSelectionListenersInstalled = true;
+    }
+
+    _teardownMouseSelectionListeners() {
+        if (!this._mouseSelectionListenersInstalled) return;
+        document.removeEventListener('mousemove', this._mouseMoveHandler);
+        this._mouseSelectionListenersInstalled = false;
+        this._mouseMoveHandler = null;
+        const marker = document.getElementById('mousePreviewCursor');
+        if (marker) marker.remove();
     }
 
     onCardDragStart(e) {
@@ -1556,7 +1784,12 @@ class CardDragDropSystem {
         const laneValue = Array.from(this.dropZones.entries()).find(
             ([, zoneData]) => zoneData.element === zone
         )?.[0];
-        if (!laneValue || !this.confirmKeyboardSelection(laneValue)) return;
+        if (!laneValue) return;
+        const state = this._keyboardSelectionControl?.state;
+        if (state?.mouseSelecting && state.laneValue !== laneValue) {
+            this.onDropZoneMouseEnter(e, laneValue);
+        }
+        if (!this.confirmKeyboardSelection(laneValue)) return;
 
         e.preventDefault();
         e.stopPropagation();
@@ -1638,6 +1871,8 @@ class CardDragDropSystem {
         if (keyboardPreview) {
             hologram.classList.add('keyboard-preview');
             hologram.dataset.keyboardPreview = 'true';
+            const sourceCardId = this._cardIdInput(sourceCard)?.value;
+            if (sourceCardId) hologram.dataset.sourceCardId = sourceCardId;
         } else {
             const faceDownCard = hologram.querySelector('.cardContainer.faceDown');
             if (faceDownCard) {
@@ -1774,10 +2009,17 @@ class CardDragDropSystem {
             const cardIdInput = this._cardIdInput(card);
             const cardId = cardIdInput?.value;
             if (!cardId) return null;
-            const hologram = document.querySelector(
+            if (this.parent && this.state.mouseSelecting) {
+                return this.parent._mouseFocusTarget(card) || document.getElementById('mousePreviewCursor');
+            }
+            const stagedHologram = document.querySelector(
                 `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`
             );
-            return hologram?.querySelector('.cardContainer') || null;
+            if (stagedHologram) return stagedHologram.querySelector('.cardContainer') || null;
+            const previewHologram = document.querySelector(
+                `.hologram.keyboard-preview[data-keyboard-preview="true"][data-source-card-id="${CSS.escape(cardId)}"]`
+            );
+            return previewHologram?.querySelector('.cardContainer') || null;
         }
         if (
             card.closest('.playerScreen .playerBoard ul.cardRow') &&
