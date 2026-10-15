@@ -1,3 +1,5 @@
+const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
+
 /**
  * Pausable timer scheduler. Replaces raw setTimeout for animation sequences
  * so the enemy-turn/timeline playback can be paused (W/Space) and resumed,
@@ -300,6 +302,9 @@ class loadingAnimationsSystem {
         };
         this._boardPath = boardPath;
         this._nextUrl = nextUrl;
+        if (!phase && animationsElements.length === 0) {
+            this.restoreDrawFocus(boardPath());
+        }
 
         const reloadToBoard = () => this._reloadToBoard();
 
@@ -439,6 +444,33 @@ class loadingAnimationsSystem {
         } else {
             console.log(`No elements found with '${classSelector}' class.`);
         }
+    }
+
+    restoreDrawFocus(currentBoardPath) {
+        if (!this._consumeDrawFocusReturn(currentBoardPath)) return;
+        const drawButton = this._drawButtonForPlayer();
+        if (!drawButton) return;
+        requestAnimationFrame(() => {
+            drawButton.focus({ preventScroll: true });
+        });
+    }
+
+    _consumeDrawFocusReturn(currentBoardPath) {
+        let rememberedPath = null;
+        try {
+            rememberedPath = sessionStorage.getItem(DRAW_FOCUS_RETURN_KEY);
+            sessionStorage.removeItem(DRAW_FOCUS_RETURN_KEY);
+        } catch {
+            return false;
+        }
+        return rememberedPath === currentBoardPath;
+    }
+
+    _drawButtonForPlayer() {
+        const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+        const drawButton = deck ? deck.querySelector('button.draw') : null;
+        if (!drawButton || drawButton.disabled || drawButton.closest('.blocked')) return null;
+        return drawButton;
     }
 
     /**

@@ -1,3 +1,5 @@
+const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
+
 class ShortcutHoldAction {
     constructor({duration = 1000, loadingClass = 'shortcut-hold-loading'} = {}) {
         this.duration = duration;
@@ -204,6 +206,21 @@ class RegionNavigator {
 
     handArrowExitButton(step) {
         return step < 0 ? this.drawButton() : this.endTurnButton();
+    }
+
+    focusableOrderableHandCards() {
+        return this.system.orderableKeyboardCards().filter(
+            card => card?.getAttribute?.('tabindex') === '0'
+        );
+    }
+
+    firstFocusableOrderableHandCard() {
+        return this.focusableOrderableHandCards()[0] || null;
+    }
+
+    lastFocusableOrderableHandCard() {
+        const focusableCards = this.focusableOrderableHandCards();
+        return focusableCards[focusableCards.length - 1] || null;
     }
 
     endTurnButton() {
@@ -608,11 +625,15 @@ class KeyboardSelectionControl {
             isHandCard = true;
         } else if (region === 'end-turn' && direction === 'ArrowDown') {
             target = this.navigator.drawButton();
+        } else if (region === 'end-turn' && direction === 'ArrowRight') {
+            target = this.navigator.lastFocusableOrderableHandCard();
         } else if (region === 'draw' && direction === 'ArrowUp') {
             target = this.navigator.endTurnButton();
         } else if (region === 'draw' && direction === 'ArrowDown') {
             target = this.navigator.handCardAt(this.persistedHandSlot);
             isHandCard = true;
+        } else if (region === 'draw' && direction === 'ArrowLeft') {
+            target = this.navigator.firstFocusableOrderableHandCard();
         }
         if (!target) return false;
 
@@ -646,8 +667,9 @@ class KeyboardSelectionControl {
     onFocusIn(card) {
         if (!card) return;
         this._restoreSelectionStylingOnFocus(card);
-        const target = this.parent._focusArrowTarget(card);
-        if (!target) return;
+        const flight = this.parent._focusArrowFlight(card);
+        if (!flight) return;
+        const target = flight.origin === card ? flight.target : flight.origin;
         if (
             this._focusArrow &&
             this._focusArrow.source === card &&
@@ -660,7 +682,7 @@ class KeyboardSelectionControl {
         this._focusArrow = {
             source: card,
             target,
-            arrow: this.parent._createFocusArrow(card, target),
+            arrow: this.parent._createFocusArrow(flight.origin, flight.target),
         };
     }
 
@@ -1324,6 +1346,22 @@ class CardDragDropSystem {
         };
     }
 
+    _isKeyboardEndTurnTarget(event) {
+        const navigator = this.control?.navigator;
+        if (!navigator) return false;
+        return [event.target, document.activeElement].some(
+            (candidate) => navigator.regionFor(candidate) === 'end-turn'
+        );
+    }
+
+    _isKeyboardDrawTarget(event) {
+        const navigator = this.control?.navigator;
+        if (!navigator) return false;
+        return [event.target, document.activeElement].some(
+            (candidate) => navigator.regionFor(candidate) === 'draw'
+        );
+    }
+
     _isPlayerActionPhase() {
         const phase = document.getElementById('turnPhase')?.dataset.phase || '';
         return phase === '' || phase === 'player';
@@ -1390,13 +1428,19 @@ class CardDragDropSystem {
     }
 
     onEndTurnKeyDown(event) {
+        const activationEvent = event.key === 'Enter' || event.key === ' ';
         if (
             event.repeat ||
             this.endTurnHold.isActive() ||
             this.endTurnHold.isProtected() ||
             this.drawHold.isActive() ||
             this.drawHold.isProtected()
-        ) return;
+        ) {
+            if (activationEvent) {
+                event.preventDefault();
+            }
+            return;
+        }
 
         const control = this._findEndTurnControl();
         if (!this._endTurnActionAllowed(event, control)) return;
@@ -1453,6 +1497,13 @@ class CardDragDropSystem {
         }
     }
 
+    rememberDrawFocusReturn(event) {
+        if (!this._drawActionAllowed(event)) return;
+        try {
+            sessionStorage.setItem(DRAW_FOCUS_RETURN_KEY, window.location.pathname);
+        } catch { }
+    }
+
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
         if (event.key === '`' || (event.code === 'Backquote' && event.key !== '~')) {
@@ -1496,6 +1547,14 @@ class CardDragDropSystem {
         }
 
         if (!activeSelection && (key === 'Enter' || key === ' ')) {
+            if (this._isKeyboardDrawTarget(event)) {
+                this.rememberDrawFocusReturn(event);
+                return;
+            }
+            if (this._isKeyboardEndTurnTarget(event)) {
+                this.onEndTurnKeyDown(event);
+                return;
+            }
             const selectableHandCard = this._keyboardSelectableHandCard(event);
             if (!selectableHandCard) {
                 this.flipKeyboardFocusedCard(event);
@@ -1745,7 +1804,7 @@ class CardDragDropSystem {
             selectedCard: card,
             cardId: cardIdInput.value,
             sourceLane: card.dataset.sourceLane || '0',
-            sourceOrdinal: card.dataset.sourceOrdinal || '0',
+            sourceOrdinal: String(this.playerHandCards().indexOf(card)),
             laneValue,
             currentLane: laneValue,
             hologram: null,
@@ -2129,6 +2188,20 @@ class CardDragDropSystem {
             return flipHologram?.querySelector('.cardContainer') || null;
         }
         return null;
+    }
+
+    _focusArrowFlight(card) {
+        if (!card || typeof card.closest !== 'function') return null;
+        const stagedHologram = card.closest('.playerScreen .hologram[data-staged-for-card-id]');
+        if (stagedHologram) {
+            if (!card.classList.contains('faceDown')) return null;
+            const handCard = this._handCardForId(stagedHologram.dataset.stagedForCardId);
+            if (!handCard) return null;
+            return { origin: handCard, target: card };
+        }
+        const target = this._focusArrowTarget(card);
+        if (!target) return null;
+        return { origin: card, target };
     }
 
     onFaceDownCardClick(e, laneValue) {

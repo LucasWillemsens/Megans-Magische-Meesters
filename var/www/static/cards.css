@@ -1313,6 +1313,12 @@ ul.lanes li.lane > ul.hologramRow.overflow-row {
             cursor: grab;
         }
     }
+    ul.hand li.cardContainer.ghost{
+        cursor: default;
+        &::after{
+            cursor: default;
+        }
+    }
     li.cardContainer > .smallCard{
         background: var(--card-background);
         position: relative;
