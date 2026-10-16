@@ -1,10 +1,5 @@
 const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
 
-/**
- * Pausable timer scheduler. Replaces raw setTimeout for animation sequences
- * so the enemy-turn/timeline playback can be paused (W/Space) and resumed,
- * or skipped entirely (E/Enter/Escape).
- */
 class PausableTimeout {
     constructor(now = () => performance.now()) {
         this.now = now;
@@ -657,9 +652,6 @@ class loadingAnimationsSystem {
         });
     }
 
-    /**
-     * Create a face-down card element for animation purposes.
-     */
     _makeCardClone() {
         const li = document.createElement('li');
         li.className = 'cardContainer faceDown duplicate-deck-flight';
@@ -669,13 +661,6 @@ class loadingAnimationsSystem {
         return li;
     }
 
-    /**
-     * Insert a temporary card element at the source lane/hand position
-     * (determined by cardInfo.sourceLane / cardInfo.sourceOrdinal) and return it.
-     * The clone is temporarily inserted into the source container for layout.
-     * Returns {element, sourceRect} where sourceRect is the bounding box of
-     * the source position, or null if the source container can't be found.
-     */
     _positionCloneAtSource(cardInfo, participantId) {
         const board = this._boardForParticipant(participantId);
         if (!board) return null;
@@ -769,10 +754,6 @@ class loadingAnimationsSystem {
         }, duration + 50);
     }
 
-    /**
-     * Find the board element (player or enemy) for a given participantId.
-     * Returns the .playerBoard or .enemyBoard element, or null.
-     */
     _boardForParticipant(participantId) {
         // Try player board first
         const playerBoard = document.querySelector('.playerBoard');
@@ -832,10 +813,6 @@ class loadingAnimationsSystem {
     }
 }
 
-/**
- * Show a banner overlay with the given text and variant styling.
- * Variants: 'special' (gold), 'defeat' (red), 'flee' (grey).
- */
 function showBanner(text, holdMs = 2000, variant = 'special', scheduler = null) {
     const timer = scheduler ? (fn, ms) => scheduler.schedule(fn, ms) : (fn, ms) => window.setTimeout(fn, ms);
     const banner = document.createElement('div');
@@ -934,11 +911,6 @@ function activeDeckForBoard(board) {
     return board.querySelector('.enemyDeckHand .active-deck');
 }
 
-/**
- * Find the correct .cardRow within a lane for a given ordinal.
- * Only the main cards row group counts: overflow rows created by
- * LaneCardStacking keep title="cards", the trustedCards row does not.
- */
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
     const rows = laneElement.querySelectorAll(':scope > ul.cardRow[title="cards"]');
     if (rows.length === 0) return null;
