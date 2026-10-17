@@ -1,28 +1,6 @@
 {% extends 'base.jinja2' %}
 
 {% block content %}
-{% if turnPhase %}
-<div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
-{% endif %}
-<div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
-{% if timelineSteps %}
-<script id="timelineSteps" type="application/json">{{ timelineSteps | tojson | safe }}</script>
-{% endif %}
-<div id="turnLimits" hidden
-  data-draws-left="{{ turnAllowances.draws_left }}"
-  data-plays-left="{{ turnAllowances.plays_left }}"
-  data-flips-left="{{ turnAllowances.flips_left }}"
-  data-int-count="{{ turnAllowances.int_count }}"
-  data-spd-count="{{ turnAllowances.spd_count }}"
-  data-tactics="{{ turnAllowances.tactics }}"
-  data-drawn="{{ turnAllowances.drawn }}"
-  data-played="{{ turnAllowances.played }}"
-  data-flipped="{{ turnAllowances.flipped }}"
-  data-focused-hand-card="{{ turnAllowances.focused_hand_card }}"
-  data-draw-blocked-title="{{ turnAllowances.blocked_titles.draw }}"
-  data-play-blocked-title="{{ turnAllowances.blocked_titles.play }}"
-  data-flip-blocked-title="{{ turnAllowances.blocked_titles.flip }}">
-</div>
 <div class="playerScreen playingCards rotateHand">
     <div class="players">
         <div class="title">
@@ -30,6 +8,9 @@
             <p>Round {{ game.roundNumber }}</p>
         </div>
         <div class="playerInfo">
+            <p class="invisible">
+                Playing as
+            </p>
             <h2>{{ player.name }}</h2>
             {% if player.profilePictureSource == "" %}
             <img draggable="false" class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
@@ -44,9 +25,8 @@
     <ul class="enemyBoards basic-mat table">
         {% for enemy in enemyBoards %}
         <li class="enemyBoard" data-participant-id="{{ enemy.participant.id }}">
-            <h2>{{ enemy.participant.player.name }} </h2>
             <div class="enemyDeckHand">
-                <p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
+                <p class="cardType debug-overlay">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
                 <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
                     {% for indicator in enemy.deckIndicators %}
                     <ul class="deck-indicator" aria-hidden="true" inert
@@ -77,6 +57,28 @@
                     </li>
                     {% endfor %}
                 </ul>
+                <div class="enemy-targeting">
+                    <p>
+                        Opponents
+                    </p>
+                    <div class="small-buttons">
+                        <button disabled type="button" class="targeting" data-target-participant-id="{{ enemy.participant.id }}"
+                            title="Target {{ enemy.participant.player.name }}">
+                            ←
+                            <p class="invisible">
+                                Previous
+                            </p>
+                        </button>
+                        <button disabled type="button" class="targeting" data-target-participant-id="{{ enemy.participant.id }}"
+                            title="Target {{ enemy.participant.player.name }}">
+                            →
+                            <p class="invisible">
+                                Next
+                            </p>
+                        </button>
+                    </div>
+                
+                </div>
             </div>
             <ul class="lanes">
                 {% for lane in enemy.laneRows %}
@@ -122,7 +124,7 @@
                             {% endif %}
                         {% endfor %}
                     </ul>
-                    <p> {{ lane.value }} | {{ lane.name}} </p>
+                    <p class="debug-overlay"> {{ lane.value }} | {{ lane.name}} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
@@ -155,10 +157,8 @@
                     </ul>
                 </li>
                 {% endfor %}
-                </ul>
-            <div class="smallCardInfo">
-            
-            </div>
+            </ul>
+            <h2>{{ enemy.participant.player.name }} </h2>
         </li>
         {% endfor %}
     </ul>
@@ -169,6 +169,40 @@
 
     <ul class="basic-mat table">
         <li class="playerBoard " data-participant-id="{{ current_participant.id }}">
+            <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
+                style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
+                {% for indicator in ownDeckIndicators %}
+                <ul class="deck-indicator" aria-hidden="true" inert
+                    style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
+                    <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
+                </ul>
+                {% endfor %}
+                <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
+                    {% if ownDeckCount > 0 %}
+                    {% for _ in ownDeckStack %}
+                    <li>
+                        {% if loop.last %}
+                        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                            {{ csrf_input }}
+                            <input type="hidden" name="action" value="draw">
+                            <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}"
+                                {% if turnAllowances.draws_left <=0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}" {%
+                                else %}title="Draw card" {% endif %}>Draw</button>
+                        </form>
+                        {% else %}
+                        <div class="card back">*</div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                    {% else %}
+                    <li>
+                        <div class="card back emptyDeck">
+                            Empty
+                        </div>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
             <h2> {{ player.name }} </h2>
             <ul class="lanes">
                 {% for lane in ownLaneRows %}
@@ -237,7 +271,7 @@
                             {% endif %}
                         {% endfor %}
                     </ul>
-                    <p> {{ lane.value }} | {{ lane.name }} </p>
+                    <p class="debug-overlay"> {{ lane.value }} | {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
                             {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
@@ -274,104 +308,93 @@
             {% endfor %}
             </ul>
         </li>
-    </ul>
-    <div class="deckHand">
-        <p>
-            Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
-            <span id="turnCounters" hidden>( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn )</span>
+        <div class="deckHand handContainer">
+            <p class="debug-overlay">
+                Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
+                <span id="turnCounters">( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn
+                    )</span>
             </p>
-        <div class="deck-stack own-deck-stack"{% if ownDeckIndicators %} style="--deck-indicator-count: {{ ownDeckIndicators|length }};"{% endif %}>
-            {% for indicator in ownDeckIndicators %}
-            <ul class="deck-indicator" aria-hidden="true" inert
-                style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
-                <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
-            </ul>
-            {% endfor %}
-            <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
-            {% if ownDeckCount > 0 %}
-                {% for _ in ownDeckStack %}
-                <li>
-                    {% if loop.last %}
-                    <form method="post" action="{{ actionUrl }}" class="cardActionForm">
-                        {{ csrf_input }}
-                        <input type="hidden" name="action" value="draw">
-                        <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
-                    </form>
-                    {% else %}
-                    <div class="card back">*</div>
-                    {% endif %}
-                </li>
-                {% endfor %}
-            {% else %}
-                <li>
-                    <div class="card back emptyDeck">
-                        Empty
-                    </div>
-                </li>
-            {% endif %}
-            </ul>
-        </div>
-        <div class="hand-scroll">
-            {% for handFan in handFans %}
-            <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
-                {% if handFan %}
+            <div class="hand-scroll">
+                {% for handFan in handFans %}
+                <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
+                    {% if handFan %}
                     {% for card in handFan %}
-                <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if turnAllowances.plays_left <= 0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}"{% else %}draggable="true" tabindex="0"{% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
-                    data-source-ordinal="{{ card.state.laneOrdinal }}">
-                    <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                        {% if card.card.artSource == "static" %}
-                        <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                        <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                        {% else %}
-                        {% if card.card.artSource == "" %}
-                        <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
-                        {% else %}
-                        <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                        {% endif %}
-                        {% endif %}
-
-                        <div class="smallCardInfo">
-                            {% if card.card.artSource != "static" %}
-                                <p class="cardTitle">{{ card.card.title }}</p>
+                    <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if
+                        turnAllowances.plays_left <=0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}" {% else
+                        %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
+                        data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                            {{ card.card|playing_card_suit_class }}{% endif %}">
+                            {% if card.card.artSource == "static" %}
+                            <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                            <span class="suit">{{ card.card|playing_card_suit_display }}</span>
+                            {% else %}
+                            {% if card.card.artSource == "" %}
+                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                                alt="no art of {{card.card.title}}" />
+                            {% else %}
+                            <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                                alt="art of {{card.card.title}}" />
                             {% endif %}
-                            <p class="cardType">
-                                {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                            </p>
-                        </div>
-                    </div>
-                    <input type="hidden" name="card_id" value="{{ card.id }}">
-                    <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
-                </li>
+                            {% endif %}
+                        
+                            <div class="smallCardInfo">
+                                {% if card.card.artSource != "static" %}
+                                <p class="cardTitle">{{ card.card.title }}</p>
+                                {% endif %}
+                                <p class="cardType">
+                                    {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                                </p>
+                                </div>
+                                </div>
+                                <input type="hidden" name="card_id" value="{{ card.id }}">
+                                <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
+                                </li>
                     {% endfor %}
-                {% else %}
-                <li>
-                    <div class="card back emptyHand">
+                    {% else %}
+                    <li>
+                        <div class="card back emptyHand">
+                        </div>
+                    </li>
+                    {% endif %}
+                    </ul>
+                    {% endfor %}
+                <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+                    {{ csrf_input }}
+                    <input type="hidden" name="action" value="end_turn">
+                    <input type="hidden" name="focused_hand_card" value="{{ turnAllowances.focused_hand_card }}">
+                    <button type="submit" class="end-turn" title="End turn" {% if turnPhase !="enemy" %}autofocus{% endif %}>
+                        <span class="suit">End turn</span>
+                    </button>
+                    </form>
                     </div>
-                </li>
-                {% endif %}
+            {% if error_message != "" %}
+            <div class="cards">
+                <p><b>Action error:</b> {{ error_message }}</p>
+            </div>
+            {% endif %}
+            </div>
             </ul>
-            {% endfor %}
-        </div>
-
-        {% if error_message != "" %}
-        <div class="cards">
-            <p><b>Action error:</b> {{ error_message }}</p>
-        </div>
-        {% endif %}
-
-        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
-            {{ csrf_input }}
-            <input type="hidden" name="action" value="end_turn">
-            <input type="hidden" name="focused_hand_card" value="{{ turnAllowances.focused_hand_card }}">
-            <button type="submit" class="end-turn" title="End turn" {% if turnPhase != "enemy" %}autofocus{% endif %}>
-                <span class="suit">End turn</span>
-            </button>
-        </form>
-        </div>
-
-    </div>
+            </div>
 
 <a href="{{ returnURL }}">back</a>
+{% if turnPhase %}
+<div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
+{% endif %}
+<div id="boardNext" data-next-url="{{ nextUrl }}" hidden></div>
+{% if timelineSteps %}
+<script id="timelineSteps" type="application/json">{{ timelineSteps | tojson | safe }}</script>
+{% endif %}
+<div id="turnLimits" hidden data-draws-left="{{ turnAllowances.draws_left }}"
+    data-plays-left="{{ turnAllowances.plays_left }}" data-flips-left="{{ turnAllowances.flips_left }}"
+    data-int-count="{{ turnAllowances.int_count }}" data-spd-count="{{ turnAllowances.spd_count }}"
+    data-tactics="{{ turnAllowances.tactics }}" data-drawn="{{ turnAllowances.drawn }}"
+    data-played="{{ turnAllowances.played }}" data-flipped="{{ turnAllowances.flipped }}"
+    data-focused-hand-card="{{ turnAllowances.focused_hand_card }}"
+    data-draw-blocked-title="{{ turnAllowances.blocked_titles.draw }}"
+    data-play-blocked-title="{{ turnAllowances.blocked_titles.play }}"
+    data-flip-blocked-title="{{ turnAllowances.blocked_titles.flip }}">
+</div>
 <script type="module" src="{{ static('cardDragDrop.js')}}"></script>
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>
 <script type="module" src="{{ static('laneStacking.js')}}"></script>

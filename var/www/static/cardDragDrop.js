@@ -1506,12 +1506,7 @@ class CardDragDropSystem {
 
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
-        if (event.key === '`' || (event.code === 'Backquote' && event.key !== '~')) {
-            const target = event.target || document.activeElement;
-            if (this._isTextControlTarget(target) || this._isTextControlTarget(document.activeElement)) {
-                event.preventDefault();
-                return;
-            }
+        if (event.key === '`' || (event.code === 'Backquote')) {
             event.preventDefault();
             this.toggleDebugParagraphOverlay();
             return;
