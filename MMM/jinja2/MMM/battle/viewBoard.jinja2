@@ -98,7 +98,7 @@
                         <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
                             title="{{ card.card.title }} of {{ enemy.participant.player.name }}"
                             data-source-ordinal="{{ card.state.laneOrdinal }}">
-                            <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                            <div class="card smallCard {% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
                                 {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
                                 <span class="rank">{{ card.card|playing_card_rank_display }}</span>
@@ -131,7 +131,7 @@
                         {% for card in lane.trustedCards %}
                         <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
                             title="{{ card.card.title }} of {{ enemy.participant.player.name }}">
-                            <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                            <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
                                 {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
                                 <span class="rank">{{ card.card|playing_card_rank_display }}</span>
@@ -220,7 +220,7 @@
                             turnAllowances.flips_left <=0 %} title="{{ turnAllowances.blocked_titles.flip }}" {% endif %}
                             style="--card-rotation: {{ card_rotation }}deg;">
                             <input type="hidden" name="card_id" value="{{ card.id }}">
-                            <div class="card back smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class
+                            <div class="card back smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class
                                 }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
                                 <span class="rank">{{ card.card|playing_card_rank_display }}</span>
@@ -248,7 +248,7 @@
                             title="{{ card.card.title }} of {{ player.name }}"
                             data-source-ordinal="{{ card.state.laneOrdinal }}"
                             style="--card-rotation: {{ card_rotation }}deg;">
-                            <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                            <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
                                 {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
                                 <span class="rank">{{ card.card|playing_card_rank_display }}</span>
@@ -280,7 +280,7 @@
                         {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
                         <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
                             title="{{ card.card.title }} of {{ player.name }}" style="--card-rotation: {{ trusted_card_rotation }}deg;">
-                            <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class
+                            <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class
                                 }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
                                 <span class="rank">{{ card.card|playing_card_rank_display }}</span>
@@ -324,7 +324,7 @@
                         turnAllowances.plays_left <=0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}" {% else
                         %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
                         data-source-ordinal="{{ card.state.laneOrdinal }}">
-                        <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                        <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
                             {{ card.card|playing_card_suit_class }}{% endif %}">
                             {% if card.card.artSource == "static" %}
                             <span class="rank">{{ card.card|playing_card_rank_display }}</span>
