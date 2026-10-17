@@ -739,6 +739,7 @@ class CardDragDropSystem {
     constructor() {
         this.draggedCard = null;
         this.dropZones = new Map();
+        this.handZone = null;
         this.playerBoard = null;
         this.createdDropZones = [];
         this.turnAllowances = { int: 0, spd: 0, tactics: 0, drawn: 0, played: 0, flipped: 0 };
@@ -916,8 +917,6 @@ class CardDragDropSystem {
 
         if (remaining.plays <= 0) {
             this.clearKeyboardSelection();
-            // Staged ghosts stay interactive: they represent cards that were
-            // already played and can still be selected to flip face up.
             this.playerHandCards().filter(card =>
                 !card.classList.contains('blocked') && !card.classList.contains('ghost')
             ).forEach(card => {
@@ -959,6 +958,10 @@ class CardDragDropSystem {
     }
 
     createDropZones() {
+        const handZone = document.querySelector('.basic-mat.table > .deckHand.handContainer .hand-scroll');
+        this.createdDropZones.push(handZone);
+        this.handZone = handZone;
+
         const allLanes = this.playerBoard?.querySelectorAll(':scope > ul.lanes > li.lane') || [];
         allLanes.forEach((lane, index) => {
             const dropZone = document.createElement('div');
@@ -1006,15 +1009,17 @@ class CardDragDropSystem {
     }
 
     setupDropZoneListeners() {
+        this.handZone.addEventListener('dragover', this.onDropZoneDragOver.bind(this));
+        this.handZone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
+        this.handZone.addEventListener('drop', this.onHandZoneDrop.bind(this));
         this.dropZones.forEach((zoneData, index) => {
             const zone = zoneData.element;
-
             zone.addEventListener('dragover', this.onDropZoneDragOver.bind(this));
             zone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
             zone.addEventListener('drop', this.onDropZoneDrop.bind(this));
             zone.addEventListener('click', this.onDropZoneClick.bind(this));
-            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index + 1));
-            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index + 1));
+            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index));
+            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index));
         });
     }
 
@@ -1744,12 +1749,11 @@ class CardDragDropSystem {
         const card = typeof target.closest === 'function'
             ? target.closest('.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer')
             : null;
-        if (!card) return;
-        if (event.button !== 0) return;
-        if (this._isTextControlTarget(target)) return;
-        if (this._keyboardTransitionActive()) return;
-        if (Date.now() - this.lastDragEndedAt < 100) return;
-
+        const invalid = !card || (event.button !== 0) || this._isTextControlTarget(target) || this._keyboardTransitionActive() || Date.now() - this.lastDragEndedAt < 100;
+        if (invalid){
+            this.cancelKeyboardSelection();
+            return;
+        }
         const orderable = this.orderableKeyboardCards();
         const index = orderable.indexOf(card);
         if (index === -1) return;
@@ -1925,6 +1929,14 @@ class CardDragDropSystem {
         return false;
     }
 
+    onHandZoneDragOver(e) {
+        return false;
+    }
+
+    onHandZoneDragLeave(e) {
+        return false;
+    }
+
     onDropZoneClick(e) {
         if (!this.keyboardSelection.selectedCard) return;
         if (!this._keyboardActionAllowed(e)) return;
@@ -1962,6 +1974,17 @@ class CardDragDropSystem {
             if (!this._stagePlay(this.draggedCard, laneValue, hologram)) {
                 hologram.remove();
             }
+        }
+        return false;
+    }
+
+    //TODO add a trick like this for drawing cards as well. Click the top deck card should flip it over somewhat, while not revealing it.
+    //Then releasing it on the deck itself or dragging it to the hand sends a click 
+    onHandZoneDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();        
+        if (this.draggedCard) {
+            this.onHandCardClick(e);
         }
         return false;
     }
@@ -2210,27 +2233,22 @@ class CardDragDropSystem {
         const sourceOrdinal = card.dataset.sourceOrdinal ?? '0';
         this.createupdateCookie(`${cardId}`, `${laneValue}`, true, sourceLane, sourceOrdinal);
 
-        // If this is a lane card (not a hologram), keep it face-down and create a face-up hologram
         if (!card.closest('.hologram')) {
             const laneElement = card.closest('li.lane');
             const holoRow = laneElement.querySelector('.hologramRow');
 
-            // Lane card stays face-down — ghostly to indicate it was flipped
             card.classList.add('ghost');
             card.dataset.stagedFlipped = 'true';
 
-            // Create face-up hologram clone
             const flipHologram = document.createElement('div');
             const holoClone = card.cloneNode(true);
             holoClone.classList.remove('ghost');
             holoClone.classList.add('faceUp');
-            // Remove form/button from the clone (display only)
             const form = holoClone.querySelector('form');
             if (form) form.remove();
             const buttons = holoClone.querySelectorAll('button');
             buttons.forEach(btn => btn.remove());
 
-            // The lane card is still face-down (back class present), so strip back from clone
             const cloneCardDiv = holoClone.querySelector(':scope > .card');
             if (cloneCardDiv) cloneCardDiv.classList.remove('back');
             holoClone.classList.remove('faceDown');
@@ -2239,11 +2257,9 @@ class CardDragDropSystem {
             flipHologram.classList.add('hologram');
             flipHologram.dataset.flipForCardId = String(cardId);
             flipHologram.appendChild(holoClone);
-            // Small random rotation for stacking look
             flipHologram.style.setProperty('--card-rotation', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
             holoRow.appendChild(flipHologram);
 
-            // One-shot click-to-flip on the hologram (same pattern as play hologram)
             const holoCard = flipHologram.querySelector('.cardContainer');
             if (holoCard) {
                 holoCard.addEventListener('click', (ev) => {
@@ -2252,17 +2268,13 @@ class CardDragDropSystem {
                 }, { once: true });
             }
 
-            // Hover arrow between lane card and hologram
             this._addHoverArrow(card, flipHologram);
         } else {
-            // For hologram clicks (play hologram flipping face-up), flip face-up
             card.classList.remove('faceDown');
             const cardDiv = card.querySelector(':scope > .card');
             if (cardDiv) cardDiv.classList.remove('back');
-            // Face-up cards are never focusable; the flip is one-shot.
             card.removeAttribute('tabindex');
             card.dataset.stagedFlipped = 'true';
-            // The hand ghost mirrors the flip so it can't be flipped twice.
             const handGhost = this._handCardForId(cardId);
             if (handGhost) handGhost.dataset.stagedFlipped = 'true';
         }
@@ -2321,6 +2333,7 @@ class CardDragDropSystem {
         this.createdDropZones.forEach(dropZone => dropZone.remove());
         this.createdDropZones = [];
         this.dropZones.clear();
+        this.handZone = null;
         this.draggedCard = null;
         if (this.focusDelegateHandler) {
             const playerScreen = document.querySelector('.playerScreen');
