@@ -22,13 +22,14 @@ body {
     font-family: system-ui, sans-serif;
     background: #fafafa;
     color: #222;
-    padding: 1rem;
     display: flex;
     flex-direction: column;
     flex-wrap: wrap;
     align-content: flex-start;
     align-items: flex-start;
     gap: 1.5rem;
+    padding: 0;
+    margin: 0;
 }
 
 .all{
@@ -37,9 +38,33 @@ body {
 }
 
 h1 {
-    font-size: 4rem;
+    font-size: 3rem;
     margin-bottom: 1.25rem;
 }
+
+.title{
+    margin-left: auto;
+    margin-right: auto;
+    display: flex;
+    height: 50%;
+    color:lightgray;
+    pointer-events: none;
+    user-select: none;
+    position: relative;
+    top:-0.7rem;
+    flex-direction: row;
+    align-items: baseline;
+   }
+    .title h1{
+        margin:0;
+        padding: 0;
+        height:50%;
+    }
+    .title p{
+        margin-block-end: 0.6rem;
+        padding-left: 0.5rem;   
+        font-size: 1.25rem;
+    }
 
 h2 {
     margin-top: 2rem;
@@ -61,27 +86,6 @@ ul.basic-mat>li {
     
     padding: 1rem;
     margin: 0;
-}
-
-
-ul.basic-mat li.enemy {
-    background: var(--basic-mat-background);
-}
-
-
-ul.basic-mat li.enemy ul.table li {
-
-}
-    ul.basic-mat li.enemy ul.table li > div.card {
-        transform: rotate(180deg);
-        margin: 0 -.5em -.5em 0;
-        box-shadow: -.2em -.2em .5em #333
-    }
-
-ul.basic-mat li.enemy ul.column {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
 }
 
 ul.basic-mat.smallvertical {
@@ -111,6 +115,9 @@ a {
     color: inherit;
     text-decoration: none;
     font-weight: 500;
+    position: fixed;
+    bottom: 1rem;
+    left: 2rem;
 }
 
 a:hover {
@@ -124,28 +131,14 @@ a:hover {
     background: #c6fbff;
 }
 
-.title{
-   }
-    .title h1{
-        margin:0;
-        padding: 0;
-        margin-bottom: 1rem;
-    }
-    .title p{
-        margin: 0;
-        padding-left: 0.5rem;
-        
-    }
-
 .players{
-    height: 8rem;
-    align-items: end;
-    display:flex;
+    z-index: 3;
+    display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0;
     height: fit-content;
-    width:100%;
+    width: 100%;
+    position: absolute;
+    height: 0;
 }
     .players .playersText{
         height: 5rem;
@@ -160,10 +153,6 @@ a:hover {
     .players h2{
         padding: 0;
         margin: 0;
-    }
-    .players p{
-        margin: 0;
-        padding-left: 0.5rem;
     }
 
 .cards .cardsText.owned-cards-text {
@@ -381,17 +370,13 @@ a:hover {
     display: flex;
     flex-direction: column;
     align-content: center;
-    justify-content: center;
     align-items: center;
-    align-self: stretch;
-    justify-self: right;
-    margin-left: auto;
+    width: calc(82px + 4em);
+    height: 8em;
 }
 
 .playerInfo h2{
-    margin:1rem;
-    align-self: stretch;
-    margin-bottom: 0.25rem;
+    padding-bottom: 0.25rem;
 }
 .createButton {
     display: flex;
@@ -452,3 +437,14 @@ a:hover {
     .createButton a:focus, .createButton button:focus{
         outline:0;
     }
+
+.invisible{
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
