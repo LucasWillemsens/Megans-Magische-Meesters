@@ -1,12 +1,26 @@
 ---
 description: Think through a roadmap goal together with the user. Reads the roadmap and done directories for context, discusses the goal conversationally, and writes short, clever ideas into the goal's description.txt. Use when you want to brainstorm a goal before it gets planned and built.
 mode: primary
-permission:
-  edit: allow
-  read: allow
-  glob: allow
-  grep: allow
-  todowrite: allow
+model: opencode-go/gpt-6-luna#none
+request:
+  body:
+    temperature: 0.6
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
 ---
 
 # Brainstorm Agent

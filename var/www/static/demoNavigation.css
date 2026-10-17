@@ -1,0 +1,91 @@
+:root{
+    --demo-nav-background: #dde7f5;
+    --demo-nav-border: #174c8c;
+}
+
+.demoNav{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background: var(--demo-nav-background);
+}
+
+.demoNav a{
+    padding: 0.25rem 0.75rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    background: #fff;
+    line-height: 1.2;
+}
+
+.demoNav a:hover{
+    background: #f0f6f6;
+}
+
+.demoNav a:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 2px;
+}
+
+.demoGreeting{
+    font-size: 1.1rem;
+}
+
+.demoPlayButton{
+    max-width: 14rem;
+}
+
+.demoTeams .demoTeamPick{
+    align-self: flex-start;
+}
+
+.demoNameForm{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+}
+
+.demoNameForm input[type="text"]{
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    font-size: 1rem;
+}
+
+.demoNameForm input[type="text"]:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 1px;
+}
+
+.demoSettingsPanel .demoSettingState{
+    font-weight: 600;
+}
+
+.demoSettingsPanel .demoSettingState[data-card-zoom="disabled"]{
+    color: #7a3a2a;
+}
+
+.demoSettingsPanel .demoNameForm button{
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    background: #fff;
+    cursor: pointer;
+}
+
+.demoSettingsPanel .demoNameForm button:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 1px;
+}
+
+.demoDeck{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+}

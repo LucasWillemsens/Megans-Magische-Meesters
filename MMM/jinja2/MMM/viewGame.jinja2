@@ -13,9 +13,9 @@
             <div class="playerInfo">
                 <h2> {{player.name}} </h2>
                 {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}" alt="{{player.name}}'s profile picture" />
                 {% else %}
-                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
                 alt="{{player.name}}'s profile picture" />
                 {% endif %}
             </div>
@@ -36,7 +36,7 @@
 
         <!-- ART -->
         {% if game.artSource == "" %}
-        <img class="fit-picture spotlight" src="{{ static('1flubeltje.jpg')}}" alt="{{game.title}} artwork" />
+        <img class="fit-picture spotlight" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="{{game.title}} artwork" />
         {% else %}
         <img class="fit-picture spotlight" src="{{ static(game.artSource)}}"
             alt="{{game.title}} card artwork" />

@@ -7,6 +7,8 @@ from django.urls import reverse
 
 from django.utils.timezone import localtime
 
+from MMM.card_tokens import card_token
+
 
 _RANK_CLASSES = (
     "rank-2", "rank-3", "rank-4", "rank-5", "rank-6", "rank-7",
@@ -78,6 +80,7 @@ def environment(**options):
         'static': static,
         'url': reverse,
         "printLocalTime": printLocalTime,
+        "card_token": card_token,
     })
     env.filters.update({
         "playing_card_rank_class": playing_card_rank_class,

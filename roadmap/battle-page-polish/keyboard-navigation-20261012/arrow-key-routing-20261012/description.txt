@@ -1,0 +1,125 @@
+Wire ArrowUp/Down/Left/Right to move focus between the four regions on the board: hand cards, field cards, end-turn button, draw button. Integrates the persisted `data-focused-hand-card` slot and the new `KeyboardSelectionControl.navigate` API.
+
+End-to-end test: one source-grep test asserting `RegionNavigator` exists with the documented methods, `KeyboardSelectionControl.navigate` is invoked only from the new arrow-key branch in `onKeyboardKeyDown`, `data-focused-hand-card` is read into `persistedHandSlot` on init, `selectKeyboardCard` writes the `focused_hand_card` hidden input, and ArrowLeft/Right in the field with no selected card stay a no-op while the lane-cycle path is preserved.
+
+## Verified file paths
+
+- `var/www/static/cardDragDrop.js`
+  - Add `class RegionNavigator` after `ShortcutHoldAction` (after line 122), before `KeyboardSelectionControl`.
+  - Add `KeyboardSelectionControl.navigate(direction, fromElement)` method.
+  - Wire the four arrow keys in `onKeyboardKeyDown` (starts at line 775) BEFORE the existing `const laneStep = {` block (line 834).
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — selectors used by `RegionNavigator`:
+  - Hand cards: `.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer` (and the `deckHand ul.hand` fallback that `playerHandCards()` already uses at line 213–215).
+  - Field cards: `.playerScreen .lanes .cardContainer` (face-down cards carry `tabindex="0"`; trusted cards carry none).
+  - End-turn button: `.playerScreen .end-turn` wrapping `<button type="submit" class="end-turn">` (line 364).
+  - Draw button: `.playerScreen .deckHand .active-deck button.draw` (line 297).
+  - Persisted slot lives on `#turnLimits` via `data-focused-hand-card` (set up by `last-focused-hand-card-persistence-20261012`).
+  - Hidden input `name="focused_hand_card"` lives on the end-turn `<form class="cardActionForm">` (line 361–367).
+
+## `RegionNavigator` API surface
+
+Constructor: `new RegionNavigator(system)` where `system` is the `CardDragDropSystem` instance. The navigator reaches the DOM via `system.playerBoard`, `system.playerHandCards()`, `system.orderableKeyboardCards()`, `system._findEndTurnControl()`, `system._findDrawControl()`.
+
+Methods (each returns an element or `null`):
+
+- `regionFor(element)` → `'hand' | 'field' | 'end-turn' | 'draw' | null`. Walks up from `element` via `.closest()` against, in order: `.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer, .playerScreen .deckHand ul.hand li.cardContainer` (hand), `.playerScreen .lanes .cardContainer` (field), `.playerScreen .end-turn` (end-turn), `.playerScreen .deckHand .active-deck button.draw` (draw).
+- `firstFieldCard()` → focusable field card element or `null`. Collects `.playerScreen .lanes .cardContainer[tabindex="0"]`, sorts by `getBoundingClientRect().top` ascending with tiebreak on `.left` ascending, returns the first.
+- `handCardAt(slot)` → hand card element or `null`. `slot` is 1-based. Uses `system.orderableKeyboardCards()`. Returns `cards[slot - 1]` after clamping to range; `null` when the list is empty.
+- `endTurnButton()` → `<button class="end-turn">` or `null` (delegates to `system._findEndTurnControl().button`).
+- `drawButton()` → `<button class="draw">` or `null` (delegates to `system._findDrawControl().button`).
+
+## `KeyboardSelectionControl.navigate(direction, fromElement)`
+
+Signature: `navigate(direction, fromElement) → boolean`. `direction` is one of `'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight'` (the raw `event.key` string). `fromElement` is any element (typically `document.activeElement`).
+
+Steps:
+
+1. `region = this.navigator.regionFor(fromElement)`. If `null`, return `false`.
+2. Pick `target` by `(region, direction)`:
+   - `(hand, ArrowUp)` → `this.navigator.firstFieldCard()`
+   - `(hand, ArrowDown)` → `this.navigator.endTurnButton()`
+   - `(field, ArrowUp)` → `this.navigator.endTurnButton()`
+   - `(field, ArrowDown)` → `this.navigator.handCardAt(this.persistedHandSlot)`
+   - `(end-turn, ArrowUp)` → `this.navigator.handCardAt(this.persistedHandSlot)`
+   - `(end-turn, ArrowDown)` → `this.navigator.drawButton()`
+   - `(draw, ArrowUp)` → `this.navigator.endTurnButton()`
+   - `(draw, ArrowDown)` → `this.navigator.handCardAt(this.persistedHandSlot)`
+3. If `target` is `null`, return `false`.
+4. If `target` is a hand card: call `this.system.selectKeyboardCard(target, String(this.persistedHandSlot))` and return it. (This focuses the card and writes the hidden input via the persistence wiring.)
+5. Otherwise: call `target.focus({ preventScroll: true })` and return `typeof target.focus === 'function'`.
+
+`navigate` is called only from the new arrow-key branch in `onKeyboardKeyDown` — no other call sites.
+
+## Wiring inside `onKeyboardKeyDown`
+
+Insert BEFORE the existing `const laneStep = {` block at line 834:
+
+```
+if (
+    (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') &&
+    !this.keyboardSelection.selectedCard &&
+    !this.keyboardSelection.ghostFlip
+) {
+    if (!this._keyboardInteractionAllowed(event)) return;
+    if (this.control.navigate(key, document.activeElement)) event.preventDefault();
+    return;
+}
+```
+
+The existing `laneStep` block (lines 834–846) is UNCHANGED. With `keyboardSelection.selectedCard` set and not a ghost flip, ArrowLeft/ArrowUp/ArrowRight/ArrowDown cycle lanes via `moveKeyboardSelection`. With no selected card, that block returns early (no-op).
+
+## Reading `data-focused-hand-card` on first paint
+
+`KeyboardSelectionControl` reads the dataset once in its constructor (called from `CardDragDropSystem.init()` right after the predicates are wired):
+
+```
+const raw = Number.parseInt(document.getElementById('turnLimits')?.dataset.focusedHandCard ?? '', 10);
+this.persistedHandSlot = Number.isInteger(raw) && raw >= 1 ? raw : 1;
+```
+
+After every successful `selectKeyboardCard` call, `this.persistedHandSlot` is updated to `Number.parseInt(digitBuffer, 10)` so the next ArrowDown→hand / ArrowUp→hand lands on the slot the player just left. The update happens regardless of whether the call came from `selectOrderedCard`, `onHandCardClick`, `+ -` stepping, or `navigate`.
+
+## `selectKeyboardCard` keeps the hidden input in sync
+
+`selectKeyboardCard` (still public on `CardDragDropSystem`, delegating to `KeyboardSelectionControl`) writes the resolved ordinal to the end-turn form's hidden input whenever it installs a new hand-card selection:
+
+```
+const input = this.playerBoard?.closest('.playerScreen')
+    ?.querySelector('form.cardActionForm input[name="focused_hand_card"]');
+if (input) input.value = digitBuffer;
+```
+
+The write site sits after `clearKeyboardSelection()` and before the new `keyboardSelection` object is installed, so the hidden input reflects the about-to-be-focused card. The `digitBuffer` argument is the 1-based ordinal string passed into `selectKeyboardCard`:
+
+- `navigate` always passes `String(this.persistedHandSlot)`.
+- `selectOrderedCard`, `onHandCardClick`, and the `+ -` stepping path pass `String(index + 1)` (unchanged).
+
+## Acceptance criteria
+
+- [ ] `class RegionNavigator` exists in `var/www/static/cardDragDrop.js`, placed after `ShortcutHoldAction` and before `CardDragDropSystem`.
+- [ ] `RegionNavigator` exposes `regionFor`, `firstFieldCard`, `handCardAt`, `endTurnButton`, `drawButton` with the signatures above.
+- [ ] `KeyboardSelectionControl.navigate(direction, fromElement)` exists on the control class and returns a boolean.
+- [ ] All eight `(region, direction)` routes resolve and focus the right target.
+- [ ] `firstFieldCard` sorts by `getBoundingClientRect().top` ascending, tiebreak on `.left` ascending.
+- [ ] `handCardAt` uses `orderableKeyboardCards()` and clamps the slot into `[1, orderableKeyboardCards().length]`.
+- [ ] The new arrow-key branch in `onKeyboardKeyDown` sits BEFORE the existing `const laneStep = {` block.
+- [ ] ArrowUp/Down inside any of the four regions with no selected card routes through `this.control.navigate` and calls `event.preventDefault()` when it focuses.
+- [ ] ArrowLeft/Right inside the field with no selected card remain a no-op (no `control.navigate` call, no focus change).
+- [ ] ArrowLeft/Right inside the field with a selected card cycle lanes via `moveKeyboardSelection` (existing path, unchanged).
+- [ ] ArrowUp/Down inside the field with a selected card cycle lanes via `moveKeyboardSelection` (existing path, unchanged).
+- [ ] `data-focused-hand-card` is read from `#turnLimits` once on `KeyboardSelectionControl` construction; missing / invalid / out-of-range falls back to `1`.
+- [ ] `persistedHandSlot` is updated by every successful `selectKeyboardCard` call to the 1-based ordinal that was selected.
+- [ ] `selectKeyboardCard` writes the resolved ordinal to the `form.cardActionForm input[name="focused_hand_card"]` element on the end-turn form (synchronous, after `clearKeyboardSelection()`, before installing the new selection).
+- [ ] `navigate` has no other call sites outside the new arrow-key branch in `onKeyboardKeyDown`.
+
+## Explicit note: ArrowLeft/Right in field with no selected card
+
+ArrowLeft/Right inside the field (and inside any region) with NO selected card remain a no-op. The existing `laneStep` block already gates on `this.keyboardSelection.selectedCard`, returns early when no card is selected, and ArrowLeft/Right then fall through to the digit guard `event.repeat || !/^[1-9]$/.test(key)` (line 872) and return without side effects. `control.navigate` is intentionally NOT invoked for ArrowLeft/Right: the route table has no entry for them.
+
+ArrowLeft/Right WITH a selected card cycle lanes via the existing `moveKeyboardSelection` path inside the laneStep block — unchanged. ArrowUp/ArrowDown with a selected card also cycle lanes via the existing path — unchanged.
+
+## Dependencies
+
+- Depends on `last-focused-hand-card-persistence-20261012/` (the data attribute + hidden input).
+- Depends on `keyboard-selection-control-refactor-20261012/` (the new control class with the `navigate` API point).
+- Independent of `focus-arrow-bindings-20261012` and `backtick-debug-overlay-20261012`.

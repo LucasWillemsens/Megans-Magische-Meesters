@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
@@ -8,21 +9,455 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
+from django.contrib.staticfiles import finders
 
 from . import views
+from . import battle_services
+from .card_tokens import card_token
+from .demo_flow import DEMO_DECK_CARD_COUNT
+from .demo_greetings import (
+    GENERIC_GREETINGS,
+    LOGGED_IN_NAME_GREETINGS,
+    NEW_VISITOR_GREETING,
+    applicable_title_greetings,
+    title_greeting,
+)
 from .models import (
     BattleHistory,
     BattleParticipant,
     Card,
     CardOwnerHistory,
+    CardState,
     Deck,
     Game,
     GameCard,
     Player,
 )
 
+STATIC_TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "var", "www", "static")
 
-class BattleFlowTests(TestCase):
+FAKE_ELEMENT_NAVIGATION_CORE = r'''const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    replaceChildren(...replacements) {
+        this.children.length = 0;
+        for (const child of replacements) this.appendChild(child);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+'''
+
+
+FAKE_ELEMENT_DATASET_CORE = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = new Proxy({}, {
+            set: (target, key, value) => {
+                target[key] = value;
+                this.setAttribute('data-' + String(key).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()), value);
+                return true;
+            },
+            deleteProperty: (target, key) => {
+                delete target[key];
+                this.removeAttribute('data-' + String(key).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+                return true;
+            },
+        });
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+'''
+
+
+class BattleBoardFixture(TestCase):
+    """Two-participant game fixture shared by browser and API tests."""
+
     def _create_owned_card(self, owner_history, title, card_type):
         card = Card.objects.create(title=title, artSource="", cardType=card_type)
         card.ownerHistory.add(owner_history)
@@ -131,6 +566,8 @@ class BattleFlowTests(TestCase):
             deck_id=self.bot_deck.id,
         )
 
+
+class BattleFlowTests(BattleBoardFixture):
     def test_turn_allowances_match_fresh_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
@@ -169,6 +606,63 @@ class BattleFlowTests(TestCase):
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, "Action error")
         self.assertContains(response, "cannot draw more cards")
+
+    def test_space_draw_roundtrip_restores_draw_button_focusability(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        response = self.client.get(board_url)
+        self.assertContains(
+            response, '<button type="submit" class="card back draw" title="Draw card">'
+        )
+        self.assertContains(response, '<script type="module" src="/static/cardDragDrop.js"></script>')
+        self.assertContains(
+            response, '<script type="module" src="/static/loadingAnimations.js"></script>'
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertNotContains(response, "Action error")
+        loading_tag = re.search(
+            r'<li class="cardContainer loading"[^>]*>', response.content.decode()
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn('data-source-lane="-', loading_tag.group(0))
+        self.assertEqual([name for name in response.cookies if name.isdigit()], [])
+        self.assertNotIn("turn_phase", response.cookies)
+
+        # the focus restore target must survive the space-draw reload itself
+        response = self.client.get(board_url)
+        self.assertContains(
+            response, '<button type="submit" class="card back draw" title="Draw card">'
+        )
+        self.assertNotContains(response, 'data-phase=')
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertNotContains(response, "Action error")
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'class="card back draw blocked" disabled title="Draw limit reached')
+        self.assertRegex(content, r'class="deck blocked(?:\s|")')
+
+    def test_space_draw_roundtrip_renders_no_draw_button_when_deck_is_depleted(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 0)
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        self.assertContains(response, "No cards left in")
+        self.assertNotContains(response, "cardContainer loading")
+
+        response = self.client.get(board_url)
+        self.assertContains(response, '<div class="card back emptyDeck">')
+        self.assertNotContains(response, 'class="card back draw"')
+        self.assertNotContains(response, 'data-phase=')
 
     def test_board_renders_turn_limits_data(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -244,6 +738,10 @@ class BattleFlowTests(TestCase):
     def test_hand_fan_cards_keep_action_and_source_attributes(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         self._replace_hand_with_count(self.human_participant, 14)
+        game_card_ids = {
+            str(card.id)
+            for card in GameCard.objects.filter(game_id=self.game.id)
+        }
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         content = response.content.decode()
         hand_fans = re.findall(
@@ -252,13 +750,24 @@ class BattleFlowTests(TestCase):
             re.DOTALL,
         )
         hand_html = "".join(hand_fans)
-        hand_cards = re.findall(
-            r'<li class="cardContainer [^>]+data-card-id="(\d+)"[^>]*>',
+        hand_tokens = re.findall(
+            r'<li class="cardContainer [^>]+data-card-id="([^"]+)"[^>]*>',
             hand_html,
         )
 
-        self.assertEqual(len(hand_cards), 14)
+        self.assertEqual(len(hand_tokens), 14)
+        self.assertEqual(len(set(hand_tokens)), 14)
+        for token in hand_tokens:
+            self.assertNotIn(token, game_card_ids)
+        for card in GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        ):
+            self.assertIn(card_token(self.game.id, card.id), hand_tokens)
         self.assertEqual(hand_html.count('name="card_id"'), 14)
+        hidden_card_token_values = re.findall(r'name="card_id" value="([^"]+)"', hand_html)
+        self.assertEqual(set(hidden_card_token_values), set(hand_tokens))
+        for value in hidden_card_token_values:
+            self.assertNotIn(value, game_card_ids)
         self.assertEqual(hand_html.count('data-source-lane="0"'), 14)
         self.assertEqual(hand_html.count('data-source-ordinal="'), 14)
         self.assertEqual(hand_html.count('draggable="true"'), 14)
@@ -306,7 +815,7 @@ class BattleFlowTests(TestCase):
         card = self.human_cards[0]
         response = self.client.get(reverse("MMM:viewCard", args=[card.id]))
         content = response.content.decode()
-        self.assertIn("/static/1flubeltje.jpg", content)
+        self.assertIn("/static/MMM/1flubeltje.jpg", content)
         self.assertNotIn("playing-card-spotlight card staticCard", content)
 
         card.artSource = "static"
@@ -394,7 +903,7 @@ class BattleFlowTests(TestCase):
         self.assertEqual(len(hand_cards), len(set(hand_cards)))
 
     def test_play_cookie_payload_contains_source_state(self):
-        payload = views._parse_play_cookie_value(
+        payload = battle_services.parse_play_cookie_payload(
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 3, "flipFaceUp": true}'
         )
 
@@ -436,7 +945,7 @@ class BattleFlowTests(TestCase):
         )
         intelligence_lane = next(
             lane
-            for lane in views.contextBoard(
+            for lane in battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.human_participant.id,
             )["laneRows"]
@@ -480,7 +989,7 @@ class BattleFlowTests(TestCase):
         second_card.state.save()
         self.human_participant.playCard(second_card.id, lane=1)
 
-        board = views.contextBoard(
+        board = battle_services.context_board(
             GameCard.objects.filter(game_id=self.game.id).order_by("-state__laneOrdinal"),
             self.human_participant.id,
         )
@@ -501,15 +1010,15 @@ class BattleFlowTests(TestCase):
             self.human_cards[1],
         )
 
-        views.playcards(
+        battle_services.consume_staged_plays(
             self.game,
             {
-                str(hand_card.id): json.dumps({
+                str(hand_card.id): {
                     "laneValue": 4,
                     "sourceLane": 0,
                     "sourceOrdinal": 99,
                     "flipFaceUp": False,
-                })
+                }
             },
             self.human_participant,
         )
@@ -534,7 +1043,7 @@ class BattleFlowTests(TestCase):
         existing_card.state.updateOrdinal(3)
         existing_card.state.save()
 
-        bot_actions, _ = views._run_bot_turn(self.game, self.human.id)
+        bot_actions, _ = battle_services.run_bot_turn(self.game, self.human.id)
 
         self.assertEqual(len(bot_actions), 1)
         self.assertEqual(bot_actions[0]["sourceOrdinal"], 99)
@@ -549,7 +1058,7 @@ class BattleFlowTests(TestCase):
         )
 
         timeline = []
-        views.intSpecial(self.human_participant, 1, timeline)
+        battle_services.run_int_special(self.human_participant, 1, timeline)
 
         hand_card.refresh_from_db()
         self.assertEqual(hand_card.state.lane, 2)
@@ -645,7 +1154,7 @@ class BattleFlowTests(TestCase):
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, 'cardContainer loading')
         self.assertContains(response, '<div class="card smallCard">')
-        self.assertContains(response, "/static/1flubeltje.jpg")
+        self.assertContains(response, "/static/MMM/1flubeltje.jpg")
         self.assertContains(response, 'data-source-lane="-')
 
         loading_tag = re.search(
@@ -752,11 +1261,11 @@ class BattleFlowTests(TestCase):
             self._replace_deck_with_count(self.human_participant, deck_count)
             self._replace_deck_with_count(self.bot_participant, deck_count)
 
-            own_board = views.contextBoard(
+            own_board = battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.human_participant.id,
             )
-            enemy_board = views.contextBoard(
+            enemy_board = battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.bot_participant.id,
             )
@@ -1016,7 +1525,7 @@ class BattleFlowTests(TestCase):
         self.assertIsNotNone(bot_lane_card)
         final_ordinal = bot_lane_card.state.laneOrdinal
 
-        lane_rows = views.contextBoard(
+        lane_rows = battle_services.context_board(
             GameCard.objects.filter(game_id=self.game.id), self.bot_participant.id
         )["laneRows"]
         plays = [
@@ -1058,7 +1567,7 @@ class BattleFlowTests(TestCase):
             state__lane__gt=0,
         ).count()
         
-        self.client.cookies[str(bot_card.id)] = (
+        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
         )
         response = self.client.post(action_url, {"action": "draw"})
@@ -1170,6 +1679,63 @@ class BattleFlowTests(TestCase):
             self.assertIn("data-card-id", tag)
 
         self.assertContains(response, 'class="card back draw"')
+
+    def test_flip_exhaustion_blocks_but_keeps_face_down_cards_focusable(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        revealed_lane_card = self._initialize_with_hand_card(
+            self.human_participant, self.human_cards[1]
+        )
+        self.human_participant.playCard(
+            revealed_lane_card.id, flipFaceUp=True, specialClause=True
+        )
+        facedown_lane_card = self._initialize_with_hand_card(
+            self.human_participant, self.human_cards[2]
+        )
+        self.human_participant.playCard(facedown_lane_card.id, specialClause=True)
+
+        self.human_participant.flippedCardsAmount = 5
+        self.human_participant.save(update_fields=["flippedCardsAmount"])
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        self.assertIn('data-flips-left="0"', content)
+
+        own_board = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL,
+        )
+        self.assertIsNotNone(own_board)
+        own_board_markup = own_board.group(0)
+
+        def row_container_tags(row_title):
+            return [
+                tag
+                for row in re.findall(
+                    rf'<ul class="cardRow" title="{row_title}">(.*?)</ul>',
+                    own_board_markup,
+                    re.DOTALL,
+                )
+                for tag in re.findall(r'<li class="cardContainer[^>]*>', row)
+            ]
+
+        flip_blocked_title = self.human_participant.getTurnAllowances()["blocked_titles"]["flip"]
+        lane_tags = row_container_tags("cards")
+        self.assertTrue(any("faceDown" in tag for tag in lane_tags))
+        for tag in lane_tags:
+            css_class = re.search(r'class="([^"]*)"', tag).group(1)
+            if "faceDown" in tag:
+                self.assertIn("blocked", css_class.split())
+                self.assertIn('tabindex="0"', tag)
+                self.assertIn(flip_blocked_title, tag)
+            else:
+                self.assertNotIn("tabindex", tag)
+
+        for tag in row_container_tags("trustedCards"):
+            self.assertNotIn("tabindex", tag)
 
     def test_game_ending_end_turn_renders_player_moves_instead_of_redirecting(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -1374,7 +1940,7 @@ class BattleFlowTests(TestCase):
 
         # Stage a play cookie that plays the card face-down (no flip) to consume
         # both a play and leave the card face-down in the lane
-        self.client.cookies[str(hand_card.id)] = (
+        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -1428,8 +1994,8 @@ class BattleFlowTests(TestCase):
         ))
         self.assertEqual(len(hand_cards), 2)
 
-        # Stage 1 play via cookie (play to lane 4, face-down, no flip)
-        self.client.cookies[str(hand_cards[0].id)] = (
+        # Stage 1 play via the card's presentation token (play to lane 4, face down)
+        self.client.cookies[card_token(self.game.id, hand_cards[0].id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -1455,10 +2021,10 @@ class BattleFlowTests(TestCase):
             game_id=game.id, user_id=participant.id, state__lane=0
         ).first()
 
-        # Play it face-down to lane 4 (flipFaceUp=false).
+        # Play it face-down to lane 4 (flipFaceUp=false) via its presentation token.
         # With int=0, spd=0, after 1 draw + 1 face-down play:
         # flips_left = max(0, 1+min(0, 1-1-1)-0) = 0
-        self.client.cookies[str(hand_card.id)] = (
+        self.client.cookies[card_token(game.id, hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -1565,6 +2131,37 @@ class BattleFlowTests(TestCase):
         self.assertIn('transition: transform 0.15s ease-out', cards_css)
         self.assertIn('transform: rotate(', cards_css)
 
+    def test_played_hand_ghost_cards_never_show_grab_cursor(self):
+        """Staged hand ghosts cannot be grabbed, so their cursor must stay neutral."""
+        import os
+
+        with open(os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        def rule_block(source, selector):
+            start = source.index(selector)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed rule block for {selector}')
+
+        ghost_selector = 'ul.hand li.cardContainer.ghost{'
+        ghost_rule = rule_block(cards_css, ghost_selector)
+        self.assertLess(cards_css.index('ul.hand li.cardContainer{'), cards_css.index(ghost_selector))
+
+        self.assertEqual(ghost_rule.count('cursor: default'), 2)
+        self.assertIn('&::after', ghost_rule)
+        self.assertNotIn('grab', ghost_rule)
+        self.assertNotIn('pointer', ghost_rule)
+
+        hand_rule = rule_block(cards_css, 'ul.hand li.cardContainer{')
+        self.assertEqual(hand_rule.count('cursor:'), 1)
+        self.assertIn('&::after', hand_rule)
+        self.assertIn('cursor: grab', hand_rule)
+
     def test_hand_card_visibility_css_keeps_footer_and_body_separated(self):
         """Card-type footers keep the original bottom-anchored look on every card."""
         import os
@@ -1625,9 +2222,39 @@ class BattleFlowTests(TestCase):
         self.assertIn('clearKeyboardSelection', drag_js)
         self.assertIn('createupdateCookie', drag_js)
 
+        self.assertIn('class KeyboardSelectionControl {', drag_js)
+        self.assertIn('class CardDragDropSystem {', drag_js)
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('selectKeyboardCard(card', control_class)
+        self.assertIn('clearKeyboardSelection({removePreview', control_class)
+        self.assertIn('flipKeyboardFocusedCard(event)', control_class)
+        self.assertIn('_keyboardFlipTarget(event)', control_class)
+        self.assertIn('_keyboardHologramRow(laneValue)', control_class)
+        self.assertIn('onFocusIn(card)', control_class)
+        self.assertIn('onFocusOut(card)', control_class)
+        self.assertIn('this.parent', control_class)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn('    onKeyboardKeyDown(event)', parent_class)
+        self.assertIn('    onHandCardClick(event)', parent_class)
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(digitBuffer)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(lastDigitBuffer)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._confirmGhostFlipSelection(event)',
+            parent_class,
+        )
+
         keydown_code = drag_js[
             drag_js.index('    onKeyboardKeyDown(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+            drag_js.index('    selectOrderedCard(')
         ]
         backspace_branch_start = keydown_code.index("if (key === '0' || key === 'Backspace') {")
         backspace_branch = keydown_code[
@@ -1635,7 +2262,10 @@ class BattleFlowTests(TestCase):
             keydown_code.index('}', backspace_branch_start) + 1
         ]
         self.assertIn('this._cancelKeyboardSelectionFromEvent(event);', backspace_branch)
-        self.assertIn('_noZeroOrdinal(digitBuffer)', keydown_code)
+        self.assertIn(
+            'this._keyboardSelectionControl._noZeroOrdinal(digitBuffer)',
+            keydown_code,
+        )
         self.assertIn('digitBuffer.slice(-1)', keydown_code)
         self.assertLess(
             keydown_code.index('digitBuffer.slice(-1)'),
@@ -1672,29 +2302,35 @@ class BattleFlowTests(TestCase):
         self.assertLess(flip_branch_start, selection_confirm_index)
         self.assertIn('this.flipKeyboardFocusedCard(event)', keydown_code[flip_branch_start:])
 
-        flip_method_code = drag_js[
-            drag_js.index('    flipKeyboardFocusedCard(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+        flip_method_code = control_class[
+            control_class.index('    flipKeyboardFocusedCard(event)'):
+            control_class.index('    _keyboardHologramRow(laneValue)')
         ]
         self.assertIn('.playerBoard ul.cardRow li.cardContainer.faceDown', flip_method_code)
         self.assertIn('.hologram.keyboard-staged .cardContainer.faceDown', flip_method_code)
-        self.assertIn('_laneValueForCard(card)', flip_method_code)
-        self.assertIn('this.remainingAllowances().flips <= 0', flip_method_code)
+        self.assertIn('this.parent._laneValueForCard(card)', flip_method_code)
+        self.assertIn(
+            'this._predicates.remainingAllowances().flips <= 0',
+            flip_method_code,
+        )
         self.assertIn("classList.contains('blocked')", flip_method_code)
         self.assertIn("classList.contains('ghost')", flip_method_code)
-        self.assertIn('this.onFaceDownCardClick(event, laneValue)', flip_method_code)
+        self.assertIn(
+            'this.parent.onFaceDownCardClick(event, laneValue)',
+            flip_method_code,
+        )
         self.assertIn('event.preventDefault()', flip_method_code)
         self.assertIn('_laneValueForCard(card) {', drag_js)
         self.assertIn("card.closest('li.lane').classList[1]", drag_js)
-        selection_code = drag_js[
-            drag_js.index('    selectKeyboardCard(card'):
-            drag_js.index('    onCardDragStart(e)')
+        selection_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
         ]
         self.assertNotIn('createupdateCookie', selection_code)
         self.assertIn('card.focus({ preventScroll: true })', selection_code)
         self.assertIn("typeof card.focus === 'function'", selection_code)
-        self.assertIn('activeElement.blur()', selection_code)
-        self.assertIn('card.contains(activeElement)', selection_code)
+        self.assertIn('activeElement.blur()', control_class)
+        self.assertIn('card.contains(activeElement)', control_class)
 
         self.assertIn("document.addEventListener('click', this.keyboardClickHandler);", drag_js)
         self.assertIn("document.removeEventListener('click', this.keyboardClickHandler);", drag_js)
@@ -1771,7 +2407,8 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("card.classList.add('ghost')", staging_code)
         self.assertIn("card.setAttribute('draggable', 'false')", staging_code)
-        self.assertIn("card.removeAttribute('tabindex')", staging_code)
+        self.assertIn("card.setAttribute('tabindex', '0')", staging_code)
+        self.assertNotIn("card.removeAttribute('tabindex')", staging_code)
         self.assertIn('this.staged.plays++;', staging_code)
         self.assertIn('this.applyTurnAffordances();', staging_code)
 
@@ -1782,14 +2419,30 @@ class BattleFlowTests(TestCase):
         self.assertNotIn('onFaceDownCardClick', keyboard_preview_code)
         self.assertIn("hologram.classList.add('keyboard-preview')", drag_js)
 
-        confirm_code = drag_js[
-            drag_js.index('    confirmKeyboardSelection(laneValue'):
-            drag_js.index('    clearKeyboardSelection({removePreview')
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('    confirmKeyboardSelection(laneValue = null)', control_class)
+        self.assertIn('    moveKeyboardSelection(laneValue)', control_class)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl.confirmKeyboardSelection(laneValue)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl.moveKeyboardSelection(laneValue)',
+            parent_class,
+        )
+
+        confirm_code = control_class[
+            control_class.index('    confirmKeyboardSelection(laneValue'):
+            control_class.index('    clearKeyboardSelection({removePreview')
         ]
         self.assertIn('moveKeyboardSelection(requestedLane)', confirm_code)
         self.assertIn('selection.hologram.remove()', confirm_code)
         self.assertIn(
-            'this._buildPlayHologram(card, requestedLane, false, selection.rotation)',
+            'this.parent._buildPlayHologram(card, requestedLane, false, selection.rotation)',
             confirm_code,
         )
         self.assertIn('this._keyboardHologramRow(requestedLane)', confirm_code)
@@ -1797,13 +2450,12 @@ class BattleFlowTests(TestCase):
         self.assertIn("hologram.dataset.keyboardStaged = 'true'", confirm_code)
         self.assertNotIn("hologram.classList.add('keyboard-preview')", confirm_code)
         self.assertIn(
-            'this._stagePlay(card, requestedLane, hologram, true, selection)',
+            'this.parent._stagePlay(card, requestedLane, hologram, true, selection)',
             confirm_code,
         )
         self.assertNotIn('createupdateCookie', confirm_code)
-        self.assertIn(".querySelector('.cardContainer.faceDown')", confirm_code)
-        self.assertIn("setAttribute('tabindex', '0')", confirm_code)
-        self.assertIn('this.remainingAllowances().flips > 0', confirm_code)
+        self.assertNotIn('tabindex', confirm_code)
+        self.assertNotIn('remainingAllowances().flips', confirm_code)
 
         else_branch_start = drag_js.index(
             '        } else {', drag_js.index('    _buildPlayHologram(')
@@ -1815,14 +2467,16 @@ class BattleFlowTests(TestCase):
         self.assertIn("copycard.classList.remove('keyboard-selected')", non_preview_code)
         self.assertIn("copycard.removeAttribute('aria-selected')", non_preview_code)
         self.assertIn('delete copycard.dataset.keyboardSelected;', non_preview_code)
-        self.assertIn("copycard.removeAttribute('tabindex')", non_preview_code)
+        self.assertIn("copycard.setAttribute('tabindex', '0')", non_preview_code)
+        self.assertNotIn("copycard.removeAttribute('tabindex')", non_preview_code)
         self.assertNotIn('onFaceDownCardClick', non_preview_code)
+        self.assertIn("copycard.removeAttribute('tabindex')", keyboard_preview_code)
 
         self.assertIn("hologram.dataset.stagedForCardId = selection.cardId", confirm_code)
         self.assertIn('this._mirrorStagedFocus(card, hologram)', confirm_code)
-        mirror_helper_code = drag_js[
-            drag_js.index('    _mirrorStagedFocus(card, hologram) {'):
-            drag_js.index('    onHandCardClick(event)')
+        mirror_helper_code = control_class[
+            control_class.index('    _mirrorStagedFocus(card, hologram) {'):
+            control_class.index('    onFocusIn(card)')
         ]
         self.assertIn("'focusin'", mirror_helper_code)
         self.assertIn("'focusout'", mirror_helper_code)
@@ -1835,6 +2489,29 @@ class BattleFlowTests(TestCase):
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn(
+            '    _isPlayableKeyboardCard_Legacy(card) {',
+            control_class,
+        )
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            '    _isPlayableKeyboardCard(card) {',
+            parent_class,
+        )
+        parent_wrapper_index = parent_class.index(
+            '    _isPlayableKeyboardCard(card) {',
+        )
+        wrapper_close_index = parent_class.index('}', parent_wrapper_index)
+        wrapper_block = parent_class[parent_wrapper_index:wrapper_close_index + 1]
+        self.assertIn(
+            'this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card)',
+            wrapper_block,
+        )
 
         affordances_code = drag_js[
             drag_js.index('    applyTurnAffordances() {'):
@@ -1850,15 +2527,25 @@ class BattleFlowTests(TestCase):
         self.assertIn("card.classList.add('blocked');", blocked_branch)
         self.assertIn("card.setAttribute('draggable', 'false');", blocked_branch)
         self.assertIn("card.removeAttribute('tabindex');", blocked_branch)
+        self.assertIn("!card.classList.contains('ghost')", blocked_branch)
 
         restore_branch = affordances_code[restore_branch_start:restore_branch_end]
         self.assertIn("!card.hasAttribute('tabindex')", restore_branch)
         self.assertIn("card.setAttribute('tabindex', '0');", restore_branch)
-        self.assertIn('_isPlayableKeyboardCard(card)', restore_branch)
+        self.assertIn('this._isOrderableKeyboardCard(card)', restore_branch)
+        self.assertNotIn('this._isPlayableKeyboardCard(card)', restore_branch)
 
-        deck_branch = affordances_code[
-            affordances_code.index('if (remaining.draws <= 0)', restore_branch_end):
+        deck_branch_start = affordances_code.index('if (remaining.draws <= 0)', restore_branch_end)
+        flips_branch = affordances_code[
+            affordances_code.index('if (remaining.flips <= 0)'):deck_branch_start
         ]
+        self.assertIn('.playerBoard .cardContainer.faceDown:not(.blocked), ', flips_branch)
+        self.assertIn(".hologram .cardContainer.faceDown:not(.blocked)", flips_branch)
+        self.assertIn("card.classList.add('blocked');", flips_branch)
+        self.assertIn('card.title = this.tooltips.flip;', flips_branch)
+        self.assertNotIn('tabindex', flips_branch)
+
+        deck_branch = affordances_code[deck_branch_start:]
         self.assertIn("querySelector('button.draw')", deck_branch)
         self.assertIn("drawBtn.setAttribute('tabindex', '-1')", deck_branch)
 
@@ -2188,6 +2875,853 @@ class BattleFlowTests(TestCase):
         self.assertContains(response, 'name="action" value="end_turn"')
         self.assertContains(response, 'class="cardActionForm"')
 
+    def test_focused_end_turn_button_keyboard_activation_routes_through_the_shortcut_hold(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        enter_start = keydown_code.index(
+            "if (!activeSelection && (key === 'Enter' || key === ' ')) {"
+        )
+        end_turn_route_index = keydown_code.index(
+            'this._isKeyboardEndTurnTarget(event)', enter_start
+        )
+        hand_route_index = keydown_code.index(
+            'this._keyboardSelectableHandCard(event)', enter_start
+        )
+        self.assertLess(end_turn_route_index, hand_route_index)
+        self.assertIn(
+            'this.onEndTurnKeyDown(event)',
+            keydown_code[end_turn_route_index:hand_route_index],
+        )
+
+        helper_code = drag_js[
+            drag_js.index('    _isKeyboardEndTurnTarget(event) {'):
+            drag_js.index('    _isPlayerActionPhase() {')
+        ]
+        self.assertIn("navigator.regionFor(candidate) === 'end-turn'", helper_code)
+        self.assertIn('document.activeElement', helper_code)
+
+        hold_code = drag_js[
+            drag_js.index('    onEndTurnKeyDown(event)'):
+            drag_js.index('    onKeyboardKeyUp(event)')
+        ]
+        self.assertIn("event.key === 'Enter' || event.key === ' '", hold_code)
+        self.assertIn('if (activationEvent) {', hold_code)
+        self.assertIn('event.preventDefault();', hold_code)
+        self.assertIn('endTurnHold.start(control.target', hold_code)
+        self.assertIn('_submitHeldEndTurn()', hold_code)
+        self.assertNotIn('loadingAnimations', drag_js)
+        self.assertNotIn('fetch(', drag_js)
+
+        self.assertIn('.shortcut-hold-loading', drag_css)
+
+    def test_focused_end_turn_button_activation_keeps_native_submit_button(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+
+        self.assertContains(response, '<button type="submit" class="end-turn" title="End turn"')
+        self.assertContains(response, 'autofocus')
+
+    def test_enter_and_space_on_focused_end_turn_button_start_the_loading_hold_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r"""
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, cardLane, sourceOrdinal) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(cardLane);
+    card.dataset.sourceLane = '0';
+    card.dataset.sourceOrdinal = String(sourceOrdinal);
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(301, 1, 1);
+const handB = makeHandCard(302, 3, 2);
+const handC = makeHandCard(303, 2, 3);
+const handCards = [handA, handB, handC];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, ...handCards, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+const holdTimers = [];
+let nextTimerId = 1;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const endTurnSubmits = { count: 0 };
+endTurnButton.click = () => { endTurnSubmits.count += 1; };
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const keyupHandlers = documentListeners['keyup'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const releaseKey = (key) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: fakeDocument.activeElement,
+        preventDefault() { prevented = true; },
+    };
+    keyupHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const activeIs = (element) => fakeDocument.activeElement === element;
+const holdLoading = () => endTurnButton.classList.contains('shortcut-hold-loading');
+const submits = () => endTurnSubmits.count;
+const queuedTimers = () => holdTimers.length;
+const flushTimers = () => {
+    for (const task of holdTimers.splice(0)) task.callback();
+};
+
+fakeDocument.activeElement = handA;
+
+assert('Enter on the focused hand card keeps selecting the card',
+    pressKey('Enter') && state().selectedCard === handA && activeIs(handA) &&
+    submits() === 0 && !holdLoading());
+pressKey('0');
+assert('cancel clears that selection without touching the end turn hold',
+    state().selectedCard === null && submits() === 0 && !holdLoading());
+
+fakeDocument.activeElement = endTurnButton;
+
+assert('Enter on the focused end turn button starts the loading hold instead of submitting',
+    pressKey('Enter') && holdLoading() && endTurnButton.getAttribute('aria-busy') === 'true' &&
+    submits() === 0);
+assert('the held end turn keeps exactly one scheduled submit',
+    queuedTimers() === 1);
+
+assert('repeated Enter while the hold runs stays suppressed and schedules nothing more',
+    pressKey('Enter', { repeat: true }) && submits() === 0 && queuedTimers() === 1);
+
+flushTimers();
+assert('the loading hold ends by submitting the end turn form exactly once',
+    submits() === 1 && !holdLoading() && endTurnButton.getAttribute('aria-busy') === null);
+
+assert('Enter after that submit is suppressed so the request stays single',
+    pressKey('Enter') && submits() === 1 && queuedTimers() === 0);
+
+assert('releasing the end turn key resets the protected hold',
+    releaseKey('e') && holdLoading() === false && queuedTimers() === 0);
+
+assert('Space on the focused end turn button starts the same loading hold',
+    pressKey(' ') && holdLoading() && endTurnButton.getAttribute('aria-busy') === 'true' &&
+    submits() === 1);
+flushTimers();
+assert('the Space hold also submits exactly once',
+    submits() === 2 && !holdLoading());
+
+assert('releasing the end turn key resets the protected hold', releaseKey('e'));
+
+assert('the E end turn shortcut still starts its loading hold',
+    pressKey('e') && holdLoading() && submits() === 2);
+flushTimers();
+assert('the E shortcut again submits exactly once',
+    submits() === 3 && !holdLoading());
+assert('releasing the end turn key resets the protected hold', releaseKey('e'));
+
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', 'enemy');
+body.appendChild(turnPhaseEl);
+
+assert('during running enemy animations Enter on the end turn button stays native',
+    !pressKey('Enter') && !holdLoading() && submits() === 3);
+
+console.log('focused end turn keyboard loading ok');
+""".replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping focused end turn loading DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping focused end turn loading DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'focused end turn loading harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('focused end turn keyboard loading ok', completed.stdout)
+
+    def test_space_draw_stages_and_restores_draw_button_focus_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r"""
+const documentListeners = {};
+const storage = new Map();
+const rafCallbacks = [];
+const holdTimers = [];
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const lane = new FakeElement('li', 'lane Intelligence');
+lanesEl.appendChild(lane);
+lane.appendChild(new FakeElement('ul', 'hologramRow'));
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+deckHand.scrollIntoView = () => {};
+
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+endTurnButton.focus = () => { fakeDocument.activeElement = endTurnButton; };
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementsByClassName(className) {
+        const names = String(className).split(/\s+/).filter(Boolean);
+        return descendantsInOrder(body).filter((el) =>
+            names.every((name) => el.classList && el.classList.contains(name)));
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    readyState: 'complete',
+    body,
+    activeElement: null,
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    loadingAnimations: null,
+    location: { pathname: '/game/1/board/2/' },
+    setTimeout(callback) {
+        const id = 1000 + holdTimers.length;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+global.sessionStorage = {
+    getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: (key) => { storage.delete(key); },
+};
+global.requestAnimationFrame = (callback) => {
+    rafCallbacks.push(callback);
+    return rafCallbacks.length;
+};
+
+const drawFocusStored = () => (sessionStorage.getItem(drawFocusKey) ?? null);
+
+const dragCode = __DRAG_JS__;
+const loadingCode = __LOADING_JS__;
+eval(dragCode);
+eval(loadingCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+if (!global.window.loadingAnimations) throw new Error('loadingAnimations not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const focusIs = (element) => fakeDocument.activeElement === element;
+
+const buildDeckArea = (variant) => {
+    const deckStack = new FakeElement('div', 'deck-stack own-deck-stack');
+    deckHand.appendChild(deckStack);
+    const deck = new FakeElement('ul', 'deck active-deck');
+    deckStack.appendChild(deck);
+    if (variant === 'empty') {
+        deck.appendChild(new FakeElement('div', 'card back emptyDeck'));
+        return null;
+    }
+    const form = new FakeElement('form', 'cardActionForm');
+    deck.appendChild(form);
+    const drawButton = new FakeElement('button', 'card back draw');
+    form.appendChild(drawButton);
+    drawButton.focus = () => { fakeDocument.activeElement = drawButton; };
+    if (variant === 'blocked') {
+        deck.classList.add('blocked');
+        drawButton.classList.add('blocked');
+        drawButton.setAttribute('disabled', 'disabled');
+    }
+    return drawButton;
+};
+const resetActiveFocus = () => { fakeDocument.activeElement = null; rafCallbacks.length = 0; };
+const flushTick = () => {
+    for (const callback of rafCallbacks.splice(0)) callback();
+};
+
+const boardPath = '/game/1/board/2/';
+const drawFocusKey = 'mmmDrawFocusReturn';
+
+resetActiveFocus();
+flushTick();
+assert('a plain board without a staged draw leaves focus untouched', focusIs(null) && drawFocusStored() === null);
+
+const drawButton = buildDeckArea('open');
+fakeDocument.activeElement = drawButton;
+
+assert('Space on the focused draw button stays a native submit (no hold, no prevention)',
+    !pressKey(' ') && holdTimers.length === 0 &&
+    !drawButton.classList.contains('shortcut-hold-loading') &&
+    system.keyboardSelection.selectedCard === null);
+assert('the Space draw stages the focus return on this board path',
+    drawFocusStored() === boardPath);
+
+assert('repeating the draw key press re-stages the same focus return without holding',
+    !pressKey('Enter') && drawFocusStored() === boardPath && holdTimers.length === 0);
+
+const instantiateLoading = () => {
+    window.loadingAnimations = new window.loadingAnimations.constructor();
+};
+
+deckHand.children = [];
+resetActiveFocus();
+window.location.pathname = '/game/1/board/2/action/';
+const flightCard = new FakeElement('li', 'cardContainer loading');
+flightCard.setAttribute('data-source-lane', '-2');
+flightCard.setAttribute('data-source-ordinal', '0');
+const actionDeckButton = buildDeckArea('open');
+deckHand.appendChild(flightCard);
+instantiateLoading();
+
+assert('the draw animation page keeps the staged focus return while flights run',
+    drawFocusStored() === boardPath);
+assert('the draw animation page does not grab the draw button focus yet',
+    !focusIs(actionDeckButton) && fakeDocument.activeElement === null);
+
+const sweepFlightDuplicates = () => {
+    for (const element of [...document.body.children]) {
+        if (element.classList && element.classList.contains('duplicate')) element.remove();
+    }
+};
+sweepFlightDuplicates();
+
+deckHand.children = [];
+resetActiveFocus();
+window.location.pathname = boardPath;
+const refreshedDrawButton = buildDeckArea('open');
+instantiateLoading();
+flushTick();
+assert('the plain board after a Space draw gives focus back to the draw button',
+    focusIs(refreshedDrawButton));
+assert('the restore consumed the staged focus return',
+    drawFocusStored() === null);
+
+deckHand.children = [];
+resetActiveFocus();
+const exhaustedDrawButton = buildDeckArea('blocked');
+sessionStorage.setItem(drawFocusKey, boardPath);
+instantiateLoading();
+flushTick();
+assert('a spent draw button consumes the pending return without throwing',
+    !focusIs(exhaustedDrawButton) && drawFocusStored() === null);
+
+deckHand.children = [];
+resetActiveFocus();
+buildDeckArea('empty');
+sessionStorage.setItem(drawFocusKey, boardPath);
+instantiateLoading();
+assert('a depleted deck consumes the pending return safely',
+    !focusIs(fakeDocument.body) && drawFocusStored() === null);
+
+deckHand.children = [];
+resetActiveFocus();
+window.location.pathname = '/game/7/board/3/';
+const otherGameDrawButton = buildDeckArea('open');
+sessionStorage.setItem(drawFocusKey, boardPath);
+instantiateLoading();
+flushTick();
+assert('a focus return staged elsewhere never leaks into another game',
+    !focusIs(otherGameDrawButton) && drawFocusStored() === null);
+
+deckHand.children = [];
+resetActiveFocus();
+window.location.pathname = boardPath;
+const mouseDrawButton = buildDeckArea('open');
+instantiateLoading();
+flushTick();
+assert('a mouse draw (no keydown) leaves the end turn autofocus in place',
+    !focusIs(mouseDrawButton) && !focusIs(endTurnButton));
+
+console.log('space draw focus round trip ok');
+""".replace('__DRAG_JS__', repr(drag_js)).replace('__LOADING_JS__', repr(loading_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping space draw focus DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping space draw focus DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'space draw focus harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('space draw focus round trip ok', completed.stdout)
+
     def test_draw_hold_contract_reuses_active_draw_form_and_shared_hold_state(self):
         import os
 
@@ -2260,7 +3794,7 @@ class BattleFlowTests(TestCase):
             cards_css = css_file.read()
             
         self.assertIn("'overflow-row'", stacking_js)
-        self.assertIn('MAX_CARDS_PER_ROW = 15', stacking_js)
+        self.assertIn('MAX_CARDS_PER_ROW = 25', stacking_js)
         ensure_code = stacking_js[
             stacking_js.index('    ensureSingleRow('):stacking_js.index('    splitIntoRows(')
         ]
@@ -2328,12 +3862,115 @@ class BattleFlowTests(TestCase):
         self.assertIn('display: flex', lanes_body)
         self.assertIn('flex-direction: row', lanes_body)
         self.assertIn('align-items: stretch', lanes_body)
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', lanes_body),
+            "ul.lanes must not declare a fixed/percentage height; lanes equalize via stretch "
+            "and the playerBoard must grow with its content"
+        )
 
         lane_rule = re.search(r'ul\.lanes li\.lane\s*\{[^}]*\}', cards_css)
         self.assertIsNotNone(lane_rule, "ul.lanes li.lane rule missing from cards.css")
         self.assertIsNone(
             re.search(r'(^|[^-\w])height\s*:', lane_rule.group(0)),
             "li.lane must not declare a fixed/percentage height; lanes equalize via stretch"
+        )
+
+        player_screen_ul_rule = re.search(
+            r'\.playerScreen\s*>\s*ul\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            player_screen_ul_rule,
+            ".playerScreen > ul rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', player_screen_ul_rule.group(0)),
+            ".playerScreen > ul must not cap the playerBoard-wrapping basic-mat at a "
+            "fixed height; the playerBoard must grow with its lanes"
+        )
+
+        player_board_rule = re.search(
+            r'\.playerScreen\s+\.playerBoard\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            player_board_rule,
+            ".playerScreen .playerBoard rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', player_board_rule.group(0)),
+            ".playerScreen .playerBoard must not declare a fixed height; it must "
+            "stretch with the column"
+        )
+
+        basic_mat_rule = re.search(
+            r'li\.playerBoard\s*>\s*ul\.basic-mat\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            basic_mat_rule,
+            "li.playerBoard > ul.basic-mat rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])height\s*:', basic_mat_rule.group(0)),
+            "li.playerBoard > ul.basic-mat must not cap the playerBoard child at a "
+            "fixed height; the column must grow with its lanes"
+        )
+
+    def test_player_board_grows_with_lanes_deckhand_pinned(self):
+        """Player board grows vertically with long lanes; deckHand stays pinned at the bottom."""
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        player_screen_rule = re.search(
+            r'div\.playerScreen\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(player_screen_rule, "div.playerScreen rule missing from cards.css")
+        player_screen_body = player_screen_rule.group(0)
+        self.assertIn(
+            'display: flex', player_screen_body,
+            "div.playerScreen must be a flex column so the playerBoard can push "
+            "the enemy board up while the deckHand stays pinned"
+        )
+        self.assertIn(
+            'flex-direction: column', player_screen_body,
+            "div.playerScreen must lay out children vertically"
+        )
+
+        deck_hand_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(deck_hand_rule, ".playerScreen .deckHand rule missing from cards.css")
+        deck_hand_body = deck_hand_rule.group(0)
+        self.assertIn(
+            'margin-top: auto', deck_hand_body,
+            ".playerScreen .deckHand must use margin-top: auto to pin itself to the "
+            "column bottom regardless of how tall the playerBoard above grows"
+        )
+        self.assertIn(
+            '--hand-row-height', deck_hand_body,
+            ".playerScreen .deckHand must declare --hand-row-height so child rows "
+            "keep a fixed visible size"
+        )
+
+        deck_hand_children_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck-stack\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-fan\s*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(
+            deck_hand_children_rule,
+            ".playerScreen .deckHand child-row rule missing from cards.css"
+        )
+        self.assertIn(
+            'height: var(--hand-row-height)', deck_hand_children_rule.group(0),
+            "deckHand child rows must keep a fixed height of var(--hand-row-height) "
+            "so the deck stack / hand fan / end-turn button stay the same visible "
+            "size as the playerBoard grows above them"
         )
 
     def test_deck_draw_animation_does_not_insert_into_deck(self):
@@ -2379,13 +4016,10 @@ class BattleFlowTests(TestCase):
         with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
             loading_js = js_file.read()
 
-        animate_block = _extract_js_brace_block(
-            loading_js, 'if (animationsElements.length > 0)'
-        )
-        self.assertIn('const playerFinished', animate_block)
-        self.assertIn('moveDuration * 1000 + 150', animate_block)
-        self.assertIn('playerFinished,', animate_block)
-        self.assertIn('schedule(reloadToBoard, reloadWindow)', animate_block)
+        self.assertIn('const playerFinished', loading_js)
+        self.assertIn('moveDuration * 1000 + 150', loading_js)
+        self.assertIn('playerFinished,', loading_js)
+        self.assertIn('schedule(reloadToBoard, reloadWindow)', loading_js)
 
     def test_draw_flights_start_after_scroll_settles(self):
         """Deck->hand flights must be measured after the browser restores the scroll position.
@@ -2416,10 +4050,7 @@ class BattleFlowTests(TestCase):
         # no-player-element paths keep their immediate scheduling.
         player_moves = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
         self.assertIn('startFlights(runPlayerMoves)', player_moves)
-        no_phase = _extract_js_brace_block(
-            loading_js, 'if (animationsElements.length > 0)'
-        )
-        self.assertIn('startFlights(runFlights)', no_phase)
+        self.assertIn('startFlights(runFlights)', loading_js)
 
     def test_animation_skip_and_pause_controls(self):
         """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""
@@ -2471,17 +4102,79 @@ class BattleFlowTests(TestCase):
         self.assertIn('hologram.dataset.stagedForCardId = String(cardId);', drag_js)
         self.assertIn('card.dataset.stagedFlipped', drag_js)
 
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        self.assertIn('    _isStagedGhost_Legacy(card) {', control_class)
+        self.assertIn('    _isOrderableKeyboardCard_Legacy(card) {', control_class)
+        self.assertIn('    _isGhostFlipCandidate_Legacy(card) {', control_class)
+        self.assertIn('    _stagedLaneForGhost_Legacy(card) {', control_class)
+        self.assertIn('    _selectGhostFlipCard(card, digitBuffer) {', control_class)
+        self.assertIn('    _confirmGhostFlipSelection(event = null) {', control_class)
+
+        # The control forwards each predicate to the arrow passed in from init().
+        is_staged_ghost_legacy = control_class[
+            control_class.index('    _isStagedGhost_Legacy(card) {'):
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isStagedGhost(card)', is_staged_ghost_legacy)
+        is_orderable_legacy = control_class[
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card) {'):
+            control_class.index('    _isGhostFlipCandidate_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isOrderableKeyboardCard(card)', is_orderable_legacy)
+        is_ghost_flip_legacy = control_class[
+            control_class.index('    _isGhostFlipCandidate_Legacy(card) {'):
+            control_class.index('    _stagedLaneForGhost_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isGhostFlipCandidate(card)', is_ghost_flip_legacy)
+
         # Ghost flips rewrite the staged play cookie with flipFaceUp=true.
+        confirm_ghost_flip = control_class[
+            control_class.index('    _confirmGhostFlipSelection(event = null) {'):
+            control_class.index('    selectKeyboardCard(card')
+        ]
         self.assertIn(
-            'this.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);',
-            drag_js,
+            'this.parent.createupdateCookie(cardId, laneValue, true, selection.sourceLane, selection.sourceOrdinal);',
+            confirm_ghost_flip,
         )
+        # card.dataset.stagedFlipped is set on the staged hologram AND on the
+        # hand ghost in the same method.
+        self.assertIn("card.dataset.stagedFlipped = 'true';", confirm_ghost_flip)
+
+        # The same flag is set on lane-card face-down clicks (line ~1504 in the original).
+        on_face_down = drag_js[
+            drag_js.index('    onFaceDownCardClick(e, laneValue) {'):
+            drag_js.index('    createupdateCookie(cardId, laneValue, flipFaceUp')
+        ]
+        self.assertIn("card.dataset.stagedFlipped = 'true';", on_face_down)
+
+        # The predicate arrows live in init() and keep the split semantics:
+        # staged ghosts are countable, flipped ghosts are not re-flippable.
+        is_staged_ghost_arrow = drag_js[
+            drag_js.index('        const isStagedGhost = (card) => {'):
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {')
+        ]
+        self.assertNotIn('stagedFlipped', is_staged_ghost_arrow)
+        self.assertIn("classList.contains('ghost')", is_staged_ghost_arrow)
+        is_ghost_flip_arrow = drag_js[
+            drag_js.index('        const isGhostFlipCandidate = (card) => {'):
+            drag_js.index('        const handCards')
+        ]
+        self.assertIn("stagedFlipped === 'true'", is_ghost_flip_arrow)
+        is_orderable_arrow = drag_js[
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {'):
+            drag_js.index('        const stagedLaneForGhost')
+        ]
+        self.assertIn('isPlayableKeyboardCard(card)', is_orderable_arrow)
+        self.assertIn('isStagedGhost(card)', is_orderable_arrow)
+        self.assertNotIn('isGhostFlipCandidate(card)', is_orderable_arrow)
 
         # Number selection is position-based over the full hand (ghosts
         # included): the ghost in slot 1 no longer shifts later cards.
         keydown_code = drag_js[
             drag_js.index('    onKeyboardKeyDown(event)'):
-            drag_js.index('    _keyboardHologramRow(laneValue)')
+            drag_js.index('    selectOrderedCard(')
         ]
         self.assertIn('orderableCards[ordinal - 1]', keydown_code)
         self.assertIn('orderableCards[lastDigitOrdinal - 1]', keydown_code)
@@ -2489,12 +4182,15 @@ class BattleFlowTests(TestCase):
 
         # Staging must never write the flip cookie inside selectKeyboardCard;
         # the ghost-flip helpers live outside the selection slice.
-        selection_code = drag_js[
-            drag_js.index('    selectKeyboardCard(card'):
-            drag_js.index('    onCardDragStart(e)')
+        selection_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
         ]
         self.assertNotIn('createupdateCookie', selection_code)
-        self.assertIn('this._selectGhostFlipCard(card, digitBuffer)', selection_code)
+        self.assertIn(
+            'return this._selectGhostFlipCard(card, digitBuffer);',
+            selection_code,
+        )
 
         # Ghosts are no longer blocked when the play budget is exhausted, so
         # they stay selectable for their face-up flip.
@@ -2504,31 +4200,36 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("!card.classList.contains('ghost')", affordances_code)
 
-        # NEW (Bug 3): split predicate so flipped ghosts remain countable.
-        self.assertIn('_isStagedGhost', drag_js)
-        self.assertIn('_isOrderableKeyboardCard', drag_js)
-        orderable_code = drag_js[
-            drag_js.index('    _isOrderableKeyboardCard(card) {'):
-            drag_js.index('    _isGhostFlipCandidate(card)')
-        ]
-        self.assertIn('this._isPlayableKeyboardCard(card)', orderable_code)
-        self.assertIn('this._isStagedGhost(card)', orderable_code)
-        self.assertNotIn('this._isGhostFlipCandidate(card)', orderable_code)
-        staged_code = drag_js[
-            drag_js.index('    _isStagedGhost(card) {'):
-            drag_js.index('    _isOrderableKeyboardCard(card)')
-        ]
-        self.assertNotIn('stagedFlipped', staged_code)
-        self.assertIn("classList.contains('ghost')", staged_code)
-        ghost_flip_code = drag_js[
-            drag_js.index('    _isGhostFlipCandidate(card) {'):
-            drag_js.index('    _stagedLaneForGhost')
-        ]
-        self.assertIn("stagedFlipped", ghost_flip_code)
-        select_ordered = drag_js[
-            drag_js.index('    selectOrderedCard(card'):
-            drag_js.index('    flipKeyboardFocusedCard')
-        ]
+        # Parent-side: the wrappers delegate straight to the control's Legacy
+        # implementations; back-compat probes still work against them.
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._handCardForId_Legacy(cardId)',
+            parent_class,
+        )
+
+        select_ordered_start = drag_js.index('    selectOrderedCard(card')
+        select_ordered_end = drag_js.index(
+            '    flipKeyboardFocusedCard(event) {',
+            select_ordered_start,
+        )
+        select_ordered = drag_js[select_ordered_start:select_ordered_end]
         self.assertIn("stagedFlipped === 'true'", select_ordered)
 
     def test_trusted_cards_have_no_focus_or_hover_styling(self):
@@ -2577,17 +4278,38 @@ class BattleFlowTests(TestCase):
 
     def test_ghost_card_numbering_keeps_flipped_face_up_ghosts_countable(self):
         import os
+
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
         self.assertIn('orderableKeyboardCards()', drag_js)
         self.assertIn('_isOrderableKeyboardCard', drag_js)
-        staged = drag_js[
-            drag_js.index('    _isStagedGhost(card) {'):
-            drag_js.index('    _isOrderableKeyboardCard(card)')
+
+        is_staged_ghost_arrow = drag_js[
+            drag_js.index('        const isStagedGhost = (card) => {'):
+            drag_js.index('        const isOrderableKeyboardCard = (card) => {')
         ]
-        self.assertNotIn('stagedFlipped', staged)
-        self.assertIn("classList.contains('ghost')", staged)
+        self.assertNotIn('stagedFlipped', is_staged_ghost_arrow)
+        self.assertIn("classList.contains('ghost')", is_staged_ghost_arrow)
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        staged_wrapper = control_class[
+            control_class.index('    _isStagedGhost_Legacy(card) {'):
+            control_class.index('    _isOrderableKeyboardCard_Legacy(card)')
+        ]
+        self.assertIn('this._predicates.isStagedGhost(card)', staged_wrapper)
+
+        parent_class = drag_js[control_class_end:]
+        self.assertIn(
+            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
+            parent_class,
+        )
+        self.assertIn(
+            'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
+            parent_class,
+        )
 
     def test_add_hover_arrow_binds_focus_and_mouse_events(self):
         import os
@@ -2600,8 +4322,8 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn("addEventListener('mouseenter'", arrow_helper)
         self.assertIn("addEventListener('mouseleave'", arrow_helper)
-        self.assertIn("addEventListener('focusin'", arrow_helper)
-        self.assertIn("addEventListener('focusout'", arrow_helper)
+        self.assertNotIn("addEventListener('focusin'", arrow_helper)
+        self.assertNotIn("addEventListener('focusout'", arrow_helper)
 
     def test_lane_face_down_card_hover_arrow_binds_to_focus(self):
         import os
@@ -2614,11 +4336,16 @@ class BattleFlowTests(TestCase):
         ]
         self.assertIn('_addHoverArrow(card, flipHologram)', on_face_down)
         self.assertIn("flipHologram.classList.add('hologram')", on_face_down)
+        self.assertIn("card.dataset.stagedFlipped = 'true';", on_face_down)
+        self.assertLess(
+            on_face_down.index("card.classList.add('ghost');"),
+            on_face_down.index("card.dataset.stagedFlipped = 'true';"),
+        )
         arrow_helper = drag_js[
             drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
             drag_js.index('    _createCurvedArrow')
         ]
-        self.assertIn("'focusin'", arrow_helper)
+        self.assertNotIn("'focusin'", arrow_helper)
 
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
@@ -2641,7 +4368,4294 @@ class BattleFlowTests(TestCase):
                 if 'faceDown' in li_tag:
                     self.assertIn('tabindex="0"', li_tag)
 
-    def test_focus_within_background_excludes_face_down_cards(self):
+    def test_create_focus_arrow_wraps_curved_arrow_and_binds_no_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _createFocusArrow(sourceEl, targetEl) {')
+        helper_end = drag_js.index('    _focusArrowTarget(card) {')
+        focus_arrow_helper = drag_js[helper_start:helper_end]
+        self.assertIn('this._createCurvedArrow(sourceEl, targetEl)', focus_arrow_helper)
+        self.assertIn('document.body.appendChild(arrow)', focus_arrow_helper)
+        self.assertIn("sourceEl.classList.add('hover')", focus_arrow_helper)
+        self.assertIn("targetEl.classList.add('hover')", focus_arrow_helper)
+        self.assertIn('return arrow;', focus_arrow_helper)
+        self.assertNotIn('addEventListener', focus_arrow_helper)
+
+    def test_focus_arrow_target_resolves_hand_and_flipped_lane_targets(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn(".playerScreen .deckHand", focus_target_helper)
+        self.assertIn(
+            '.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]',
+            focus_target_helper,
+        )
+        self.assertIn('.playerScreen .playerBoard ul.cardRow', focus_target_helper)
+        self.assertIn("dataset.stagedFlipped === 'true'", focus_target_helper)
+        self.assertIn('data-flip-for-card-id="${CSS.escape(cardId)}"', focus_target_helper)
+        self.assertIn('this._cardIdInput(card)?.value', focus_target_helper)
+        self.assertIn('if (!cardId) return null;', focus_target_helper)
+        self.assertIn(":scope > .hologramRow > .hologram", focus_target_helper)
+
+    def test_focus_arrow_target_returns_null_for_unfocusable_card(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('if (!card || typeof card.closest !== \'function\') return null;', focus_target_helper)
+        self.assertIn('return null;', focus_target_helper)
+
+    def test_focus_arrow_target_resolves_keyboard_preview_hologram(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('.hologram.keyboard-preview', focus_target_helper)
+        self.assertIn('data-source-card-id', focus_target_helper)
+        self.assertIn('data-keyboard-preview="true"', focus_target_helper)
+
+    def test_focus_arrow_flight_routes_played_clone_origin_to_hand_card(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        flight_start = drag_js.index('    _focusArrowFlight(card) {')
+        flight_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {', flight_start)
+        flight_helper = drag_js[flight_start:flight_end]
+        self.assertIn('if (!card || typeof card.closest !== \'function\') return null;', flight_helper)
+        self.assertIn(
+            '.playerScreen .hologram[data-staged-for-card-id]',
+            flight_helper,
+        )
+        self.assertIn("if (!card.classList.contains('faceDown')) return null;", flight_helper)
+        self.assertIn('this._handCardForId(stagedHologram.dataset.stagedForCardId)', flight_helper)
+        self.assertIn('if (!handCard) return null;', flight_helper)
+        self.assertIn('{ origin: handCard, target: card }', flight_helper)
+        self.assertIn('this._focusArrowTarget(card)', flight_helper)
+        self.assertIn('{ origin: card, target }', flight_helper)
+        self.assertNotIn('addEventListener', flight_helper)
+        self.assertNotIn('createElementNS', flight_helper)
+
+    def test_focus_arrow_targets_own_flipped_clone_in_mixed_hologram_lane_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const makeHiddenIdInput = (cardId) => {
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    return input;
+};
+
+const playerTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerTable.appendChild(playerBoard);
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const lane = new FakeElement('li', 'lane Speed');
+lanesEl.appendChild(lane);
+const hologramRow = new FakeElement('ul', 'hologramRow');
+lane.appendChild(hologramRow);
+const cardRow = new FakeElement('ul', 'cardRow');
+cardRow.setAttribute('title', 'cards');
+lane.appendChild(cardRow);
+
+const makeFaceDownFieldCard = (cardId) => {
+    const card = new FakeElement('li', 'cardContainer faceDown');
+    card.setAttribute('tabindex', '0');
+    card.dataset.sourceLane = '2';
+    card.dataset.sourceOrdinal = '1';
+    card.appendChild(makeHiddenIdInput(cardId));
+    card.appendChild(new FakeElement('div', 'card back smallCard'));
+    cardRow.appendChild(card);
+    return card;
+};
+
+const makeStagedPlayGhost = (stagedCardId) => {
+    const hologram = new FakeElement('div', 'hologram keyboard-staged');
+    hologram.dataset.stagedForCardId = String(stagedCardId);
+    const clone = new FakeElement('li', 'cardContainer faceDown');
+    clone.appendChild(makeHiddenIdInput(stagedCardId));
+    clone.appendChild(new FakeElement('div', 'card back smallCard'));
+    hologram.appendChild(clone);
+    hologramRow.appendChild(hologram);
+    return clone;
+};
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '1', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+body.appendChild(turnLimits);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const flipCardFirst = makeFaceDownFieldCard(561);
+const flipCardSecond = makeFaceDownFieldCard(563);
+const flipCardUnflipped = makeFaceDownFieldCard(565);
+const stagedPlayClone = makeStagedPlayGhost(700);
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handList = new FakeElement('ul', 'hand');
+deckHand.appendChild(handList);
+const handGhost = new FakeElement('li', 'cardContainer ghost');
+handGhost.dataset.stagedLane = '2';
+handGhost.appendChild(makeHiddenIdInput(700));
+handList.appendChild(handGhost);
+
+const flipFaceDownLaneCard = (card, laneValue) => {
+    system.onFaceDownCardClick({ currentTarget: card, target: card }, laneValue);
+};
+
+flipFaceDownLaneCard(flipCardFirst, 2);
+const firstFlipHologram = hologramRow.children.find(
+    (el) => el.getAttribute('data-flip-for-card-id') === '561',
+);
+assert('lane flip tags its ghost hologram with the flipped card id', Boolean(firstFlipHologram));
+const firstFlipClone = firstFlipHologram.querySelector('.cardContainer');
+
+flipFaceDownLaneCard(flipCardSecond, 2);
+const secondFlipHologram = hologramRow.children.find(
+    (el) => el.getAttribute('data-flip-for-card-id') === '563',
+);
+assert('a second flip gets its own marked hologram', Boolean(secondFlipHologram));
+const secondFlipClone = secondFlipHologram.querySelector('.cardContainer');
+assert('the lane row now holds three ghosts', hologramRow.children.length === 3);
+
+assert('focus resolves the first flipped card to its own clone',
+    system._focusArrowTarget(flipCardFirst) === firstFlipClone);
+assert('focus never lands on the earlier staged play ghost of the same lane',
+    system._focusArrowTarget(flipCardFirst) !== stagedPlayClone);
+assert('focus never lands on the other flipped clone',
+    system._focusArrowTarget(flipCardFirst) !== secondFlipClone);
+assert('focus resolves the second flipped card to its own clone',
+    system._focusArrowTarget(flipCardSecond) === secondFlipClone);
+assert('an unflipped face-down card draws no focus arrow target',
+    system._focusArrowTarget(flipCardUnflipped) === null);
+assert('hand ghosts still pair with their staged play ghost',
+    system._focusArrowTarget(handGhost) === stagedPlayClone);
+
+const arrowCalls = [];
+system._createCurvedArrow = (source, target) => {
+    arrowCalls.push({ source, target });
+    return new FakeElement('svg');
+};
+const dispatchScreenFocus = (type, card) => {
+    (playerScreen.eventHandlers[type] ?? []).forEach(
+        (handler) => handler({ target: card, type }),
+    );
+};
+
+dispatchScreenFocus('focusin', flipCardFirst);
+let liveArrow = system._keyboardSelectionControl._focusArrow;
+assert('the focus arrow originates from the focused field card', liveArrow?.source === flipCardFirst);
+assert('the focus arrow ends at that card own flipped ghost', liveArrow?.target === firstFlipClone);
+assert('the arrow svg is attached to the document body', body.children.includes(liveArrow.arrow));
+
+dispatchScreenFocus('focusout', flipCardFirst);
+assert('focus loss clears the arrow', system._keyboardSelectionControl._focusArrow === null);
+
+dispatchScreenFocus('focusin', flipCardSecond);
+liveArrow = system._keyboardSelectionControl._focusArrow;
+assert('refocusing the second card repoints the arrow at its own clone',
+    liveArrow?.source === flipCardSecond && liveArrow?.target === secondFlipClone);
+
+dispatchScreenFocus('focusout', flipCardSecond);
+dispatchScreenFocus('focusin', flipCardUnflipped);
+assert('unflipped field focus leaves no arrow',
+    system._keyboardSelectionControl._focusArrow === null && arrowCalls.length === 2);
+
+console.log('flipped-clone focus arrow ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping flipped-clone focus arrow test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping flipped-clone focus arrow test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'flipped-clone focus arrow harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('flipped-clone focus arrow ok', completed.stdout)
+
+    def test_focus_on_played_face_down_clone_arrows_from_original_hand_card(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const makeHiddenIdInput = (cardId) => {
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    return input;
+};
+
+const playerTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerTable.appendChild(playerBoard);
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const lane = new FakeElement('li', 'lane Speed');
+lanesEl.appendChild(lane);
+const hologramRow = new FakeElement('ul', 'hologramRow');
+lane.appendChild(hologramRow);
+const cardRow = new FakeElement('ul', 'cardRow');
+cardRow.setAttribute('title', 'cards');
+lane.appendChild(cardRow);
+
+const unrelatedFaceDownCard = new FakeElement('li', 'cardContainer faceDown');
+unrelatedFaceDownCard.setAttribute('tabindex', '0');
+unrelatedFaceDownCard.dataset.sourceLane = '2';
+unrelatedFaceDownCard.dataset.sourceOrdinal = '1';
+unrelatedFaceDownCard.appendChild(makeHiddenIdInput(565));
+unrelatedFaceDownCard.appendChild(new FakeElement('div', 'card back smallCard'));
+cardRow.appendChild(unrelatedFaceDownCard);
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+const handCard = new FakeElement('li', 'cardContainer');
+handCard.setAttribute('draggable', 'true');
+handCard.setAttribute('tabindex', '0');
+handCard.dataset.sourceLane = '0';
+handCard.dataset.sourceOrdinal = '0';
+handCard.appendChild(makeHiddenIdInput(700));
+handCard.appendChild(new FakeElement('div', 'card smallCard back'));
+handList.appendChild(handCard);
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '1', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+body.appendChild(turnLimits);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const stagedHologram = system._buildPlayHologram(handCard, 2);
+hologramRow.appendChild(stagedHologram);
+if (!system._stagePlay(handCard, 2, stagedHologram)) {
+    throw new Error('staging the hand card play failed');
+}
+const stagedClone = stagedHologram.querySelector('.cardContainer');
+
+assert('staging tags the lane clone with the played card id',
+    stagedHologram.getAttribute('data-staged-for-card-id') === '700');
+assert('staging keeps the lane clone face down and focusable',
+    stagedClone.classList.contains('faceDown') && stagedClone.getAttribute('tabindex') === '0');
+assert('staging marks the hand card as the played ghost',
+    handCard.classList.contains('ghost') && handCard.dataset.stagedLane === '2');
+
+const arrowCalls = [];
+system._createCurvedArrow = (source, target) => {
+    arrowCalls.push({ source, target });
+    return new FakeElement('svg', 'hologram-arrow');
+};
+const bodyArrows = () => body.children.filter(
+    (child) => child.classes && child.classes.has('hologram-arrow'),
+);
+const dispatchScreenFocus = (type, card) => {
+    (playerScreen.eventHandlers[type] ?? []).forEach(
+        (handler) => handler({ target: card, type }),
+    );
+};
+
+dispatchScreenFocus('focusin', stagedClone);
+let liveArrow = system._keyboardSelectionControl._focusArrow;
+assert('focusing the played clone ties the arrow to the focused clone',
+    liveArrow?.source === stagedClone);
+assert('focusing the played clone records the original hand card as counterpart',
+    liveArrow?.target === handCard);
+assert('the played clone arrow is drawn from the original hand card',
+    arrowCalls.length === 1 &&
+    arrowCalls[0].source === handCard &&
+    arrowCalls[0].target === stagedClone);
+assert('the played clone arrow svg is attached to the body',
+    bodyArrows().length === 1 && bodyArrows()[0] === liveArrow.arrow);
+assert('the original card and the clone both highlight for the focus arrow',
+    handCard.classes.has('hover') && stagedClone.classes.has('hover'));
+
+dispatchScreenFocus('focusin', stagedClone);
+assert('refocusing the same played clone keeps exactly one arrow svg',
+    arrowCalls.length === 1 && bodyArrows().length === 1);
+
+dispatchScreenFocus('focusout', stagedClone);
+assert('losing focus on the played clone clears the arrow svg',
+    system._keyboardSelectionControl._focusArrow === null && bodyArrows().length === 0);
+
+dispatchScreenFocus('focusin', stagedClone);
+assert('refocusing the played clone after blur redraws the flight from the hand card',
+    arrowCalls.length === 2 &&
+    arrowCalls[1].source === handCard &&
+    arrowCalls[1].target === stagedClone &&
+    system._keyboardSelectionControl._focusArrow.source === stagedClone &&
+    system._keyboardSelectionControl._focusArrow.target === handCard);
+
+dispatchScreenFocus('focusout', stagedClone);
+dispatchScreenFocus('focusin', handCard);
+liveArrow = system._keyboardSelectionControl._focusArrow;
+assert('focusing the played hand ghost still ends at its staged clone',
+    liveArrow?.source === handCard && liveArrow?.target === stagedClone &&
+    arrowCalls[2].source === handCard && arrowCalls[2].target === stagedClone);
+
+dispatchScreenFocus('focusout', handCard);
+dispatchScreenFocus('focusin', unrelatedFaceDownCard);
+assert('focusing an unrelated face-down field card draws no arrow',
+    system._keyboardSelectionControl._focusArrow === null && arrowCalls.length === 3);
+
+system.onFaceDownCardClick({ currentTarget: stagedClone, target: stagedClone }, 2);
+assert('flipping the played clone turns it face up without another arrow',
+    stagedClone.classList.contains('faceDown') === false && arrowCalls.length === 3);
+
+dispatchScreenFocus('focusin', stagedClone);
+assert('focusing the face-up played clone draws no origin arrow',
+    system._keyboardSelectionControl._focusArrow === null && arrowCalls.length === 3);
+
+system.onFaceDownCardClick({ currentTarget: unrelatedFaceDownCard, target: unrelatedFaceDownCard }, 2);
+dispatchScreenFocus('focusin', unrelatedFaceDownCard);
+liveArrow = system._keyboardSelectionControl._focusArrow;
+const unrelatedFlipClone = lane.querySelector(
+    '[data-flip-for-card-id="565"]'
+).querySelector('.cardContainer');
+assert('focusing a flipped field ghost still flies to its own clone',
+    liveArrow?.source === unrelatedFaceDownCard && liveArrow?.target === unrelatedFlipClone &&
+    arrowCalls[3].source === unrelatedFaceDownCard && arrowCalls[3].target === unrelatedFlipClone);
+
+console.log('played-clone focus arrow ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping played-clone focus arrow test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping played-clone focus arrow test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'played-clone focus arrow harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('played-clone focus arrow ok', completed.stdout)
+
+    def test_build_play_hologram_tags_keyboard_preview_with_source_card_id(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _buildPlayHologram(sourceCard, laneValue, keyboardPreview = false, rotation = null) {')
+        helper_end = drag_js.index('    _removePreviewControls(card) {')
+        build_helper = drag_js[helper_start:helper_end]
+        self.assertIn("hologram.dataset.keyboardPreview = 'true'", build_helper)
+        self.assertIn('hologram.dataset.sourceCardId', build_helper)
+        self.assertIn('this._cardIdInput(sourceCard)?.value', build_helper)
+
+    def test_keyboard_selection_state_includes_lane_preview_flag(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        empty_state_block = control_class[
+            control_class.index('    _emptyKeyboardSelection() {'):
+            control_class.index('    _isPlayableKeyboardCard_Legacy')
+        ]
+        self.assertIn('lanePreviewActive: false', empty_state_block)
+
+    def test_escape_handler_cancels_selection_without_lane_preview_reset(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertNotIn('resetLaneSelection', drag_js)
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        escape_start = keydown_code.index("if (key === 'Escape') {")
+        end_of_branch = keydown_code.index('if (!activeSelection && (key === \'Enter\' || key === \' \'))', escape_start)
+        escape_branch = keydown_code[escape_start:end_of_branch]
+        self.assertIn('if (!activeSelection) return;', escape_branch)
+        self.assertIn('this._cancelKeyboardSelectionFromEvent(event)', escape_branch)
+        self.assertNotIn('lanePreviewActive', escape_branch)
+
+    def test_keyboard_cancellation_restores_selectable_hand_card_focus(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        method_start = drag_js.index('    cancelKeyboardSelection() {')
+        method_end = drag_js.index('    onHandCardClick(event) {', method_start)
+        cancel_method = drag_js[method_start:method_end]
+        self.assertIn('this.clearKeyboardSelection();', cancel_method)
+        restore_index = cancel_method.index('card.focus({ preventScroll: true })')
+        self.assertIn('orderableKeyboardCards().includes(card)', cancel_method)
+        self.assertLess(cancel_method.index('selectedCard'), restore_index)
+
+        cancel_from_event = drag_js[
+            drag_js.index('    _cancelKeyboardSelectionFromEvent(event) {'):
+            drag_js.index('    _keyboardSelectableHandCard(event) {')
+        ]
+        self.assertIn('event.preventDefault()', cancel_from_event)
+        self.assertIn('this.cancelKeyboardSelection()', cancel_from_event)
+
+    def test_enter_without_selection_selects_the_focused_hand_card(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        enter_start = keydown_code.index(
+            "if (!activeSelection && (key === 'Enter' || key === ' ')) {"
+        )
+        confirm_route_index = keydown_code.index(
+            'this.confirmKeyboardSelection()) event.preventDefault();'
+        )
+        enter_branch = keydown_code[
+            enter_start:keydown_code.index(
+                "if (\n            this.keyboardSelection.selectedCard &&",
+                enter_start,
+            )
+        ]
+        self.assertIn('this._keyboardSelectableHandCard(event)', enter_branch)
+        self.assertIn('this.selectOrderedCard(', enter_branch)
+        self.assertIn('this.orderableKeyboardCards().indexOf(selectableHandCard) + 1', enter_branch)
+        flip_fallback_index = enter_branch.index('this.flipKeyboardFocusedCard(event)')
+        self.assertLess(flip_fallback_index, enter_branch.index('if (event.repeat) return;'))
+        self.assertLess(enter_start, confirm_route_index)
+
+        helper_code = drag_js[
+            drag_js.index('    _keyboardSelectableHandCard(event) {'):
+            drag_js.index('    _isDisabledControlTarget(target) {')
+        ]
+        self.assertIn('orderableKeyboardCards()', helper_code)
+        self.assertIn('playerHandCards().find(', helper_code)
+        self.assertIn('item.contains(candidate)', helper_code)
+
+    def test_arrow_keys_cycle_hand_cards_when_no_lane_preview(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        keydown_code = drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+        self.assertIn('!this.keyboardSelection.lanePreviewActive', keydown_code)
+        self.assertIn("key === 'ArrowLeft' || key === 'ArrowRight'", keydown_code)
+        self.assertIn('playableKeyboardCards()', keydown_code)
+
+    def test_select_hand_card_by_mouse_skips_immediate_clone(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        click_code = drag_js[
+            drag_js.index('    onHandCardClick(event)'):
+            drag_js.index('    onCardDragStart(e)')
+        ]
+        self.assertIn('selectHandCardByMouse(card, String(index + 1), event)', click_code)
+        self.assertNotIn('selectHandCardByMouse', drag_js[:drag_js.index('class KeyboardSelectionControl {')])
+        method_start = drag_js.index('    selectHandCardByMouse(card, digitBuffer')
+        method_end = drag_js.index('\n    _updateMousePreviewCursor(', method_start)
+        method_body = drag_js[method_start:method_end]
+        self.assertIn('mouseSelecting: true', method_body)
+        self.assertIn('hologram: null', method_body)
+        self.assertIn('lanePreviewActive: false', method_body)
+
+    def test_hand_click_lane_click_cookie_ordinal_contract(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        click_code = drag_js[
+            drag_js.index('    onHandCardClick(event)'):
+            drag_js.index('    onCardDragStart(e)')
+        ]
+        self.assertIn('this.selectHandCardByMouse(card, String(index + 1), event)', click_code)
+
+        method_start = drag_js.index('    selectHandCardByMouse(card, digitBuffer')
+        method_end = drag_js.index('\n    _updateMousePreviewCursor(', method_start)
+        method_body = drag_js[method_start:method_end]
+        self.assertIn('sourceOrdinal: String(this.playerHandCards().indexOf(card))', method_body)
+        self.assertNotIn('card.dataset.sourceOrdinal', method_body)
+
+        staging_code = drag_js[
+            drag_js.index('    _stagePlay('):
+            drag_js.index('    _buildPlayHologram(')
+        ]
+        self.assertIn(
+            "const sourceOrdinal = sourceState?.sourceOrdinal ?? card.dataset.sourceOrdinal ?? '0';",
+            staging_code,
+        )
+        self.assertIn(
+            'this.createupdateCookie(cardId, laneValue, false, sourceLane, sourceOrdinal);',
+            staging_code,
+        )
+
+        control_class = drag_js[
+            drag_js.index('class KeyboardSelectionControl {'):
+            drag_js.index('class CardDragDropSystem {')
+        ]
+        keyboard_select_start = control_class.index('    selectKeyboardCard(card, digitBuffer')
+        keyboard_select_end = control_class.index('    moveKeyboardSelection(laneValue) {', keyboard_select_start)
+        keyboard_select_body = control_class[keyboard_select_start:keyboard_select_end]
+        self.assertIn("sourceOrdinal: card.dataset.sourceOrdinal || '0',", keyboard_select_body)
+
+    def test_hand_click_then_lane_click_stages_zero_based_ordinal_cookie_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, cardLane, sourceOrdinal) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(cardLane);
+    card.dataset.sourceLane = '0';
+    card.dataset.sourceOrdinal = String(sourceOrdinal);
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(301, 1, 1);
+const handB = makeHandCard(302, 3, 2);
+const handC = makeHandCard(303, 2, 3);
+const handCards = [handA, handB, handC];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, ...handCards, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const clickHandlers = documentListeners['click'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const clickCard = (card) => {
+    clickHandlers.forEach((entry) => entry({
+        type: 'click', button: 0, target: card, clientX: 5, clientY: 5,
+    }));
+};
+const clickDropZone = (laneValue) => {
+    const zone = system.dropZones.get(laneValue)?.element;
+    (zone?.eventHandlers['click'] ?? []).forEach((handler) => handler({
+        type: 'click', button: 0, target: zone, currentTarget: zone,
+        clientX: 5, clientY: 5,
+        ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
+        preventDefault() {}, stopPropagation() {},
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const activeIs = (element) => fakeDocument.activeElement === element;
+const parsePlayPayload = (write) => {
+    const nameValue = write.split(';', 1)[0];
+    const equalsAt = nameValue.indexOf('=');
+    return JSON.parse(decodeURIComponent(nameValue.slice(equalsAt + 1)));
+};
+const playCookieCardId = (write) => write.split(';', 1)[0].split('=')[0];
+
+fakeDocument.activeElement = body;
+
+assert('typing 1 selects the first hand card with a lane preview',
+    pressKey('1') && state().selectedCard === handA && state().lanePreviewActive === true && activeIs(handA));
+assert('Enter stages the typed selection in its default lane',
+    pressKey('Enter') && handA.classList.contains('ghost') && system.staged.plays === 1 && cookieWrites.length === 1);
+const typedPayload = parsePlayPayload(cookieWrites[0]);
+assert('typed play keeps the 1-based dataset hand ordinal in the cookie',
+    playCookieCardId(cookieWrites[0]) === '301' && typedPayload.laneValue === '1' &&
+    typedPayload.sourceLane === '0' && typedPayload.sourceOrdinal === '1' &&
+    typedPayload.flipFaceUp === false);
+assert('typed staging kept the 1-based focused input', focusedHandCardInput.value === '1');
+
+fakeDocument.activeElement = body;
+clickCard(handC);
+assert('mouse click selects the third hand card',
+    state().selectedCard === handC && state().mouseSelecting === true && activeIs(handC));
+assert('mouse selection hands the focused input the 1-based clicked ordinal',
+    focusedHandCardInput.value === '3' && state().digitBuffer === '3');
+assert('mouse selection stores the zero-based hand ordinal',
+    state().sourceOrdinal === '2' && state().sourceLane === '0');
+assert('the hand click alone stages nothing', cookieWrites.length === 1 && handC.classList.contains('ghost') === false);
+
+clickDropZone(1);
+assert('lane click stages the mouse play',
+    handC.classList.contains('ghost') && handC.dataset.stagedLane === '1' &&
+    system.staged.plays === 2 && cookieWrites.length === 2);
+const mousePayload = parsePlayPayload(cookieWrites[1]);
+assert('lane click after a hand click writes the zero-based hand ordinal',
+    playCookieCardId(cookieWrites[1]) === '303' && mousePayload.laneValue === '1' &&
+    mousePayload.sourceLane === '0' && mousePayload.sourceOrdinal === '2' &&
+    mousePayload.flipFaceUp === false);
+assert('staged mouse play clears the selection', state().selectedCard === null);
+
+console.log('hand click then lane click ordinal flow ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping hand click lane click DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping hand click lane click DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'hand click then lane click ordinal harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('hand click then lane click ordinal flow ok', completed.stdout)
+
+    def test_mouse_selection_creates_cursor_marker_and_tracks_mouse(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertIn('mousePreviewCursor', drag_js)
+        self.assertIn('_updateMousePreviewCursor', drag_js)
+        self.assertIn("addEventListener('mousemove'", drag_js)
+        self.assertIn('_installMouseSelectionListeners', drag_js)
+        self.assertIn('_teardownMouseSelectionListeners', drag_js)
+
+    def test_dropzone_mouse_hover_creates_clone_for_mouse_selection(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        self.assertIn('onDropZoneMouseEnter(event, laneValue)', drag_js)
+        self.assertIn('onDropZoneMouseLeave(event, laneValue)', drag_js)
+        self.assertIn("addEventListener('mouseenter'", drag_js)
+        self.assertIn("addEventListener('mouseleave'", drag_js)
+
+        enter_start = drag_js.index('    onDropZoneMouseEnter(event, laneValue) {')
+        enter_end = drag_js.index('    onDropZoneMouseLeave(event, laneValue) {')
+        enter_body = drag_js[enter_start:enter_end]
+        self.assertIn('state?.mouseSelecting', enter_body)
+        self.assertIn('_buildPlayHologram', enter_body)
+        self.assertIn('holoRow.appendChild(hologram)', enter_body)
+        self.assertIn('lanePreviewActive = true', enter_body)
+
+        leave_body = drag_js[enter_end:drag_js.index('    setupKeyboardSelection() {', enter_end)]
+        self.assertIn('state?.mouseSelecting', leave_body)
+        self.assertIn('state.hologram?.parentNode', leave_body)
+        self.assertIn('lanePreviewActive = false', leave_body)
+
+    def test_focus_arrow_target_returns_mouse_cursor_when_mouse_selecting(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    _focusArrowTarget(card) {')
+        parent_class_end = drag_js.index('    onFaceDownCardClick(e, laneValue) {')
+        focus_target_helper = drag_js[helper_start:parent_class_end]
+        self.assertIn('this.parent._mouseFocusTarget', focus_target_helper)
+        self.assertIn('mousePreviewCursor', focus_target_helper)
+        self.assertIn('this.state.mouseSelecting', focus_target_helper)
+
+    def test_clear_keyboard_selection_removes_mouse_preview_cursor(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        helper_start = drag_js.index('    clearKeyboardSelection(opts) {')
+        helper_end = drag_js.index('    cancelKeyboardSelection() {', helper_start)
+        clear_helper = drag_js[helper_start:helper_end]
+        self.assertIn('_teardownMouseSelectionListeners()', clear_helper)
+        self.assertIn("getElementById('mousePreviewCursor')", clear_helper)
+
+    def test_mouse_preview_cursor_css_uses_fixed_positioning(self):
+        import os
+        cards_css_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css'
+        )
+        with open(cards_css_path) as css_file:
+            cards_css = css_file.read()
+        rule = re.search(r'\.mouse-preview-cursor\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(rule, "No .mouse-preview-cursor CSS rule found")
+        body = rule.group(0)
+        self.assertIn('position: fixed', body)
+        self.assertIn('pointer-events: none', body)
+
+    def test_focus_delegation_registers_capture_phase_on_player_screen(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        setup_keyboard = drag_js[
+            drag_js.index('    setupKeyboardSelection() {'):
+            drag_js.index('    _hasPlayerBoard() {')
+        ]
+        self.assertIn("document.querySelector('.playerScreen')", setup_keyboard)
+        self.assertIn('this.focusDelegateHandler = (event) => {', setup_keyboard)
+        self.assertIn(
+            "const card = event.target.closest('.cardContainer');",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "if (card.closest('.playerScreen ul.cardRow[title=\"trustedCards\"]')) return;",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "this._keyboardSelectionControl.onFocusIn(card);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "this._keyboardSelectionControl.onFocusOut(card, event.relatedTarget);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "playerScreen.addEventListener('focusin', this.focusDelegateHandler, true);",
+            setup_keyboard,
+        )
+        self.assertIn(
+            "playerScreen.addEventListener('focusout', this.focusDelegateHandler, true);",
+            setup_keyboard,
+        )
+
+    def test_focus_delegation_destruction_removes_capture_phase_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        destroy_block = drag_js[
+            drag_js.index('    destroy() {'):
+            drag_js.index('document.addEventListener(\'DOMContentLoaded\'')
+        ]
+        self.assertIn(
+            "playerScreen.removeEventListener('focusin', this.focusDelegateHandler, true);",
+            destroy_block,
+        )
+        self.assertIn(
+            "playerScreen.removeEventListener('focusout', this.focusDelegateHandler, true);",
+            destroy_block,
+        )
+        self.assertIn('this.focusDelegateHandler = null;', destroy_block)
+
+    def test_keyboard_selection_control_focus_arrow_field_initialized_to_null(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        constructor_block = control_class[
+            control_class.index('constructor({'):control_class.index('    _emptyKeyboardSelection() {')
+        ]
+        self.assertIn('this._focusArrow = null;', constructor_block)
+
+    def test_keyboard_selection_control_on_focus_in_creates_arrow_through_parent(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        on_focus_in = control_class[
+            control_class.index('    onFocusIn(card) {'):
+            control_class.index('    onFocusOut(card, relatedTarget) {')
+        ]
+        self.assertIn('this.parent._focusArrowFlight(card)', on_focus_in)
+        self.assertIn(
+            'const target = flight.origin === card ? flight.target : flight.origin;',
+            on_focus_in,
+        )
+        self.assertIn('this._focusArrow.source === card', on_focus_in)
+        self.assertIn('this._focusArrow.target === target', on_focus_in)
+        self.assertIn('this._focusArrow.arrow.remove()', on_focus_in)
+        self.assertIn('this.parent._createFocusArrow(flight.origin, flight.target)', on_focus_in)
+        self.assertIn('source: card', on_focus_in)
+        self.assertIn('target,', on_focus_in)
+        self.assertIn('arrow:', on_focus_in)
+
+    def test_keyboard_selection_control_clears_focus_arrow_only_for_source(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        on_focus_out = control_class[
+            control_class.index('    onFocusOut(card, relatedTarget) {'):
+            control_class.index('    _clearFocusArrow(card) {')
+        ]
+        self.assertIn('this._clearFocusArrow(card);', on_focus_out)
+        self.assertIn('if (relatedTarget === undefined) return;', on_focus_out)
+        self.assertIn('this._clearSelectionStylingAfterFocusLoss(card, relatedTarget);', on_focus_out)
+
+        clear_focus_arrow = control_class[
+            control_class.index('    _clearFocusArrow(card) {'):
+            control_class.index('    _restoreSelectionStylingOnFocus(card) {')
+        ]
+        self.assertIn('if (!this._focusArrow) return;', clear_focus_arrow)
+        self.assertIn('if (this._focusArrow.source !== card) return;', clear_focus_arrow)
+        self.assertIn('this._focusArrow.arrow.remove();', clear_focus_arrow)
+        self.assertIn('this._focusArrow = null;', clear_focus_arrow)
+
+    def test_focus_loss_clears_selection_styling_unless_staged_play(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+
+        cleanup = control_class[
+            control_class.index('    _clearSelectionStylingAfterFocusLoss(card, relatedTarget) {'):
+            control_class.index('    _isWithinSelectionFocusRegion(selectedCard, element) {')
+        ]
+        self.assertIn('const selectedCard = this.state.selectedCard;', cleanup)
+        self.assertIn('if (!selectedCard) return;', cleanup)
+        self.assertIn('if (!this._isWithinSelectionFocusRegion(selectedCard, card)) return;', cleanup)
+        self.assertIn('if (this._isWithinSelectionFocusRegion(selectedCard, relatedTarget)) return;', cleanup)
+        self.assertIn('if (this._isPlayedToLane(selectedCard)) return;', cleanup)
+        self.assertIn('this._clearSelectionStyling(selectedCard);', cleanup)
+
+        region = control_class[
+            control_class.index('    _isWithinSelectionFocusRegion(selectedCard, element) {'):
+            control_class.index('    _isPlayedToLane(card) {')
+        ]
+        self.assertIn('if (!element) return false;', region)
+        self.assertIn('if (element === selectedCard) return true;', region)
+        self.assertIn('selectedCard.contains(element)', region)
+        self.assertIn('this.parent._focusArrowTarget(selectedCard)', region)
+
+        played = control_class[
+            control_class.index('    _isPlayedToLane(card) {'):
+            control_class.index('}\n', control_class.index('    _isPlayedToLane(card) {'))
+        ]
+        self.assertIn('this._stagedLaneForGhost_Legacy(card)', played)
+        self.assertIn(
+            '`.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`',
+            played,
+        )
+
+        restore = control_class[
+            control_class.index('    _restoreSelectionStylingOnFocus(card) {'):
+            control_class.index('    _clearSelectionStylingAfterFocusLoss(card, relatedTarget) {')
+        ]
+        self.assertIn('this.state.selectedCard !== card', restore)
+        self.assertIn("card.setAttribute('aria-selected', 'true');", restore)
+
+        on_focus_in = control_class[
+            control_class.index('    onFocusIn(card) {'):
+            control_class.index('    onFocusOut(card, relatedTarget) {')
+        ]
+        self.assertIn('this._restoreSelectionStylingOnFocus(card);', on_focus_in)
+
+        clear_block = control_class[
+            control_class.index('    clearKeyboardSelection({removePreview'):
+            control_class.index('    navigate(direction, fromElement) {')
+        ]
+        self.assertIn('this._clearSelectionStyling(card);', clear_block)
+        self.assertIn('card.contains(activeElement)', clear_block)
+
+    def test_clear_keyboard_selection_resets_focus_arrow_before_state(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+        clear_block = control_class[
+            control_class.index('    clearKeyboardSelection({removePreview'):
+            control_class.index('    navigate(direction, fromElement) {')
+        ]
+        self.assertIn('this._focusArrow.arrow.remove()', clear_block)
+        self.assertIn('this._focusArrow = null', clear_block)
+        focus_arrow_reset_index = clear_block.rindex('this._focusArrow = null')
+        state_reset_index = clear_block.index('this.state = this._emptyKeyboardSelection()')
+        self.assertLess(focus_arrow_reset_index, state_reset_index)
+
+    def test_add_hover_arrow_keeps_mouseenter_mouseleave_and_drops_focus_listeners(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        arrow_helper = drag_js[
+            drag_js.index('    _addHoverArrow(sourceEl, targetEl) {'):
+            drag_js.index('    _createCurvedArrow')
+        ]
+        self.assertIn("addEventListener('mouseenter'", arrow_helper)
+        self.assertIn("addEventListener('mouseleave'", arrow_helper)
+        self.assertNotIn("addEventListener('focusin'", arrow_helper)
+        self.assertNotIn("addEventListener('focusout'", arrow_helper)
+
+    def test_focus_arrow_lifecycle_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness_parts = [
+            'const makeElement = (tag) => ({',
+            '    tagName: tag,',
+            '    classList: { add() {}, remove() {}, contains() { return false; } },',
+            '    children: [],',
+            '    parentNode: null,',
+            '    setAttribute() {},',
+            '    removeAttribute() {},',
+            '    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },',
+            '    remove() { this.removed = true; },',
+            '    querySelector() { return null; },',
+            '    querySelectorAll() { return []; },',
+            '    addEventListener() {},',
+            '    removeEventListener() {},',
+            '    focus() {},',
+            '    getBoundingClientRect() { return { left: 0, top: 0, width: 10, height: 10 }; },',
+            '    contains() { return true; },',
+            '});',
+            '',
+            'const fakePlayerBoard = makeElement("div");',
+            'fakePlayerBoard.querySelectorAll = () => [];',
+            'fakePlayerBoard.querySelector = () => null;',
+            '',
+            'const fakePlayerScreen = makeElement("div");',
+            'const listeners = {};',
+            'fakePlayerScreen.addEventListener = (event, handler, capture) => {',
+            '    if (!listeners[event]) listeners[event] = [];',
+            '    listeners[event].push({ handler, capture: !!capture });',
+            '};',
+            'fakePlayerScreen.removeEventListener = (event, handler, capture) => {',
+            '    if (!listeners[event]) return;',
+            '    listeners[event] = listeners[event].filter(',
+            '        (entry) => entry.handler !== handler || entry.capture !== !!capture',
+            '    );',
+            '};',
+            '',
+            'const documentListeners = {};',
+            'const fakeDocument = {',
+            '    listeners: documentListeners,',
+            '    documentElement: { contains: () => true },',
+            '    querySelector(selector) {',
+            "        if (selector === '.playerBoard') return fakePlayerBoard;",
+            "        if (selector === '.playerScreen') return fakePlayerScreen;",
+            '        return null;',
+            '    },',
+            '    querySelectorAll() { return []; },',
+            '    getElementById() { return null; },',
+            '    createElement: (tag) => makeElement(tag),',
+            '    createElementNS: () => makeElement("svg"),',
+            '    addEventListener(event, handler, capture) {',
+            '        if (!documentListeners[event]) documentListeners[event] = [];',
+            '        documentListeners[event].push({ handler, capture: !!capture });',
+            '    },',
+            '    removeEventListener(event, handler, capture) {',
+            '        if (!documentListeners[event]) return;',
+            '        documentListeners[event] = documentListeners[event].filter(',
+            '            (entry) => entry.handler !== handler || entry.capture !== !!capture',
+            '        );',
+            '    },',
+            '    hidden: false,',
+            '    visibilityState: "visible",',
+            '    body: makeElement("body"),',
+            '    activeElement: null,',
+            '};',
+            '',
+            'const fakeWindow = { addEventListener() {}, removeEventListener() {}, cardDragDrop: null };',
+            '',
+            'global.document = fakeDocument;',
+            'global.window = fakeWindow;',
+            'global.MutationObserver = function(handler) { this.observe = () => {}; this.disconnect = () => {}; };',
+            '',
+            'const dragCode = ' + repr(drag_js) + ';',
+            'eval(dragCode);',
+            '',
+            'const domReadyHandlers = documentListeners["DOMContentLoaded"] || [];',
+            'if (domReadyHandlers.length === 0) throw new Error("DOMContentLoaded handler missing");',
+            'domReadyHandlers.forEach((entry) => entry.handler());',
+            '',
+            'const system = global.window.cardDragDrop;',
+            'if (!system) throw new Error("cardDragDrop not instantiated");',
+            '',
+            'const arrowCreated = [];',
+            'system._createCurvedArrow = function(source, target) {',
+            '    arrowCreated.push({ source, target });',
+            '    return makeElement("svg");',
+            '};',
+            'system._createFocusArrow = function(source, target) {',
+            '    const arrow = system._createCurvedArrow(source, target);',
+            '    fakeDocument.body.appendChild(arrow);',
+            '    source.classList.add("hover");',
+            '    target.classList.add("hover");',
+            '    return arrow;',
+            '};',
+            '',
+            'const fakeTarget = makeElement("div");',
+            'system._focusArrowTarget = () => fakeTarget;',
+            '',
+            'const fakeCard = makeElement("li");',
+            'fakeCard.closest = (selector) => {',
+            "    if (selector === '.cardContainer') return fakeCard;",
+            "    if (selector === '.playerScreen') return fakePlayerScreen;",
+            "    if (selector === '.playerScreen ul.cardRow[title=\"trustedCards\"]') return null;",
+            '    return null;',
+            '};',
+            '',
+            'const focusinEntries = listeners["focusin"] || [];',
+            'const focusoutEntries = listeners["focusout"] || [];',
+            'if (focusinEntries.length === 0) throw new Error("focus delegation not registered");',
+            'if (focusinEntries.some((entry) => entry.capture !== true)) throw new Error("focus delegation missing capture phase");',
+            '',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'if (arrowCreated.length !== 1) throw new Error("expected exactly one arrow after duplicate focus, got " + arrowCreated.length);',
+            '',
+            'focusoutEntries.forEach((entry) => entry.handler({ type: "focusout", target: fakeCard }));',
+            'if (system._keyboardSelectionControl._focusArrow !== null) throw new Error("focus arrow should be cleared on focusout");',
+            '',
+            'focusinEntries.forEach((entry) => entry.handler({ type: "focusin", target: fakeCard }));',
+            'if (arrowCreated.length !== 2) throw new Error("expected second arrow after fresh focus, got " + arrowCreated.length);',
+            '',
+            'focusoutEntries.forEach((entry) => entry.handler({ type: "focusout", target: { closest: () => null } }));',
+            'if (arrowCreated.length !== 2) throw new Error("focusout on non-matching source should not affect arrow count");',
+            '',
+            'system.destroy();',
+            'if (listeners["focusin"] && listeners["focusin"].length > 0) throw new Error("destroy did not remove focusin listener");',
+            'if (listeners["focusout"] && listeners["focusout"].length > 0) throw new Error("destroy did not remove focusout listener");',
+            '',
+            'console.log("focus-arrow lifecycle ok");',
+            '',
+        ]
+        harness = '\n'.join(harness_parts)
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping focus-arrow lifecycle test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping focus-arrow lifecycle test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'focus arrow lifecycle harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('focus-arrow lifecycle ok', completed.stdout)
+
+    def test_move_keyboard_selection_refreshes_focus_arrow(self):
+        import os
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        control_class_start = drag_js.index('class KeyboardSelectionControl {')
+        control_class_end = drag_js.index('class CardDragDropSystem {')
+        control_class = drag_js[control_class_start:control_class_end]
+
+        move_start = control_class.index('    moveKeyboardSelection(laneValue) {')
+        helper_start = control_class.index('    _refreshFocusArrowAfterLaneMove(card) {')
+        move_body = control_class[move_start:helper_start]
+        self.assertIn('this._refreshFocusArrowAfterLaneMove(selection.selectedCard);', move_body)
+        self.assertLess(
+            move_body.index('selection.currentLane = parsedLane;'),
+            move_body.index('this._refreshFocusArrowAfterLaneMove(selection.selectedCard);'),
+        )
+        self.assertIn('selection.hologram.remove()', move_body)
+        self.assertNotIn('onFocusIn(', move_body)
+        self.assertNotIn('onFocusOut(', move_body)
+
+        helper_end = control_class.index('    confirmKeyboardSelection(laneValue = null) {')
+        helper_body = control_class[helper_start:helper_end]
+        self.assertIn('if (!this._focusArrow || this._focusArrow.source !== card) return;', helper_body)
+        self.assertIn('this.onFocusOut(card);', helper_body)
+        self.assertIn('this.onFocusIn(card);', helper_body)
+
+    def test_move_keyboard_selection_refreshes_focus_arrow_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const makeElement = (tag) => {
+    const classes = new Set();
+    const attributes = new Map();
+    const element = {
+        tagName: tag,
+        classes,
+        attributes,
+        children: [],
+        parentNode: null,
+        dataset: {},
+        removed: false,
+        style: {
+            setProperty() {},
+            getPropertyValue() { return ''; },
+            removeProperty() {},
+        },
+        classList: {
+            add: (...names) => names.forEach((name) => classes.add(name)),
+            remove: (...names) => names.forEach((name) => classes.delete(name)),
+            contains: (name) => classes.has(name),
+        },
+        setAttribute(name, value) { attributes.set(name, String(value)); },
+        getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null; },
+        removeAttribute(name) { attributes.delete(name); },
+        hasAttribute(name) { return attributes.has(name); },
+        appendChild(child) { element.children.push(child); child.parentNode = element; return child; },
+        remove() {
+            if (element.parentNode) {
+                const index = element.parentNode.children.indexOf(element);
+                if (index !== -1) element.parentNode.children.splice(index, 1);
+            }
+            element.parentNode = null;
+            element.removed = true;
+        },
+        closest(selector) {
+            const tagMatch = selector.match(/^[a-zA-Z]+/);
+            const wantedClasses = (selector.match(/\.([a-zA-Z-]+)/g) || []).map((cls) => cls.slice(1));
+            let node = element;
+            while (node) {
+                const tagOk = !tagMatch || node.tagName.toLowerCase() === tagMatch[0].toLowerCase();
+                const classesOk = wantedClasses.every(
+                    (name) => node.classList && node.classList.contains(name)
+                );
+                if (tagOk && classesOk) return node;
+                node = node.parentNode;
+            }
+            return null;
+        },
+        querySelector(selector) {
+            if (!selector.startsWith('.')) return null;
+            const wanted = selector.slice(1).trim();
+            const stack = [...element.children];
+            while (stack.length) {
+                const node = stack.shift();
+                if (node.classList && node.classList.contains(wanted)) return node;
+                stack.push(...node.children);
+            }
+            return null;
+        },
+        querySelectorAll(selector) {
+            const wanted = selector.split(',').map((part) => part.trim().split('[')[0]);
+            const results = [];
+            const stack = [...element.children];
+            while (stack.length) {
+                const node = stack.shift();
+                if (wanted.some((w) => w === node.tagName ||
+                    (w.startsWith('.') && node.classList.contains(w.slice(1))))) results.push(node);
+                stack.push(...node.children);
+            }
+            return results;
+        },
+        addEventListener() {},
+        removeEventListener() {},
+        focus() {},
+        getBoundingClientRect() { return { left: 0, top: 0, width: 10, height: 10 }; },
+        contains() { return true; },
+        cloneNode(deep) {
+            const clone = makeElement(element.tagName);
+            classes.forEach((name) => clone.classList.add(name));
+            attributes.forEach((value, name) => clone.setAttribute(name, value));
+            Object.assign(clone.dataset, element.dataset);
+            if (deep) element.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+            return clone;
+        },
+    };
+    return element;
+};
+
+const fakePlayerBoard = makeElement('div');
+const fakePlayerScreen = makeElement('div');
+const listeners = {};
+fakePlayerScreen.addEventListener = (event, handler, capture) => {
+    if (!listeners[event]) listeners[event] = [];
+    listeners[event].push({ handler, capture: !!capture });
+};
+fakePlayerScreen.removeEventListener = (event, handler, capture) => {
+    if (!listeners[event]) return;
+    listeners[event] = listeners[event].filter(
+        (entry) => entry.handler !== handler || entry.capture !== !!capture
+    );
+};
+
+const lanes = [1, 2, 3, 4].map(() => {
+    const lane = makeElement('li');
+    lane.classList.add('lane');
+    return lane;
+});
+const holoRows = lanes.map((lane) => {
+    const row = makeElement('ul');
+    row.classList.add('hologramRow');
+    lane.appendChild(row);
+    return row;
+});
+fakePlayerBoard.querySelectorAll = (selector) => {
+    if (selector === ':scope > ul.lanes > li.lane') return lanes;
+    return [];
+};
+
+const handCard = makeElement('li');
+handCard.classList.add('cardContainer');
+handCard.setAttribute('draggable', 'true');
+handCard.dataset.cardLane = '1';
+const cardIdInput = makeElement('input');
+cardIdInput.type = 'hidden';
+cardIdInput.value = '101';
+handCard.appendChild(cardIdInput);
+handCard.closest = (selector) => {
+    if (selector === '.cardContainer') return handCard;
+    if (selector === '.playerScreen .deckHand') return makeElement('div');
+    return null;
+};
+handCard.matches = (selector) => selector === 'li.cardContainer';
+
+const documentListeners = {};
+const fakeDocument = {
+    listeners: documentListeners,
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        if (selector === '.playerBoard') return fakePlayerBoard;
+        if (selector === '.playerScreen') return fakePlayerScreen;
+        const sourceMatch = selector.match(/data-source-card-id="([^"]+)"/);
+        if (sourceMatch) {
+            const holograms = holoRows.flatMap((row) => row.children);
+            return holograms.find((holo) =>
+                holo.classList.contains('keyboard-preview') &&
+                holo.dataset.keyboardPreview === 'true' &&
+                holo.dataset.sourceCardId === sourceMatch[1]
+            ) || null;
+        }
+        return null;
+    },
+    querySelectorAll(selector) {
+        if (selector.includes('li.cardContainer')) return [handCard];
+        return [];
+    },
+    getElementById() { return null; },
+    createElement: (tag) => makeElement(tag),
+    createElementNS: () => makeElement('svg'),
+    addEventListener(event, handler, capture) {
+        if (!documentListeners[event]) documentListeners[event] = [];
+        documentListeners[event].push({ handler, capture: !!capture });
+    },
+    removeEventListener(event, handler, capture) {
+        if (!documentListeners[event]) return;
+        documentListeners[event] = documentListeners[event].filter(
+            (entry) => entry.handler !== handler || entry.capture !== !!capture
+        );
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body: makeElement('body'),
+    activeElement: null,
+};
+
+const fakeWindow = { addEventListener() {}, removeEventListener() {}, cardDragDrop: null };
+
+global.document = fakeDocument;
+global.window = fakeWindow;
+global.CSS = { escape: (value) => String(value).replace(/"/g, '\\"') };
+global.MutationObserver = function (handler) { this.observe = () => {}; this.disconnect = () => {}; };
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+const domReadyHandlers = documentListeners['DOMContentLoaded'] || [];
+if (domReadyHandlers.length === 0) throw new Error('DOMContentLoaded handler missing');
+domReadyHandlers.forEach((entry) => entry.handler());
+
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const arrowTargets = [];
+const realCreateCurvedArrow = system._createCurvedArrow.bind(system);
+system._createCurvedArrow = (source, target) => {
+    arrowTargets.push(target);
+    return realCreateCurvedArrow(source, target);
+};
+
+const bodyArrows = () => fakeDocument.body.children.filter(
+    (child) => child.classList && child.classList.contains('hologram-arrow')
+);
+
+const pressKey = (key) => {
+    let prevented = false;
+    const event = { key, repeat: false, target: handCard, preventDefault() { prevented = true; } };
+    (documentListeners['keydown'] || []).forEach((entry) => entry.handler(event));
+    return prevented;
+};
+
+const fireFocusIn = () => {
+    (listeners['focusin'] || []).forEach((entry) => entry.handler({ type: 'focusin', target: handCard }));
+};
+
+if (!pressKey('1')) throw new Error('digit selection did not preventDefault');
+const selection = system.keyboardSelection;
+if (!selection.selectedCard) throw new Error('digit did not select hand card');
+if (selection.currentLane !== 1) throw new Error('typed selection landed in lane ' + selection.currentLane);
+const oldHologram = selection.hologram;
+if (oldHologram.parentNode !== holoRows[0]) throw new Error('hologram not appended to lane 1 row');
+
+fireFocusIn();
+if (arrowTargets.length !== 1) throw new Error('expected 1 arrow after focus, got ' + arrowTargets.length);
+const initialClone = oldHologram.querySelector('.cardContainer');
+if (arrowTargets[0] !== initialClone) throw new Error('initial arrow does not target the clone');
+if (bodyArrows().length !== 1) throw new Error('expected exactly 1 arrow svg after focus');
+if (!initialClone.classList.contains('hover')) throw new Error('clone missing hover class');
+
+if (!pressKey('ArrowRight')) throw new Error('arrow lane move did not preventDefault');
+if (system.keyboardSelection.currentLane !== 2) {
+    throw new Error('expected lane 2 after ArrowRight, got ' + system.keyboardSelection.currentLane);
+}
+let newHologram = system.keyboardSelection.hologram;
+if (newHologram === oldHologram) throw new Error('lane move did not rebuild the hologram');
+if (newHologram.parentNode !== holoRows[1]) throw new Error('new hologram not in lane 2 row');
+if (oldHologram.parentNode !== null || !oldHologram.removed) throw new Error('old hologram still attached');
+
+if (arrowTargets.length !== 2) throw new Error('expected 2 arrows after lane move, got ' + arrowTargets.length);
+let newClone = newHologram.querySelector('.cardContainer');
+if (arrowTargets[1] !== newClone) throw new Error('refreshed arrow does not target the new clone');
+if (system._keyboardSelectionControl._focusArrow.target !== newClone) {
+    throw new Error('stored arrow target is not the current clone');
+}
+if (system._keyboardSelectionControl._focusArrow.source !== handCard) {
+    throw new Error('stored arrow source is not the selected hand card');
+}
+if (bodyArrows().length !== 1) {
+    throw new Error('expected exactly 1 arrow svg after lane move, got ' + bodyArrows().length);
+}
+if (!newClone.classList.contains('hover')) throw new Error('new clone missing hover class');
+
+if (!pressKey('ArrowDown')) throw new Error('second lane move did not preventDefault');
+if (system.keyboardSelection.currentLane !== 3) {
+    throw new Error('expected lane 3 after ArrowDown, got ' + system.keyboardSelection.currentLane);
+}
+newHologram = system.keyboardSelection.hologram;
+if (newHologram.parentNode !== holoRows[2]) throw new Error('second hologram not in lane 3 row');
+if (arrowTargets.length !== 3) throw new Error('expected 3 arrows after second move, got ' + arrowTargets.length);
+newClone = newHologram.querySelector('.cardContainer');
+if (system._keyboardSelectionControl._focusArrow.target !== newClone) {
+    throw new Error('stored arrow target did not follow the second lane move');
+}
+if (bodyArrows().length !== 1) {
+    throw new Error('expected exactly 1 arrow svg after second lane move, got ' + bodyArrows().length);
+}
+
+system.destroy();
+if (bodyArrows().length !== 0) throw new Error('destroy left an arrow svg in the body');
+
+console.log('move-keyboard-selection arrow refresh ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping keyboard lane-move arrow test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping keyboard lane-move arrow test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard lane-move arrow harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('move-keyboard-selection arrow refresh ok', completed.stdout)
+
+    def test_keyboard_flow_after_escape_cancellation_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+const fieldCards = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const fieldCard = new FakeElement('li', 'cardContainer');
+    fieldCard.setAttribute('tabindex', '0');
+    fieldCard.dataset.cardLane = String(laneIndex + 1);
+    const fieldId = new FakeElement('input');
+    fieldId.setAttribute('type', 'hidden');
+    fieldId.setAttribute('name', 'card_id');
+    fieldId.setAttribute('value', `500${laneIndex + 1}`);
+    fieldCard.appendChild(fieldId);
+    lane.appendChild(fieldCard);
+    fieldCards.push(fieldCard);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2);
+const handB = makeHandCard(202, 3);
+const handC = makeHandCard(203, 1);
+const handCards = [handA, handB, handC];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, ...handCards, ...fieldCards, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/x/action' },
+    setTimeout() { return 0; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const clickHandlers = documentListeners['click'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const clickCard = (card) => {
+    clickHandlers.forEach((entry) => entry({
+        type: 'click', button: 0, target: card, clientX: 5, clientY: 5,
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const stagedClones = () => holoRows.flatMap((row) => row.children);
+const activeIs = (element) => fakeDocument.activeElement === element;
+
+fakeDocument.activeElement = body;
+
+assert('typing digit 1 selects card A', pressKey('1') && state().selectedCard === handA && activeIs(handA));
+assert('hand selection writes clone into lane 2 row', stagedClones().length === 1 && stagedClones()[0].parentNode === holoRows[1]);
+assert('selection ordinal lands in hidden input', focusedHandCardInput.value === '1');
+pressKey('0');
+assert('cancel keeps focus but clears selection', state().selectedCard === null && activeIs(handA));
+assert('ArrowUp focuses first field card', pressKey('ArrowUp') && activeIs(fieldCards[0]) && state().selectedCard === null);
+assert('ArrowDown from field re-selects persisted hand slot', pressKey('ArrowDown') && state().selectedCard === handA && activeIs(handA));
+assert('Escape clears selection and restores focus', pressKey('Escape') && state().selectedCard === null && state().digitBuffer === '' && activeIs(handA));
+assert('clone removed after Escape', stagedClones().length === 0);
+assert('Enter re-selects the focused hand card', pressKey('Enter') && state().selectedCard === handA);
+assert('each selection keeps exactly one clone', stagedClones().length === 1);
+assert('Escape again keeps focus', pressKey('Escape') && activeIs(handA));
+assert('Space re-selects the focused hand card', pressKey(' ') && state().selectedCard === handA);
+pressKey('Escape');
+assert('ArrowRight cycles to the next hand card', pressKey('ArrowRight') && state().selectedCard === handB && activeIs(handB));
+assert('cycling writes the playable ordinal to the hidden input', focusedHandCardInput.value === '2');
+pressKey('Escape');
+assert('ArrowLeft cycles back to the previous hand card', pressKey('ArrowLeft') && state().selectedCard === handA && activeIs(handA));
+pressKey('Escape');
+fakeDocument.activeElement = handC;
+assert('ArrowRight from the last hand card focuses the end turn button', pressKey('ArrowRight') && activeIs(endTurnButton) && state().selectedCard === null);
+fakeDocument.activeElement = handA;
+pressKey('ArrowLeft');
+assert('ArrowLeft from the first hand card selects no card without a draw button',
+    state().selectedCard === null && activeIs(handA));
+assert('ArrowUp from the hand focuses field cards again', pressKey('ArrowUp') && activeIs(fieldCards[0]) && state().selectedCard === null);
+fakeDocument.activeElement = handA;
+assert('ArrowDown from the hand focuses the end turn button', pressKey('ArrowDown') && activeIs(endTurnButton) && state().selectedCard === null);
+
+clickCard(handA);
+assert('mouse click selects card A', state().selectedCard === handA && activeIs(handA));
+assert('Escape cancels the mouse selection and keeps focus',
+    pressKey('Escape') && state().selectedCard === null && state().mouseSelecting === false && activeIs(handA));
+assert('mouse preview cursor removed after Escape',
+    fakeDocument.body.querySelectorAll('#mousePreviewCursor').length === 0);
+assert('Enter re-selects after mouse Escape', pressKey('Enter') && state().selectedCard === handA);
+pressKey('Escape');
+assert('ArrowRight resumes the same cycle from the focused card',
+    pressKey('ArrowRight') && state().selectedCard === handB);
+pressKey('Escape');
+fakeDocument.activeElement = endTurnButton;
+pressKey('Enter');
+assert('focus on the end turn button does not re-select a hand card via Enter', state().selectedCard === null);
+
+console.log('keyboard flow after escape cancellation ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping keyboard flow DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping keyboard flow DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard flow after escape harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('keyboard flow after escape cancellation ok', completed.stdout)
+
+    def test_reselection_after_escape_recreates_focus_arrow_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+const kebab = (prop) => String(prop).replace(/[A-Z]/g, (char) => '-' + char.toLowerCase());
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+        const element = this;
+        this.dataset = new Proxy({}, {
+            set(target, prop, value) {
+                element.setAttribute('data-' + kebab(prop), String(value));
+                return true;
+            },
+            get(target, prop) {
+                const value = element.getAttribute('data-' + kebab(prop));
+                return value === null ? undefined : value;
+            },
+            has(target, prop) {
+                return element.getAttribute('data-' + kebab(prop)) !== null;
+            },
+            deleteProperty(target, prop) {
+                element.removeAttribute('data-' + kebab(prop));
+                return true;
+            },
+        });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (name === 'title') this.title = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+
+class FakeSvgElement extends FakeElement {
+    constructor() {
+        super('svg');
+        this.classList.add('hologram-arrow');
+        this.children = [];
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const screenFocusListeners = { focusin: [], focusout: [] };
+playerScreen.addEventListener = (name, handler, capture) => {
+    if (name === 'focusin' || name === 'focusout') {
+        screenFocusListeners[name].push({ handler, capture: !!capture });
+        return;
+    }
+    (playerScreen.eventHandlers[name] ??= []).push(handler);
+};
+playerScreen.removeEventListener = (name, handler, capture) => {
+    if (name === 'focusin' || name === 'focusout') {
+        screenFocusListeners[name] = screenFocusListeners[name].filter(
+            (entry) => entry.handler !== handler || entry.capture !== !!capture);
+        return;
+    }
+    playerScreen.eventHandlers[name] = (playerScreen.eventHandlers[name] ?? [])
+        .filter((h) => h !== handler);
+};
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2);
+const handB = makeHandCard(202, 3);
+const handCards = [handA, handB];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeSvgElement(),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+const fireFocusEvent = (type, target, relatedTarget = null) => {
+    const event = { type, target, relatedTarget };
+    [...screenFocusListeners[type]].forEach((entry) => entry.handler(event));
+};
+
+const wireFocus = (el) => {
+    el.focus = () => {
+        const previous = fakeDocument.activeElement;
+        if (previous === el) return;
+        if (previous && typeof previous.blur === 'function') previous.blur();
+        fakeDocument.activeElement = el;
+        fireFocusEvent('focusin', el, previous);
+    };
+    el.blur = () => {
+        if (fakeDocument.activeElement !== el) return;
+        fireFocusEvent('focusout', el, null);
+        fakeDocument.activeElement = body;
+    };
+};
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, ...handCards]) {
+    wireFocus(el);
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/x/action' },
+    setTimeout() { return 0; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const pressKey = (key) => {
+    let prevented = false;
+    keyboardHandlers.forEach((entry) => entry({
+        key, repeat: false, target: fakeDocument.activeElement,
+        ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
+        preventDefault() { prevented = true; },
+    }));
+    return prevented;
+};
+
+const assert = (label, condition, extra = '') => {
+    if (!condition) throw new Error('FAILED: ' + label + ' | ' + extra);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const arrows = () => fakeDocument.body.children.filter(
+    (child) => child.classList && child.classList.contains('hologram-arrow'));
+const activeIs = (element) => fakeDocument.activeElement === element;
+const previewCloneFor = (card) => {
+    const row = holoRows[Number(card.dataset.cardLane) - 1];
+    return row.querySelector('.hologram')?.querySelector('.cardContainer') ?? null;
+};
+const currentFocusArrow = () => system._keyboardSelectionControl._focusArrow;
+
+fakeDocument.activeElement = body;
+
+pressKey('1');
+assert('typing digit 1 selects card A', state().selectedCard === handA);
+const firstClone = previewCloneFor(handA);
+assert('first selection marks the hand card selected',
+    handA.classes.has('keyboard-selected') && handA.dataset.keyboardSelected === 'true');
+assert('first selection leaves exactly one arrow on the lane clone',
+    arrows().length === 1 && currentFocusArrow() !== null &&
+    currentFocusArrow().source === handA &&
+    currentFocusArrow().target === firstClone &&
+    currentFocusArrow().target.parentNode !== null,
+    `arrows=${arrows().length}`);
+
+pressKey('Escape');
+assert('Escape cancels selection and keeps focus on the hand card',
+    state().selectedCard === null && state().digitBuffer === '' && activeIs(handA));
+assert('Escape removes the preview clone', previewCloneFor(handA) === null);
+assert('Escape removes the arrow svg', arrows().length === 0, `arrows=${arrows().length}`);
+
+pressKey('1');
+assert('typing digit 1 again reselects card A', state().selectedCard === handA && activeIs(handA));
+assert('selection styling is reapplied on reselect',
+    handA.classes.has('keyboard-selected') && handA.dataset.keyboardSelected === 'true');
+const secondClone = previewCloneFor(handA);
+assert('reselect rebuilt a fresh clone after Escape', secondClone !== null && secondClone !== firstClone);
+assert('reselect after Escape leaves exactly one arrow svg',
+    arrows().length === 1, `arrows=${arrows().length}`);
+assert('reselect arrow targets the current lane clone',
+    currentFocusArrow() !== null && currentFocusArrow().source === handA &&
+    currentFocusArrow().target === secondClone &&
+    system._focusArrowTarget(handA) === secondClone &&
+    secondClone.parentNode !== null &&
+    secondClone.parentNode.parentNode !== null,
+    'arrow missing or targeting a detached clone');
+const isConnectedToBody = (element) => {
+    let node = element;
+    while (node) {
+        if (node === fakeDocument.body) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+assert('detached first clone never holds the arrow',
+    currentFocusArrow().target !== firstClone && !isConnectedToBody(firstClone));
+
+pressKey('0');
+assert('zero cancel also keeps focus on the hand card',
+    state().selectedCard === null && activeIs(handA));
+pressKey('1');
+assert('reselect after zero cancel refreshed the arrow against the new clone',
+    state().selectedCard === handA && arrows().length === 1 &&
+    currentFocusArrow().target === previewCloneFor(handA) &&
+    currentFocusArrow().target !== secondClone,
+    `arrows=${arrows().length}`);
+
+pressKey('Escape');
+pressKey('2');
+assert('reselecting a different card after Escape keeps exactly one arrow on its clone',
+    state().selectedCard === handB && activeIs(handB) && arrows().length === 1 &&
+    currentFocusArrow().source === handB &&
+    currentFocusArrow().target === previewCloneFor(handB),
+    `arrows=${arrows().length}`);
+
+console.log('reselection focus arrow after escape ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping reselection arrow DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping reselection arrow DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'reselection focus arrow harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('reselection focus arrow after escape ok', completed.stdout)
+
+    def test_hand_arrow_boundaries_focus_draw_and_end_turn_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = r'''
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.removed = false;
+        this.id = '';
+        this.title = '';
+        this.eventHandlers = {};
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+            toggle: (name) => {
+                if (this.classes.has(name)) this.classes.delete(name);
+                else this.classes.add(name);
+            },
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 });
+    }
+
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map(
+            (part) => tokenizeChain(part.trim()),
+        );
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+
+    insertBefore(newNode, reference) {
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+
+    get firstChild() {
+        return this.children[0] ?? null;
+    }
+
+    contains(other) {
+        let node = other;
+        while (node) {
+            if (node === this) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    remove() {
+        if (this.parentNode) {
+            const index = this.parentNode.children.indexOf(this);
+            if (index !== -1) this.parentNode.children.splice(index, 1);
+        }
+        this.parentNode = null;
+        this.removed = true;
+    }
+
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+        if (name === 'hidden') this.hidden = true;
+    }
+
+    getAttribute(name) {
+        return this.attributes.has(name) ? this.attributes.get(name) : null;
+    }
+
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+        return this.attributes.has(name);
+    }
+
+    addEventListener(name, handler) {
+        (this.eventHandlers[name] ??= []).push(handler);
+    }
+
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+
+    cloneNode(deep) {
+        const clone = new FakeElement(this.tagName, [...this.classes].join(' '));
+        this.attributes.forEach((value, name) => clone.setAttribute(name, value));
+        if (this.id) clone.id = this.id;
+        Object.assign(clone.dataset, this.dataset);
+        if (deep) this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
+        return clone;
+    }
+}
+
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+const fieldCards = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const fieldCard = new FakeElement('li', 'cardContainer');
+    fieldCard.setAttribute('tabindex', '0');
+    fieldCard.dataset.cardLane = String(laneIndex + 1);
+    const fieldId = new FakeElement('input');
+    fieldId.setAttribute('type', 'hidden');
+    fieldId.setAttribute('name', 'card_id');
+    fieldId.setAttribute('value', `500${laneIndex + 1}`);
+    fieldCard.appendChild(fieldId);
+    lane.appendChild(fieldCard);
+    fieldCards.push(fieldCard);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const activeDeck = new FakeElement('ul', 'deck active-deck');
+deckHand.appendChild(activeDeck);
+const drawForm = new FakeElement('form', 'cardActionForm');
+activeDeck.appendChild(drawForm);
+const drawActionInput = new FakeElement('input');
+drawActionInput.setAttribute('type', 'hidden');
+drawActionInput.setAttribute('name', 'action');
+drawActionInput.setAttribute('value', 'draw');
+drawForm.appendChild(drawActionInput);
+const drawButton = new FakeElement('button', 'card back draw');
+drawForm.appendChild(drawButton);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2);
+const handB = makeHandCard(202, 3);
+const handC = makeHandCard(203, 1);
+const handCards = [handA, handB, handC];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+for (const el of [
+    body, playerScreen, playerBoard, endTurnForm, endTurnButton,
+    drawForm, drawButton, activeDeck,
+    ...handCards, ...fieldCards, ...holoRows,
+]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/x/action' },
+    setTimeout() { return 0; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+
+const pressKey = (key) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const stagedClones = () => holoRows.flatMap((row) => row.children);
+const activeIs = (element) => fakeDocument.activeElement === element;
+
+fakeDocument.activeElement = handA;
+assert('ArrowLeft from the first hand card focuses the draw button',
+    pressKey('ArrowLeft') && activeIs(drawButton) && state().selectedCard === null);
+assert('boundary exit to the draw button writes no ordinal or preview',
+    focusedHandCardInput.value === '1' && stagedClones().length === 0);
+
+fakeDocument.activeElement = handA;
+assert('ArrowRight from the first hand card still selects the next card',
+    pressKey('ArrowRight') && state().selectedCard === handB && activeIs(handB));
+assert('cycling still writes the playable ordinal', focusedHandCardInput.value === '2');
+pressKey('Escape');
+pressKey('Escape');
+assert('ArrowLeft from the middle card selects the first hand card',
+    pressKey('ArrowLeft') && state().selectedCard === handA && activeIs(handA));
+pressKey('Escape');
+assert('the first hand card exits left back to the draw button',
+    pressKey('ArrowLeft') && activeIs(drawButton) && state().selectedCard === null && stagedClones().length === 0);
+
+fakeDocument.activeElement = handC;
+const ordinalBeforeLastExit = focusedHandCardInput.value;
+assert('ArrowRight from the last hand card focuses the end turn button',
+    pressKey('ArrowRight') && activeIs(endTurnButton) && state().selectedCard === null);
+assert('boundary exit to the end turn button keeps no selection',
+    focusedHandCardInput.value === ordinalBeforeLastExit && stagedClones().length === 0);
+
+fakeDocument.activeElement = handC;
+assert('ArrowLeft from the last hand card selects the middle card without wraparound',
+    pressKey('ArrowLeft') && state().selectedCard === handB && activeIs(handB));
+pressKey('Escape');
+pressKey('Escape');
+assert('ArrowRight from the middle card selects the last hand card',
+    pressKey('ArrowRight') && state().selectedCard === handC && activeIs(handC));
+pressKey('Escape');
+assert('ArrowRight from the last hand card exits again to the end turn button',
+    pressKey('ArrowRight') && activeIs(endTurnButton) && state().selectedCard === null && stagedClones().length === 0);
+assert('ArrowDown from the last hand card still focuses the end turn button',
+    (() => { fakeDocument.activeElement = handC; return true; })() &&
+    pressKey('ArrowDown') && activeIs(endTurnButton) && state().selectedCard === null);
+
+console.log('hand arrow boundary exit ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping hand arrow boundary test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping hand arrow boundary test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'hand arrow boundary harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('hand arrow boundary exit ok', completed.stdout)
+
+    def test_boundary_controls_arrow_into_hand_focus_without_selecting_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+
+const makeHiddenInput = (name, value) => {
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', name);
+    input.setAttribute('value', String(value));
+    return input;
+};
+
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+['Intelligence', 'Speed', 'Visciousness', 'Resolve'].forEach((laneType) => {
+    const lane = new FakeElement('li', 'lane ' + laneType);
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const activeDeck = new FakeElement('ul', 'deck active-deck');
+deckHand.appendChild(activeDeck);
+const drawForm = new FakeElement('form', 'cardActionForm');
+activeDeck.appendChild(drawForm);
+drawForm.appendChild(makeHiddenInput('action', 'draw'));
+const drawButton = new FakeElement('button', 'card back draw');
+drawForm.appendChild(drawButton);
+
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.sourceLane = '0';
+    card.appendChild(makeHiddenInput('card_id', cardId));
+    card.appendChild(makeHiddenInput('lane', lane));
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 1);
+const handB = makeHandCard(202, 2);
+const handC = makeHandCard(203, 4);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = makeHiddenInput('focused_hand_card', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+let cookieWrites = 0;
+Object.defineProperty(fakeDocument, 'cookie', {
+    set() { cookieWrites += 1; },
+    get() { return `writes:${cookieWrites}`; },
+});
+
+for (const el of [
+    body, playerScreen, playerBoard, handA, handB, handC,
+    activeDeck, drawForm, drawButton, endTurnForm, endTurnButton,
+]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const pressKey = (key) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const state = () => system.keyboardSelection;
+const stagedClones = () => holoRows.flatMap((row) => row.children);
+const activeIs = (element) => fakeDocument.activeElement === element;
+
+fakeDocument.activeElement = drawButton;
+assert('draw ArrowLeft focuses the first hand card without selecting it',
+    pressKey('ArrowLeft') && activeIs(handA) && state().selectedCard === null &&
+    state().digitBuffer === '' && state().ghostFlip === false);
+assert('draw ArrowLeft leaves the persisted slot and lane rows untouched',
+    focusedHandCardInput.value === '1' && system.control.persistedHandSlot === 1 &&
+    stagedClones().length === 0);
+const guardCookieWrites = cookieWrites;
+
+fakeDocument.activeElement = endTurnButton;
+assert('end turn ArrowRight focuses the last hand card without selecting it',
+    pressKey('ArrowRight') && activeIs(handC) && state().selectedCard === null &&
+    state().digitBuffer === '' && state().ghostFlip === false);
+assert('end turn ArrowRight leaves the persisted slot and lane rows untouched',
+    focusedHandCardInput.value === '1' && system.control.persistedHandSlot === 1 &&
+    stagedClones().length === 0 && cookieWrites === guardCookieWrites);
+
+fakeDocument.activeElement = handA;
+assert('typing 1 shows the lane preview for the first hand card',
+    pressKey('1') && state().selectedCard === handA && state().lanePreviewActive === true);
+assert('Enter stages the first play', pressKey('Enter') && handA.classList.contains('ghost'));
+fakeDocument.activeElement = handB;
+assert('typing 2 shows the lane preview for the middle hand card',
+    pressKey('2') && state().selectedCard === handB);
+assert('Enter stages the second play and exhausts the play allowance',
+    pressKey('Enter') && handB.classList.contains('ghost') &&
+    handC.classList.contains('blocked') && handC.getAttribute('tabindex') === null);
+const spentCookieWrites = cookieWrites;
+
+fakeDocument.activeElement = drawButton;
+assert('draw ArrowLeft lands on the first still-focusable hand card',
+    pressKey('ArrowLeft') && activeIs(handA) && state().selectedCard === null);
+fakeDocument.activeElement = endTurnButton;
+assert('end turn ArrowRight skips the blocked card to the last focusable hand card',
+    pressKey('ArrowRight') && activeIs(handB) && state().selectedCard === null &&
+    cookieWrites === spentCookieWrites);
+
+fakeDocument.activeElement = endTurnButton;
+assert('end turn ArrowLeft stays unrouted',
+    !pressKey('ArrowLeft') && activeIs(endTurnButton) && state().selectedCard === null);
+fakeDocument.activeElement = drawButton;
+assert('draw ArrowRight stays unrouted',
+    !pressKey('ArrowRight') && activeIs(drawButton) && state().selectedCard === null);
+
+console.log('boundary control hand entry ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping boundary hand entry test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping boundary hand entry test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'boundary control hand entry harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('boundary control hand entry ok', completed.stdout)
+
+    def test_field_arrow_left_right_walks_face_down_cards_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+
+const placeCard = (card, left, top) => {
+    card.getBoundingClientRect = () => ({ left, top, width: 100, height: 140 });
+};
+const laneNames = ['Intelligence', 'Speed', 'Visciousness', 'Resolve'];
+const buildLane = (container, name) => {
+    const lane = new FakeElement('li', 'lane ' + name);
+    container.appendChild(lane);
+    const hologramRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(hologramRow);
+    const cardRow = new FakeElement('ul', 'cardRow');
+    cardRow.setAttribute('title', 'cards');
+    lane.appendChild(cardRow);
+    return { lane, hologramRow, cardRow };
+};
+const addFieldCard = (row, className, left, top) => {
+    const card = new FakeElement('li', className);
+    row.appendChild(card);
+    placeCard(card, left, top);
+    return card;
+};
+const addStagedHologram = (hologramRow, left, top) => {
+    const wrap = new FakeElement('div', 'hologram keyboard-staged');
+    hologramRow.appendChild(wrap);
+    const card = new FakeElement('li', 'cardContainer faceDown');
+    card.setAttribute('tabindex', '0');
+    wrap.appendChild(card);
+    placeCard(card, left, top);
+    return card;
+};
+const makeFocusableFieldCard = (card, cardId) => {
+    card.setAttribute('tabindex', '0');
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    return card;
+};
+
+const enemyTable = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyTable);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyTable.appendChild(enemyBoard);
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = buildLane(enemyLanes, 'Intelligence');
+placeCard(
+    addFieldCard(enemyLane.cardRow, 'cardContainer faceDown', 170, 50),
+    170, 50,
+);
+
+const playerTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerTable.appendChild(playerBoard);
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const playerLanes = {};
+for (const name of laneNames) {
+    playerLanes[name] = buildLane(lanesEl, name);
+}
+
+const cardA = makeFocusableFieldCard(
+    addFieldCard(playerLanes.Intelligence.cardRow, 'cardContainer faceDown', 10, 100),
+    601,
+);
+const cardC = makeFocusableFieldCard(
+    addFieldCard(playerLanes.Intelligence.cardRow, 'cardContainer faceDown', 60, 100),
+    603,
+);
+placeCard(addFieldCard(playerLanes.Intelligence.cardRow, 'cardContainer', 250, 100), 250, 100);
+const trustedRow = new FakeElement('ul', 'cardRow');
+trustedRow.setAttribute('title', 'trustedCards');
+playerLanes.Intelligence.lane.appendChild(trustedRow);
+placeCard(addFieldCard(trustedRow, 'cardContainer', 220, 200), 220, 200);
+
+const blockedFieldCard = makeFocusableFieldCard(
+    addFieldCard(playerLanes.Speed.cardRow, 'cardContainer faceDown blocked', 30, 100),
+    602,
+);
+const cardH = addStagedHologram(playerLanes.Visciousness.hologramRow, 200, 10);
+const cardE = addStagedHologram(playerLanes.Resolve.hologramRow, 290, 10);
+const cardD = makeFocusableFieldCard(
+    addFieldCard(playerLanes.Resolve.cardRow, 'cardContainer faceDown', 290, 100),
+    604,
+);
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.sourceLane = '0';
+    const cardIdInput = new FakeElement('input');
+    cardIdInput.setAttribute('type', 'hidden');
+    cardIdInput.setAttribute('name', 'card_id');
+    cardIdInput.setAttribute('value', String(cardId));
+    card.appendChild(cardIdInput);
+    const laneInput = new FakeElement('input');
+    laneInput.setAttribute('type', 'hidden');
+    laneInput.setAttribute('name', 'lane');
+    laneInput.setAttribute('value', String(lane));
+    card.appendChild(laneInput);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    for (const el of descendantsInOrder(body)) {
+        if (el.id === id) return el;
+    }
+    return null;
+};
+
+for (const el of [
+    body, playerScreen, endTurnForm, endTurnButton, handA,
+    cardA, cardC, cardD, cardE, cardH, blockedFieldCard,
+]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/x/action' },
+    setTimeout() { return 0; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect =     this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const pressKey = (key) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const state = () => system.keyboardSelection;
+const activeIs = (element) => fakeDocument.activeElement === element;
+const stagedCloneCount = () => laneNames.reduce(
+    (total, name) => total + playerLanes[name].hologramRow.children.length,
+    0,
+);
+const fieldCards = [cardA, blockedFieldCard, cardC, cardH, cardE, cardD];
+
+fakeDocument.activeElement = cardA;
+assert('ArrowLeft from the leftmost face-down field card is a boundary no-op',
+    !pressKey('ArrowLeft') && activeIs(cardA) && state().selectedCard === null && state().digitBuffer === '');
+assert('boundary ArrowLeft writes no ordinal and stages no clones',
+    focusedHandCardInput.value === '1' && stagedCloneCount() === 2);
+
+assert('ArrowRight from the leftmost face-down field card reaches the rendered-right neighbour',
+    pressKey('ArrowRight') && activeIs(blockedFieldCard) && state().selectedCard === null);
+assert('field navigation writes no ordinals and stages no clones',
+    focusedHandCardInput.value === '1' && stagedCloneCount() === 2);
+assert('field navigation leaves no keyboard-selected marks',
+    fieldCards.every((card) => !card.classList.contains('keyboard-selected')));
+
+assert('arrows stay no-ops while a blocked field card keeps focus',
+    !pressKey('ArrowLeft') && !pressKey('ArrowRight') && activeIs(blockedFieldCard) && state().selectedCard === null);
+
+fakeDocument.activeElement = cardC;
+assert('ArrowLeft from the card after the blocked one resumes the rendered row',
+    pressKey('ArrowLeft') && activeIs(blockedFieldCard));
+fakeDocument.activeElement = cardA;
+assert('ArrowRight from the leftmost field card reaches the blocked neighbour again',
+    pressKey('ArrowRight') && activeIs(blockedFieldCard));
+
+fakeDocument.activeElement = cardC;
+assert('ArrowRight from the row continues onto the staged hologram of the next lane',
+    pressKey('ArrowRight') && activeIs(cardH));
+assert('ArrowLeft from the staged hologram skips the enemy board card',
+    pressKey('ArrowLeft') && activeIs(cardC));
+
+fakeDocument.activeElement = cardH;
+assert('ArrowRight from the staged hologram skips the trusted and face-up cards',
+    pressKey('ArrowRight') && activeIs(cardE));
+
+fakeDocument.activeElement = cardE;
+assert('ArrowLeft from the column-tied hologram steps back to the rendered-left column',
+    pressKey('ArrowLeft') && activeIs(cardH));
+fakeDocument.activeElement = cardE;
+assert('ArrowRight inside a shared column steps onto its lower card',
+    pressKey('ArrowRight') && activeIs(cardD));
+assert('ArrowLeft from the column card returns to its hologram',
+    pressKey('ArrowLeft') && activeIs(cardE));
+
+fakeDocument.activeElement = cardD;
+assert('ArrowRight from the rightmost face-down field card is a boundary no-op',
+    !pressKey('ArrowRight') && activeIs(cardD) && state().selectedCard === null && stagedCloneCount() === 2);
+
+fakeDocument.activeElement = cardA;
+assert('ArrowUp from the field still focuses the end turn button',
+    pressKey('ArrowUp') && activeIs(endTurnButton) && state().selectedCard === null);
+fakeDocument.activeElement = cardA;
+assert('ArrowDown from the field still selects the persisted hand slot',
+    pressKey('ArrowDown') && state().selectedCard === handA && activeIs(handA));
+pressKey('Escape');
+assert('cancelling the hand selection restores the untouched field clones',
+    state().selectedCard === null && stagedCloneCount() === 2 && focusedHandCardInput.value === '1');
+
+fakeDocument.activeElement = handA;
+assert('typing digit 1 selects the hand card for the cycle check',
+    pressKey('1') && state().selectedCard === handA && state().currentLane === 2 && stagedCloneCount() === 3);
+fakeDocument.activeElement = cardA;
+assert('ArrowRight with an active selection cycles lanes instead of walking the field',
+    pressKey('ArrowRight') && state().currentLane === 3 && activeIs(cardA));
+assert('ArrowLeft with an active selection cycles lanes back',
+    pressKey('ArrowLeft') && state().currentLane === 2 && activeIs(cardA));
+pressKey('Escape');
+assert('cancelling the cycle returns focus to the hand card with the preview removed',
+    state().selectedCard === null && stagedCloneCount() === 2 && activeIs(handA));
+fakeDocument.activeElement = cardA;
+assert('field arrows resume after the cycle is cancelled',
+    pressKey('ArrowRight') && activeIs(blockedFieldCard));
+
+fakeDocument.activeElement = handA;
+assert('ArrowUp from the hand still lands on the topmost focusable field card',
+    pressKey('ArrowUp') && activeIs(cardH) && state().selectedCard === null);
+
+console.log('field arrow neighbours ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping field arrow neighbour test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping field arrow neighbour test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'field arrow neighbour harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('field arrow neighbours ok', completed.stdout)
+
+    def test_keyboard_selected_property_cleared_on_focus_loss_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+const fieldCards = [];
+ ['', '', '', ''].forEach((unused, laneIndex) => {
+    const lane = new FakeElement('li', 'lane');
+    lane.classList.add(['Intelligence', 'Speed', 'Visciousness', 'Resolve'][laneIndex]);
+    lanesEl.appendChild(lane);
+    const fieldCard = new FakeElement('li', 'cardContainer');
+    fieldCard.setAttribute('tabindex', '0');
+    fieldCard.dataset.cardLane = String(laneIndex + 1);
+    const fieldId = new FakeElement('input');
+    fieldId.setAttribute('type', 'hidden');
+    fieldId.setAttribute('name', 'card_id');
+    fieldId.setAttribute('value', `500${laneIndex + 1}`);
+    fieldCard.appendChild(fieldId);
+    lane.appendChild(fieldCard);
+    fieldCards.push(fieldCard);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(lane);
+    card.dataset.sourceLane = '0';
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 1);
+const handB = makeHandCard(202, 2);
+const cardButton = new FakeElement('button');
+cardButton.setAttribute('type', 'button');
+handA.appendChild(cardButton);
+const handCards = [handA, handB];
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+for (const el of [handA, handB, cardButton, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) {
+        return body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+        return body.querySelectorAll(selector);
+    },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '1', tactics: '2',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+};
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const clickHandlers = documentListeners['click'] ?? [];
+
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const clickCard = (card) => {
+    clickHandlers.forEach((entry) => entry({
+        type: 'click', button: 0, target: card, clientX: 5, clientY: 5,
+    }));
+};
+const fireScreenFocus = (type, target, relatedTarget) => {
+    (playerScreen.eventHandlers[type] || []).forEach((entry) => entry({
+        type, target, relatedTarget,
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const state = () => system.keyboardSelection;
+const activeIs = (element) => fakeDocument.activeElement === element;
+const bodyArrowsCount = () => body.children.filter(
+    (child) => child.classes && child.classes.has('hologram-arrow'),
+).length;
+
+fakeDocument.activeElement = body;
+
+assert('typing digit 1 selects card A with a lane preview while focused',
+    pressKey('1') && state().selectedCard === handA && state().lanePreviewActive === true && activeIs(handA));
+assert('hand selection writes the preview clone into lane 1 row',
+    holoRows[0].children.length === 1 &&
+    holoRows[0].children[0].classList.contains('hologram') &&
+    holoRows[0].children[0].classList.contains('keyboard-preview'));
+assert('lane preview keeps the property on the focused card',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, cardButton);
+assert('focus moving inside the card keeps the selection styling',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, endTurnButton);
+assert('true focus loss removes the property even for the last selected card',
+    handA.getAttribute('data-keyboard-selected') === null &&
+    handA.getAttribute('aria-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('the lane preview survives focus loss so a lane click can still confirm',
+    state().selectedCard === handA && holoRows[0].children.length === 1);
+
+fireScreenFocus('focusin', handA, undefined);
+assert('refocusing the still selected card restores the property',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    system.control._focusArrow !== null && system.control._focusArrow.source === handA);
+assert('filtering the focus arrow keeps exactly one svg in the body', bodyArrowsCount() === 1);
+
+fakeDocument.activeElement = handA;
+assert('Enter stages the play into the preview lane',
+    pressKey('Enter') && handA.classList.contains('ghost') && handA.dataset.stagedLane === '1');
+const stagedHologram = holoRows[0].children.filter((child) => !child.classList.contains('drop-zone'))[0];
+assert('staged hologram replaces the preview clone in lane 1 row',
+    holoRows[0].children.length === 1 && stagedHologram.classList.contains('hologram') &&
+    stagedHologram.classList.contains('keyboard-staged'));
+const stagedClone = stagedHologram.querySelector('.cardContainer');
+assert('staged hologram links the played card id',
+    stagedHologram.getAttribute('data-staged-for-card-id') === '201');
+assert('staged play removes the property from the hand card',
+    handA.getAttribute('data-keyboard-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('staged clone gains a flip tab stop while flips remain',
+    stagedClone.getAttribute('tabindex') === '0');
+
+fakeDocument.activeElement = handA;
+assert('digit 1 selects the played ghost for its flip',
+    pressKey('1') && state().ghostFlip === true && state().selectedCard === handA);
+assert('ghost-flip selection carries the property again',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.getAttribute('aria-selected') === 'true');
+
+fireScreenFocus('focusout', handA, stagedClone);
+assert('focus moving between the ghost and its lane clone keeps the property',
+    handA.getAttribute('data-keyboard-selected') === 'true' && state().ghostFlip === true);
+
+fireScreenFocus('focusout', handA, endTurnButton);
+assert('focus loss keeps the property while the card is being played to a lane',
+    handA.getAttribute('data-keyboard-selected') === 'true' &&
+    handA.classList.contains('keyboard-selected') &&
+    handA.getAttribute('aria-selected') === 'true' && state().ghostFlip === true);
+
+assert('Enter confirms the ghost flip and clears the property',
+    pressKey('Enter') && handA.dataset.stagedFlipped === 'true' &&
+    handA.getAttribute('data-keyboard-selected') === null &&
+    !handA.classList.contains('keyboard-selected'));
+assert('the flipped predecessor stays face up after the flip confirm',
+    stagedClone.classList.contains('faceDown') === false);
+
+fakeDocument.activeElement = body;
+clickCard(handB);
+assert('mouse click selects card B',
+    state().selectedCard === handB && state().mouseSelecting === true && activeIs(handB));
+assert('mouse selection carries the property',
+    handB.getAttribute('data-keyboard-selected') === 'true');
+assert('mouse preview cursor follows the selection',
+    fakeDocument.getElementById('mousePreviewCursor') !== null);
+assert('mousemove route is installed for the mouse selection',
+    (documentListeners['mousemove'] || []).length === 1);
+
+fireScreenFocus('focusout', handB, null);
+assert('mouse selection styling is removed when focus truly leaves the card',
+    handB.getAttribute('data-keyboard-selected') === null &&
+    handB.getAttribute('aria-selected') === null &&
+    !handB.classList.contains('keyboard-selected'));
+assert('the mouse selection stays confirmable after focus loss',
+    state().selectedCard === handB && state().mouseSelecting === true &&
+    fakeDocument.getElementById('mousePreviewCursor') !== null);
+
+assert('Escape cancels the abandoned mouse selection and repairs focus',
+    pressKey('Escape') && state().selectedCard === null && state().digitBuffer === '' &&
+    state().mouseSelecting === false && activeIs(handB));
+assert('Escape teardown removes the cursor marker and mousemove route',
+    fakeDocument.getElementById('mousePreviewCursor') === null &&
+    (documentListeners['mousemove'] || []).length === 0);
+assert('no selection property lingers after Escape',
+    handB.getAttribute('data-keyboard-selected') === null);
+
+system.destroy();
+assert('destroy cleans up', bodyArrowsCount() === 0);
+
+console.log('keyboard-selected property focus lifecycle ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping focus-loss property DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping focus-loss property DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'keyboard-selected property focus lifecycle harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('keyboard-selected property focus lifecycle ok', completed.stdout)
+
+
         import os
         css_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css')
         with open(css_path) as css_file:
@@ -2689,6 +8703,642 @@ class BattleFlowTests(TestCase):
         response = self.client.get(board_url)
         self.assertContains(response, 'class="end-turn"')
         self.assertRegex(response.content.decode(), r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+    def test_focused_hand_card_persists_across_turns_and_round_trips(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        self.assertIn('data-focused-hand-card="1"', content)
+        self.assertIn('name="focused_hand_card" value="1"', content)
+
+        self.client.post(action_url, {"action": "draw", "focused_hand_card": "4"})
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.focusedHandCard, 4)
+
+        self.client.post(action_url, {"action": "end_turn", "focused_hand_card": "abc"})
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.focusedHandCard, 4)
+
+        response = self.client.get(board_url)
+        self.assertIn('data-focused-hand-card="4"', response.content.decode())
+
+    def test_arrow_key_routing_uses_region_navigator_and_persists_focused_hand_card(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        self.assertIn('class RegionNavigator {', drag_js)
+        self.assertIn('class KeyboardSelectionControl {', drag_js)
+        self.assertIn('class CardDragDropSystem {', drag_js)
+
+        shortcut_class = drag_js.index('class ShortcutHoldAction {')
+        navigator_start = drag_js.index('class RegionNavigator {')
+        keyboard_selection_start = drag_js.index('class KeyboardSelectionControl {')
+        card_drag_drop_start = drag_js.index('class CardDragDropSystem {')
+        self.assertGreater(navigator_start, shortcut_class)
+        self.assertLess(navigator_start, keyboard_selection_start)
+        self.assertLess(keyboard_selection_start, card_drag_drop_start)
+
+        navigator_class = drag_js[navigator_start:keyboard_selection_start]
+        self.assertIn('regionFor(element)', navigator_class)
+        self.assertIn('firstFieldCard()', navigator_class)
+        self.assertIn('nextFieldCard(fromElement, step)', navigator_class)
+        self.assertIn('fieldCardForFocus(fromElement)', navigator_class)
+        self.assertIn('focusableFieldCards()', navigator_class)
+        self.assertIn('handCardAt(slot)', navigator_class)
+        self.assertIn('endTurnButton()', navigator_class)
+        self.assertIn('drawButton()', navigator_class)
+
+        self.assertIn(
+            '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer',
+            navigator_class,
+        )
+        self.assertIn(
+            '.playerScreen .deckHand ul.hand li.cardContainer',
+            navigator_class,
+        )
+        self.assertIn('.playerScreen .lanes .cardContainer', navigator_class)
+        self.assertIn('.playerScreen .end-turn', navigator_class)
+        self.assertIn(
+            '.playerScreen .deckHand .active-deck button.draw',
+            navigator_class,
+        )
+
+        self.assertIn('getBoundingClientRect()', navigator_class)
+        self.assertIn(
+            '.playerScreen .playerBoard .lanes .cardContainer[tabindex="0"]',
+            navigator_class[
+                navigator_class.index('    focusableFieldCards()'):
+                navigator_class.index('    firstFieldCard()')
+            ],
+        )
+        self.assertNotIn(
+            '.playerScreen .lanes .cardContainer[tabindex="0"]',
+            navigator_class,
+        )
+        next_field_block = navigator_class[
+            navigator_class.index('    nextFieldCard(fromElement, step)'):
+            navigator_class.index('    handCardAt(slot)')
+        ]
+        self.assertIn("if (ra.left !== rb.left) return ra.left - rb.left;", next_field_block)
+        self.assertIn('return ra.top - rb.top;', next_field_block)
+        self.assertIn(
+            ".closest('.playerScreen .lanes .cardContainer')",
+            navigator_class[
+                navigator_class.index('    fieldCardForFocus(fromElement)'):
+                navigator_class.index('    focusableFieldCards()')
+            ],
+        )
+        self.assertIn('currentIndex === -1', next_field_block)
+        self.assertIn('cards[currentIndex + step] ?? null', next_field_block)
+        self.assertIn('orderableKeyboardCards()', navigator_class)
+        self.assertIn('_findEndTurnControl()', navigator_class)
+        self.assertIn('_findDrawControl()', navigator_class)
+
+        control_class = drag_js[keyboard_selection_start:card_drag_drop_start]
+        self.assertIn('navigate(direction, fromElement)', control_class)
+        self.assertIn('persistedHandSlot', control_class)
+        self.assertIn("getElementById('turnLimits')", control_class)
+        self.assertIn('dataset.focusedHandCard', control_class)
+        self.assertIn('this.navigator', control_class)
+        self.assertIn('this.system', control_class)
+
+        constructor_block = control_class[
+            control_class.index('constructor({'):control_class.index('    _emptyKeyboardSelection() {')
+        ]
+        self.assertIn('this.persistedHandSlot = Number.isInteger(raw) && raw >= 1 ? raw : 1;', constructor_block)
+
+        select_keyboard_code = control_class[
+            control_class.index('    selectKeyboardCard(card'):
+            control_class.index('    moveKeyboardSelection(laneValue)')
+        ]
+        self.assertIn("form.cardActionForm input[name=\"focused_hand_card\"]", select_keyboard_code)
+        clear_index = select_keyboard_code.rindex('this.clearKeyboardSelection()')
+        state_index = select_keyboard_code.rindex('this.state = {')
+        write_index = select_keyboard_code.index(
+            "form.cardActionForm input[name=\"focused_hand_card\"]"
+        )
+        self.assertGreater(write_index, clear_index)
+        self.assertLess(write_index, state_index)
+
+        navigate_method = control_class[
+            control_class.index('    navigate(direction, fromElement)'):
+        ]
+        next_method_match = navigate_method.index('    ', navigate_method.index('\n    _mirrorStagedFocus'))
+        navigate_method = navigate_method[:next_method_match]
+
+        self.assertIn("region === 'hand' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'hand' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'field' && direction === 'ArrowUp'", navigate_method)
+        field_branch_start = navigate_method.index(
+            "region === 'field' && (direction === 'ArrowLeft' || direction === 'ArrowRight')"
+        )
+        field_branch = navigate_method[
+            field_branch_start:field_branch_start +
+            navigate_method[field_branch_start:].index("region === 'field' && direction === 'ArrowDown'")
+        ]
+        self.assertIn(
+            "target = this.navigator.nextFieldCard(fromElement, direction === 'ArrowRight' ? 1 : -1);",
+            field_branch,
+        )
+        self.assertNotIn('selectKeyboardCard', field_branch)
+        self.assertNotIn('isHandCard', field_branch)
+        self.assertIn("region === 'field' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'end-turn' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'end-turn' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'end-turn' && direction === 'ArrowRight'", navigate_method)
+        self.assertIn("region === 'draw' && direction === 'ArrowUp'", navigate_method)
+        self.assertIn("region === 'draw' && direction === 'ArrowDown'", navigate_method)
+        self.assertIn("region === 'draw' && direction === 'ArrowLeft'", navigate_method)
+        self.assertIn(
+            "target = this.navigator.lastFocusableOrderableHandCard()",
+            navigate_method,
+        )
+        self.assertIn(
+            "target = this.navigator.firstFocusableOrderableHandCard()",
+            navigate_method,
+        )
+        self.assertIn('firstFieldCard()', navigate_method)
+        self.assertIn('endTurnButton()', navigate_method)
+        self.assertIn('drawButton()', navigate_method)
+        self.assertIn('handCardAt(this.persistedHandSlot)', navigate_method)
+        self.assertIn(
+            "region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')",
+            navigate_method,
+        )
+        self.assertIn('const handStep = direction === \'ArrowRight\' ? 1 : -1;', navigate_method)
+        self.assertIn('this.navigator.handArrowAtBoundary(fromElement, handStep)', navigate_method)
+        self.assertIn('this.navigator.handArrowExitButton(handStep)', navigate_method)
+        self.assertIn('this.navigator.nextHandCard(fromElement, handStep)', navigate_method)
+        self.assertIn('const targetIndex = this.system.playableKeyboardCards().indexOf(target);', navigate_method)
+        self.assertIn('let ordinal = this.persistedHandSlot;', navigate_method)
+        self.assertIn(
+            "if (typeof target.focus !== 'function') return false;",
+            navigate_method,
+        )
+        self.assertEqual(
+            navigate_method.count('target.focus({ preventScroll: true })'),
+            2,
+        )
+        self.assertNotIn("region === 'end-turn' && direction === 'ArrowLeft'", navigate_method)
+        self.assertNotIn("region === 'draw' && direction === 'ArrowRight'", navigate_method)
+        self.assertIn('this.system.selectKeyboardCard(target, String(ordinal))', navigate_method)
+
+        parent_class = drag_js[card_drag_drop_start:]
+        self.assertIn('    onKeyboardKeyDown(event)', parent_class)
+        self.assertIn('    selectOrderedCard(', parent_class)
+        keydown_code = parent_class[
+            parent_class.index('    onKeyboardKeyDown(event)'):
+            parent_class.index('    selectOrderedCard(')
+        ]
+
+        self.assertIn(
+            "key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'",
+            keydown_code,
+        )
+        self.assertIn(
+            '!this.keyboardSelection.selectedCard',
+            keydown_code,
+        )
+        self.assertIn(
+            '!this.keyboardSelection.ghostFlip',
+            keydown_code,
+        )
+        self.assertIn(
+            'this.control.navigate(key, document.activeElement)',
+            keydown_code,
+        )
+        self.assertIn(
+            'if (this.control.navigate(key, document.activeElement)) event.preventDefault();',
+            keydown_code,
+        )
+
+        arrow_branch_index = keydown_code.index(
+            "key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'"
+        )
+        lane_step_index = keydown_code.index('const laneStep = {')
+        self.assertLess(arrow_branch_index, lane_step_index)
+
+        navigate_call_count = keydown_code.count('.navigate(')
+        self.assertEqual(navigate_call_count, 1)
+
+        parent_navigate_count = parent_class.count('.navigate(')
+        self.assertEqual(parent_navigate_count, 1)
+
+        self.assertIn('this.moveKeyboardSelection(nextLane)', keydown_code)
+        self.assertIn("ArrowLeft: -1", keydown_code)
+        self.assertIn("ArrowRight: 1", keydown_code)
+        self.assertIn("ArrowUp: -1", keydown_code)
+        self.assertIn("ArrowDown: 1", keydown_code)
+
+        self.assertIn("get control() {", parent_class)
+        self.assertIn("return this._keyboardSelectionControl;", parent_class)
+
+    def test_hand_arrow_boundaries_focus_draw_and_end_turn_without_selecting(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        navigator_start = drag_js.index('class RegionNavigator {')
+        keyboard_selection_start = drag_js.index('class KeyboardSelectionControl {')
+        card_drag_drop_start = drag_js.index('class CardDragDropSystem {')
+        navigator_class = drag_js[navigator_start:keyboard_selection_start]
+        control_class = drag_js[keyboard_selection_start:card_drag_drop_start]
+
+        boundary_start = navigator_class.index('    handArrowAtBoundary(fromElement, step) {')
+        exit_start = navigator_class.index('    handArrowExitButton(step) {')
+        exit_end = navigator_class.index('    endTurnButton()', exit_start)
+        boundary_block = navigator_class[boundary_start:exit_start]
+        exit_block = navigator_class[exit_start:exit_end]
+
+        self.assertIn('handCardForFocus(fromElement)', boundary_block)
+        self.assertIn(
+            'const orderableCards = this.system.orderableKeyboardCards();',
+            boundary_block,
+        )
+        self.assertIn(
+            'const currentIndex = orderableCards.indexOf(this.handCardForFocus(fromElement));',
+            boundary_block,
+        )
+        self.assertIn(
+            'return step < 0 ? currentIndex === 0 : currentIndex === orderableCards.length - 1;',
+            boundary_block,
+        )
+        self.assertIn(
+            'return step < 0 ? this.drawButton() : this.endTurnButton();',
+            exit_block,
+        )
+        self.assertIn('focusableOrderableHandCards()', exit_block)
+        self.assertIn(
+            "card => card?.getAttribute?.('tabindex') === '0'",
+            exit_block,
+        )
+        self.assertIn('return this.focusableOrderableHandCards()[0] || null;', exit_block)
+        self.assertIn(
+            'return focusableCards[focusableCards.length - 1] || null;',
+            exit_block,
+        )
+        self.assertIn('selectKeyboardCard', control_class)
+        self.assertNotIn('selectKeyboardCard', exit_block)
+
+        navigate_method = control_class[
+            control_class.index('    navigate(direction, fromElement)'):
+        ]
+        navigate_method = navigate_method[:navigate_method.index('\n    _mirrorStagedFocus')]
+        hand_branch = navigate_method[
+            navigate_method.index(
+                "region === 'hand' && (direction === 'ArrowLeft' || direction === 'ArrowRight')"
+            ):
+            navigate_method.index("region === 'field' && direction === 'ArrowUp'")
+        ]
+
+        self.assertIn("const handStep = direction === 'ArrowRight' ? 1 : -1;", hand_branch)
+        self.assertIn('this.navigator.handArrowAtBoundary(fromElement, handStep)', hand_branch)
+        self.assertIn('target = this.navigator.handArrowExitButton(handStep);', hand_branch)
+        boundary_index = hand_branch.index('this.navigator.handArrowAtBoundary(fromElement, handStep)')
+        exit_index = hand_branch.index('target = this.navigator.handArrowExitButton(handStep);')
+        next_card_index = hand_branch.index('this.navigator.nextHandCard(fromElement, handStep)')
+        self.assertLess(boundary_index, exit_index)
+        self.assertLess(exit_index, next_card_index)
+
+        self.assertNotIn('selectKeyboardCard', navigator_class)
+        self.assertNotIn('isHandCard', hand_branch[boundary_index:next_card_index])
+        self.assertIn('isHandCard = true', hand_branch[next_card_index:])
+
+    def test_zero_allowances_keep_staged_ghosts_and_facedown_cards_focusable_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r'''
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+
+const placeCard = (card, left, top) => {
+    card.getBoundingClientRect = () => ({ left, top, width: 100, height: 140 });
+};
+const makeHiddenInput = (name, value) => {
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', name);
+    input.setAttribute('value', String(value));
+    return input;
+};
+
+const enemyTable = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyTable);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyTable.appendChild(enemyBoard);
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = new FakeElement('li', 'lane Intelligence');
+enemyLanes.appendChild(enemyLane);
+const enemyCardRow = new FakeElement('ul', 'cardRow');
+enemyCardRow.setAttribute('title', 'cards');
+enemyLane.appendChild(enemyCardRow);
+const enemyCard = new FakeElement('li', 'cardContainer faceDown');
+enemyCard.setAttribute('tabindex', '0');
+enemyCard.appendChild(makeHiddenInput('card_id', 900));
+enemyCardRow.appendChild(enemyCard);
+placeCard(enemyCard, 500, 60);
+
+const playerTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerTable.appendChild(playerBoard);
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+
+const playerLane = new FakeElement('li', 'lane Speed');
+lanesEl.appendChild(playerLane);
+const hologramRow = new FakeElement('ul', 'hologramRow');
+playerLane.appendChild(hologramRow);
+const cardRow = new FakeElement('ul', 'cardRow');
+cardRow.setAttribute('title', 'cards');
+playerLane.appendChild(cardRow);
+const trustedRow = new FakeElement('ul', 'cardRow');
+trustedRow.setAttribute('title', 'trustedCards');
+playerLane.appendChild(trustedRow);
+
+const fieldCard = new FakeElement('li', 'cardContainer faceDown');
+fieldCard.setAttribute('tabindex', '0');
+fieldCard.dataset.sourceLane = '2';
+fieldCard.dataset.sourceOrdinal = '1';
+fieldCard.appendChild(makeHiddenInput('card_id', 611));
+fieldCard.appendChild(new FakeElement('div', 'card back smallCard'));
+cardRow.appendChild(fieldCard);
+placeCard(fieldCard, 10, 20);
+
+const faceUpCard = new FakeElement('li', 'cardContainer');
+faceUpCard.appendChild(makeHiddenInput('card_id', 612));
+cardRow.appendChild(faceUpCard);
+placeCard(faceUpCard, 300, 20);
+
+const trustedCard = new FakeElement('li', 'cardContainer');
+trustedCard.setAttribute('card_id', '550');
+trustedCard.appendChild(makeHiddenInput('card_id', 550));
+trustedRow.appendChild(trustedCard);
+placeCard(trustedCard, 400, 60);
+
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+const makeHandCard = (cardId, lane) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.sourceLane = '0';
+    card.appendChild(makeHiddenInput('card_id', cardId));
+    card.appendChild(makeHiddenInput('lane', lane));
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 1);
+const handB = makeHandCard(202, 2);
+const handC = makeHandCard(203, 4);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+let cookieWrites = 0;
+Object.defineProperty(fakeDocument, 'cookie', {
+    set() { cookieWrites += 1; },
+    get() { return `writes:${cookieWrites}`; },
+});
+
+for (const el of [body, playerScreen, playerBoard, fieldCard, handA, handB, handC, endTurnForm, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/action/' },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const pressKey = (key) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const state = () => system.keyboardSelection;
+const fieldCollection = () => system.control.navigator.focusableFieldCards();
+const activeIs = (element) => fakeDocument.activeElement === element;
+const collectorLacks = (card) => !fieldCollection().includes(card);
+
+fakeDocument.activeElement = fieldCard;
+assert('the face-down lane card turns ghostly without losing its flip tab stop',
+    (() => {
+        system.onFaceDownCardClick({ currentTarget: fieldCard, target: fieldCard }, 2);
+        return fieldCard.classList.contains('ghost') && fieldCard.getAttribute('tabindex') === '0';
+    })());
+const flipHologram = hologramRow.children.filter(
+    (el) => el.getAttribute('data-flip-for-card-id') === '611',
+)[0];
+assert('the lane flip renders a face-up ghost hologram', Boolean(flipHologram));
+const flipClone = flipHologram.querySelector('.cardContainer');
+assert('the face-up flip clone keeps no faceDown marker and no tab stop',
+    flipClone.classList.contains('faceUp') && !flipClone.classList.contains('faceDown') &&
+    flipClone.getAttribute('tabindex') === null);
+assert('face-up and enemy cards stay outside the field focus collection',
+    collectorLacks(flipClone) && collectorLacks(faceUpCard) &&
+    collectorLacks(trustedCard) && collectorLacks(enemyCard));
+
+fakeDocument.activeElement = handA;
+assert('typing digit 1 opens a play preview for card A',
+    pressKey('1') && state().selectedCard === handA && state().lanePreviewActive === true);
+const previewClone = fakeDocument.querySelectorAll('.hologram.keyboard-preview .cardContainer')[0];
+assert('the play preview is a face-up copy without a tab stop',
+    previewClone && previewClone.classList.contains('faceUp') &&
+    previewClone.getAttribute('tabindex') === null);
+
+assert('Enter stages the play and spends the last play allowance',
+    pressKey('Enter') && handA.classList.contains('ghost') && system.staged.plays === 1);
+const stagedClone = fakeDocument.querySelectorAll(
+    '.hologram.keyboard-staged .cardContainer',
+)[0];
+console.log('DEBUG stagedClone=', stagedClone ? 'yes' : 'no',
+    stagedClone ? [...stagedClone.classes].join('|') : '',
+    stagedClone ? stagedClone.getAttribute('data-staged-for-card-id') : '',
+    stagedClone ? stagedClone.getAttribute('tabindex') : '',
+    stagedClone ? stagedClone.classList.contains('faceDown') : '',
+    stagedClone ? stagedClone.dataset.stagedForCardId : '');
+assert('the staged lane copy links the played hand card id',
+    stagedClone && stagedClone.parentNode.getAttribute('data-staged-for-card-id') === '201');
+assert('the staged lane copy is a face-down copy with a tab stop',
+    stagedClone.classList.contains('faceDown') && stagedClone.getAttribute('tabindex') === '0');
+placeCard(stagedClone, 60, 20);
+placeCard(flipClone, 200, 20);
+stagedClone.focus = () => { fakeDocument.activeElement = stagedClone; };
+stagedClone.blur = () => { if (fakeDocument.activeElement === stagedClone) fakeDocument.activeElement = body; };
+assert('the played hand ghost keeps its tab stop once plays are exhausted',
+    handA.getAttribute('tabindex') === '0' && !handA.classList.contains('blocked'));
+assert('plain unplayed hand cards lose the tab stop while plays are blocked',
+    handB.getAttribute('tabindex') === null && handB.classList.contains('blocked') &&
+    handC.getAttribute('tabindex') === null && handC.classList.contains('blocked'));
+assert('the keyboard order carries only the staged ghost',
+    system.orderableKeyboardCards().length === 1 &&
+    system.orderableKeyboardCards().includes(handA));
+assert('face-down field cards stay in the focus collection with flips blocked',
+    fieldCollection().includes(fieldCard) && fieldCollection().includes(stagedClone));
+const guardCookieWrites = cookieWrites;
+
+fakeDocument.activeElement = stagedClone;
+assert('ArrowDown from the field focuses the played ghost without selecting it',
+    pressKey('ArrowDown') && activeIs(handA) && state().selectedCard === null &&
+    state().ghostFlip === false && state().digitBuffer === '');
+assert('ghost focus with no flips left writes no flip cookie', cookieWrites === guardCookieWrites);
+pressKey('Enter');
+assert('Enter on the focused ghost starts no flip selection or mutation without flips',
+    state().selectedCard === null && state().digitBuffer === '' &&
+    cookieWrites === guardCookieWrites && activeIs(handA));
+assert('ArrowRight from the lone ghost exits to the end turn button',
+    pressKey('ArrowRight') && activeIs(endTurnButton) && state().selectedCard === null);
+assert('ArrowUp from end turn refocuses the played ghost without selecting it',
+    pressKey('ArrowUp') && activeIs(handA) && state().selectedCard === null &&
+    state().digitBuffer === '' && cookieWrites === guardCookieWrites);
+
+fakeDocument.activeElement = handA;
+assert('ArrowUp from the hand reaches the blocked face-down field card',
+    pressKey('ArrowUp') && activeIs(fieldCard) && state().selectedCard === null);
+assert('Enter on the blocked face-down card flips nothing',
+    !pressKey('Enter') && cookieWrites === guardCookieWrites &&
+    hologramRow.children.filter(
+        (el) => el.getAttribute('data-flip-for-card-id') === '611',
+    ).length === 1);
+
+fakeDocument.activeElement = fieldCard;
+assert('field ArrowRight steps onto the face-down staged copy',
+    pressKey('ArrowRight') && activeIs(stagedClone));
+fakeDocument.activeElement = stagedClone;
+assert('field ArrowRight stops before face-up, trusted and enemy cards',
+    !pressKey('ArrowRight') && activeIs(stagedClone));
+fakeDocument.activeElement = stagedClone;
+assert('field ArrowLeft steps back to the face-down lane card',
+    pressKey('ArrowLeft') && activeIs(fieldCard));
+fakeDocument.activeElement = fieldCard;
+assert('field ArrowLeft from the leftmost face-down card is a boundary no-op',
+    !pressKey('ArrowLeft') && activeIs(fieldCard) && state().selectedCard === null);
+
+console.log('zero allowance focusability ok');
+'''.replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping zero allowance focusability test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping zero allowance focusability test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'zero allowance focusability harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('zero allowance focusability ok', completed.stdout)
 
 
 def _extract_js_brace_block(source, opener):
@@ -3671,7 +10321,7 @@ class SpecialTimelineTests(TestCase):
 
     def test_vis_special_win_defeats_opponent_and_records_attack_timeline(self):
         """End-to-end: winning via viciousness must not read as a resolve drain."""
-        from MMM.views import visSpecial
+        from MMM.battle_services import run_vis_special
 
         # Human: one face-up untrusted resolve card to spend.
         self._reset_all_cards_to_deck()
@@ -3686,7 +10336,7 @@ class SpecialTimelineTests(TestCase):
         resolve_card.state.save()
 
         timeline = []
-        result = visSpecial(self.human_participant, 5, timeline=timeline)
+        result = run_vis_special(self.human_participant, 5, timeline=timeline)
 
         # The human had resolve, so the attack succeeds and the OPPONENT loses.
         self.assertIn("attacks and defeats", result)
@@ -3743,7 +10393,7 @@ class SpecialTimelineTests(TestCase):
         which calls playCard BEFORE building the timeline. The timeline should
         still include card-effect steps for the played cards.
         """
-        from MMM.views import intSpecial
+        from MMM.battle_services import run_int_special
         from MMM.special_timeline import SPECIAL_TRIGGER, CARD_EFFECT
 
         self._reset_all_cards_to_deck()
@@ -3767,7 +10417,7 @@ class SpecialTimelineTests(TestCase):
         # Call intSpecial with a timeline (this calls playCard then build_int_timeline)
         timeline = []
         try:
-            intSpecial(self.human_participant, 3, timeline)
+            run_int_special(self.human_participant, 3, timeline)
         except Exception as e:
             self.fail(f"intSpecial raised exception: {e}")
 
@@ -3790,3 +10440,2564 @@ class SpecialTimelineTests(TestCase):
             "intSpecial should produce card-effect steps even after playCard moves cards. "
             "Bug: build_int_timeline looks for cards in hand after playCard already moved them."
         )
+
+
+class BattlePagePolishBacktickOverlayTests(TestCase):
+    def setUp(self):
+        self.human = Player.objects.create(name="Human")
+        self.bot = Player.objects.create(name="Bot")
+
+        human_owner = CardOwnerHistory.objects.create(cardOwner=self.human)
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=self.bot)
+
+        self.human_cards = [
+            Card.objects.create(title=f"Human-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.human_cards:
+            card.ownerHistory.add(human_owner)
+        self.bot_cards = [
+            Card.objects.create(title=f"Bot-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.bot_cards:
+            card.ownerHistory.add(bot_owner)
+
+        self.human_deck = Deck.create(
+            self.human.id,
+            deckTitle="Human deck",
+            newDescription="test deck",
+            newDeckCards=self.human_cards,
+        )
+        self.bot_deck = Deck.create(
+            self.bot.id,
+            deckTitle="Bot deck",
+            newDescription="test deck",
+            newDeckCards=self.bot_cards,
+        )
+
+        history = BattleHistory.objects.create(challenger=self.human)
+        self.game = Game.objects.create(title="Test game", history=history, roundNumber=0)
+        self.human_participant = history.addHumanChallenger(
+            challengerPlayer_id=self.human.id,
+            startingCard_id=self.human_cards[0].id,
+            deck_id=self.human_deck.id,
+        )
+        self.bot_participant = history.addRobotChallenger(
+            challengerPlayer_id=self.bot.id,
+            startingCard_id=self.bot_cards[0].id,
+            deck_id=self.bot_deck.id,
+        )
+
+    def _read_card_drag_drop_js(self):
+        import os
+
+        js_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cardDragDrop.js'
+        )
+        with open(js_path) as js_file:
+            return js_file.read()
+
+    def _slice_on_keyboard_key_down(self, drag_js):
+        return drag_js[
+            drag_js.index('    onKeyboardKeyDown(event)'):
+            drag_js.index('    selectOrderedCard(')
+        ]
+
+    def _slice_js_method(self, source, signature, end_marker):
+        start = source.index(signature)
+        end = source.index(end_marker, start)
+        return source[start:end]
+
+    def _read_cards_css(self):
+        import os
+
+        css_path = os.path.join(
+            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css'
+        )
+        with open(css_path) as css_file:
+            return css_file.read()
+
+    def test_backtick_overlay_keydown_branch_toggles_three_targets(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        self.assertIn("event.key === '`'", keydown_code)
+        self.assertIn("event.code === 'Backquote'", keydown_code)
+        self.assertIn("event.key !== '~'", keydown_code)
+        self.assertNotIn("event.key === '~'", keydown_code)
+        self.assertIn("classList.toggle('debug-overlay-visible'", keydown_code)
+
+        for selector in (
+            ".playerScreen .deckHand > p",
+            ".playerScreen .enemyDeckHand > p",
+            ".playerScreen .lanes .lane > p",
+        ):
+            self.assertIn(selector, keydown_code)
+
+        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
+        self.assertIn('event.preventDefault()', keydown_code[:toggle_index])
+
+    def test_backtick_overlay_skips_text_controls(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        backtick_index = keydown_code.index("event.key === '`'")
+        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
+        self.assertLess(backtick_index, toggle_index)
+
+        guard_block = keydown_code[backtick_index:toggle_index]
+        self.assertIn('_isTextControlTarget', guard_block)
+        self.assertIn('event.preventDefault()', guard_block)
+
+    def test_backtick_overlay_css_rule_uses_absolute_white_z3(self):
+        cards_css = self._read_cards_css()
+
+        rule_match = re.search(r'\.debug-overlay-visible[^{]*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(rule_match, "No .debug-overlay-visible CSS rule found")
+
+        rule_body = rule_match.group(0)
+        self.assertIn('position: absolute', rule_body)
+        self.assertIn('background: white', rule_body)
+        self.assertIn('z-index: 3', rule_body)
+
+        for forbidden in ('top:', 'width: ', 'left: ', 'height: '):
+            self.assertNotIn(forbidden, rule_body)
+
+    def test_backtick_overlay_targets_exist_in_rendered_board(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        player_section_match = re.search(
+            r'<div class="deckHand">\s*(.*?)<div class="deck-stack',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            player_section_match,
+            "Could not locate <div class=\"deckHand\"> opening in rendered board",
+        )
+        player_p_match = re.match(
+            r'\s*<p[^>]*>([\s\S]*?)</p>',
+            player_section_match.group(1),
+        )
+        self.assertIsNotNone(
+            player_p_match,
+            "Player deck/hand counter <p> is not the first direct child of "
+            "<div class=\"deckHand\">",
+        )
+        self.assertIn('Deck:', player_p_match.group(1))
+        self.assertIn('| Hand:', player_p_match.group(1))
+
+        enemy_section_match = re.search(
+            r'<div class="enemyDeckHand">\s*(.*?)<div class="deck-stack enemy-deck-stack"',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            enemy_section_match,
+            "Could not locate <div class=\"enemyDeckHand\"> opening in rendered board",
+        )
+        enemy_p_match = re.match(
+            r'\s*<p class="cardType"[^>]*>([\s\S]*?)</p>',
+            enemy_section_match.group(1),
+        )
+        self.assertIsNotNone(
+            enemy_p_match,
+            "Enemy deck/hand counter <p class=\"cardType\"> is not the first direct child of "
+            "<div class=\"enemyDeckHand\">",
+        )
+        self.assertIn('Deck:', enemy_p_match.group(1))
+        self.assertIn('| Hand:', enemy_p_match.group(1))
+
+        lane_finder = _LaneIndicatorFinder()
+        lane_finder.feed(content)
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            self.assertIn(
+                lane_name,
+                lane_finder.found,
+                f"Lane <li class=\"lane {lane_name}\"> has no <p> direct child",
+            )
+            self.assertIn(lane_name, lane_finder.found[lane_name])
+
+    def test_backtick_overlay_targets_are_visible_not_dev_only(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        content = response.content.decode()
+
+        def strip_blocks(source, pattern):
+            return re.sub(pattern, '', source, flags=re.DOTALL)
+
+        scrubbed = strip_blocks(content, r'<script\b[^>]*>[\s\S]*?</script>')
+        scrubbed = strip_blocks(scrubbed, r'<template\b[^>]*>[\s\S]*?</template>')
+        scrubbed = strip_blocks(scrubbed, r'<div\b[^>]*\bhidden\b[^>]*>[\s\S]*?</div>')
+
+        self.assertRegex(
+            scrubbed,
+            r'<p[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            "Player counter <p> must not be inside <script>, <template>, or hidden <div>",
+        )
+        self.assertRegex(
+            scrubbed,
+            r'<p class="cardType"[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            "Enemy counter <p class=\"cardType\"> must not be inside dev-only blocks",
+        )
+        for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
+            self.assertRegex(
+                scrubbed,
+                rf'<p[^>]*>[\s\S]*?\|\s*{lane_name}\s*</p>',
+                f"Lane <p> for {lane_name} must not be inside dev-only blocks",
+            )
+
+    def test_backtick_debug_branch_toggles_only_paragraph_groups_without_panel(self):
+        drag_js = self._read_card_drag_drop_js()
+        keydown_code = self._slice_on_keyboard_key_down(drag_js)
+
+        self.assertNotIn('debugOverlay', keydown_code)
+        self.assertNotIn('getElementById', keydown_code)
+
+        branch_index = keydown_code.index(
+            "event.key === '`' || (event.code === 'Backquote' && event.key !== '~')"
+        )
+        toggle_call_index = keydown_code.index(
+            'this.toggleDebugParagraphOverlay()', branch_index
+        )
+        end_of_branch = keydown_code.index('if (this._isEndTurnKey(event))', branch_index)
+        branch = keydown_code[branch_index:end_of_branch]
+        self.assertIn('event.preventDefault()', branch)
+        self.assertIn('this.toggleDebugParagraphOverlay();', branch)
+
+        self.assertEqual(
+            keydown_code.count("classList.toggle('debug-overlay-visible'"), 1
+        )
+        self.assertEqual(keydown_code.count('document.querySelectorAll'), 1)
+
+        combined_selector = keydown_code[keydown_code.index('.playerScreen .deckHand > p'):]
+        combined_selector = combined_selector[:combined_selector.index(')')]
+        for selector in (
+            ".playerScreen .deckHand > p",
+            ".playerScreen .enemyDeckHand > p",
+            ".playerScreen .lanes .lane > p",
+        ):
+            self.assertIn(selector, combined_selector)
+
+    def test_backtick_debug_paragraph_css_styling_applies_visibility_class(self):
+        cards_css = self._read_cards_css()
+        visible_rule = re.search(
+            r'\.playerScreen\s+\.deckHand\s*>\s*p\.debug-overlay-visible[^{]*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(visible_rule, "No <p> debug-overlay-visible CSS rule found")
+        body = visible_rule.group(0)
+        self.assertIn('position: absolute', body)
+        self.assertIn('background: white', body)
+        self.assertIn('z-index: 3', body)
+
+    def test_backtick_dead_key_and_grave_dispatch_toggles_paragraphs_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        drag_js = self._read_card_drag_drop_js()
+        text_control_target = self._slice_js_method(
+            drag_js,
+            '    _isTextControlTarget(target) {',
+            '    _keyboardTransitionActive() {',
+        )
+        end_turn_key = self._slice_js_method(
+            drag_js,
+            '    _isEndTurnKey(event) {',
+            '    _isDrawKey(event) {',
+        )
+        draw_key = self._slice_js_method(
+            drag_js,
+            '    _isDrawKey(event) {',
+            '    _findEndTurnControl() {',
+        )
+        keydown_handler = self._slice_js_method(
+            drag_js,
+            '    onKeyboardKeyDown(event) {',
+            '    toggleDebugParagraphOverlay() {',
+        )
+        paragraph_toggle = self._slice_js_method(
+            drag_js,
+            '    toggleDebugParagraphOverlay() {',
+            '    selectOrderedCard(',
+        )
+
+        harness_parts = [
+            'const expectedSelector =',
+            repr(
+                '.playerScreen .deckHand > p, '
+                '.playerScreen .enemyDeckHand > p, '
+                '.playerScreen .lanes .lane > p'
+            ) + ';',
+            '',
+            'const makeFakeParagraph = (name) => {',
+            '    const paragraph = { name, toggledUp: 0 };',
+            '    paragraph.classList = {',
+            '        toggle(className) {',
+            "            if (className !== 'debug-overlay-visible') {",
+            '                throw new Error("unexpected toggled class " + className);',
+            '            }',
+            '            paragraph.toggledUp += 1;',
+            '        },',
+            '    };',
+            '    return paragraph;',
+            '};',
+            '',
+            'const playerCounter = makeFakeParagraph("player");',
+            'const enemyCounter = makeFakeParagraph("enemy");',
+            'const laneIndicator = makeFakeParagraph("lane");',
+            'const paragraphTargets = [playerCounter, enemyCounter, laneIndicator];',
+            '',
+            'let recordedSelector = null;',
+            'global.document = {',
+            '    activeElement: null,',
+            '    querySelectorAll(selector) {',
+            '        if (!recordedSelector) recordedSelector = selector;',
+            '        return paragraphTargets;',
+            '    },',
+            '};',
+            '',
+            'const system = { keyboardSelection: { selectedCard: null, digitBuffer: "" } };',
+            'system._isTextControlTarget = eval(`(function ${' + repr(text_control_target) + '})`);',
+            'system._isEndTurnKey = eval(`(function ${' + repr(end_turn_key) + '})`);',
+            'system._isDrawKey = eval(`(function ${' + repr(draw_key) + '})`);',
+            'system.onKeyboardKeyDown = eval(`(function ${' + repr(keydown_handler) + '})`);',
+            'system.toggleDebugParagraphOverlay = eval(`(function ${' + repr(paragraph_toggle) + '})`);',
+            '',
+            'const dispatch = (descriptor) => {',
+            '    playerCounter.toggledUp = 0;',
+            '    enemyCounter.toggledUp = 0;',
+            '    laneIndicator.toggledUp = 0;',
+            '    recordedSelector = null;',
+            '    const event = {',
+            '        key: descriptor.key,',
+            '        code: descriptor.code,',
+            '        defaultPrevented: false,',
+            '        repeat: false,',
+            '        target: descriptor.target,',
+            '        preventDefault() { event.prevented = true; },',
+            '    };',
+            '    system.onKeyboardKeyDown(event);',
+            '    return { selector: recordedSelector, prevented: Boolean(event.prevented) };',
+            '};',
+            '',
+            'const expectToggled = (dispatched) => {',
+            '    if (dispatched.selector !== expectedSelector) {',
+            '        throw new Error("querySelectorAll selector mismatch: " + dispatched.selector);',
+            '    }',
+            '    for (const paragraph of paragraphTargets) {',
+            '        if (paragraph.toggledUp !== 1) {',
+            '            throw new Error(paragraph.name + " did not receive the debug class");',
+            '        }',
+            '    }',
+            '};',
+            '',
+            'let dispatchResult = dispatch({ key: "Dead", code: "Backquote" });',
+            'expectToggled(dispatchResult);',
+            'if (!dispatchResult.prevented) throw new Error("Dead backtick was not consumed");',
+            '',
+            'dispatchResult = dispatch({ key: "`", code: "Backquote" });',
+            'expectToggled(dispatchResult);',
+            'if (!dispatchResult.prevented) throw new Error("grave backtick was not consumed");',
+            '',
+            'dispatchResult = dispatch({ key: "Dead", code: "Backquote", target: { closest: () => null } });',
+            'expectToggled(dispatchResult);',
+            '',
+            'const textControlTarget = { closest: (selector) => ({ matches: () => true }) };',
+            'dispatchResult = dispatch({ key: "Dead", code: "Backquote", target: textControlTarget });',
+            'if (playerCounter.toggledUp !== 0 || enemyCounter.toggledUp !== 0 || laneIndicator.toggledUp !== 0) {',
+            '    throw new Error("text-control target must not trigger the debug toggle");',
+            '}',
+            'if (!dispatchResult.prevented) throw new Error("backtick in text control was not consumed");',
+            '',
+            'global.document.activeElement = textControlTarget;',
+            'dispatchResult = dispatch({ key: "`", code: "Backquote" });',
+            'if (playerCounter.toggledUp !== 0) {',
+            '    throw new Error("focused text control must block the debug toggle");',
+            '}',
+            'global.document.activeElement = null;',
+            '',
+            'dispatchResult = dispatch({ key: "~", code: "Backquote" });',
+            'if (playerCounter.toggledUp !== 0 || enemyCounter.toggledUp !== 0 || laneIndicator.toggledUp !== 0) {',
+            '    throw new Error("shifted tilde must not trigger the debug toggle");',
+            '}',
+            'if (dispatchResult.prevented) throw new Error("tilde keydown should reach other handlers");',
+            '',
+            'console.log("backtick debug paragraphs ok");',
+        ]
+        harness = '\n'.join(harness_parts)
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping backtick dispatch test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping backtick dispatch test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'backtick dispatch harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('backtick debug paragraphs ok', completed.stdout)
+
+
+class PlayerPageToBoardEndToEndTests(TestCase):
+    """Browser regression walk: open a player page, start and resume a challenge,
+    and keep the board loaded with its required assets and staged action flow."""
+
+    def setUp(self):
+        self.human = Player.objects.create(name="Human")
+        self.bot = Player.objects.create(name="Bot")
+
+        human_owner = CardOwnerHistory.objects.create(cardOwner=self.human)
+        self.human_cards = [
+            Card.objects.create(title=f"Human-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.human_cards:
+            card.ownerHistory.add(human_owner)
+        self.bot_cards = [
+            Card.objects.create(title=f"Bot-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=self.bot)
+        for card in self.bot_cards:
+            card.ownerHistory.add(bot_owner)
+
+        self.human_deck = Deck.create(
+            self.human.id,
+            deckTitle="Human walk deck",
+            newDescription="walking a challenge",
+            newDeckCards=self.human_cards,
+        )
+        self.bot_deck = Deck.create(
+            self.bot.id,
+            deckTitle="Bot walk deck",
+            newDescription="defending the walk",
+            newDeckCards=self.bot_cards,
+        )
+
+    def _open(self, url):
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, 200, f"Navigation failed for {url}")
+        html = response.content.decode()
+        scripts = re.findall(r'<script[^>]*src="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        links = re.findall(r'<link[^>]*href="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        referenced = sorted(set(scripts + links))
+        missing = [ref for ref in referenced if finders.find(ref) is None]
+        self.assertEqual(
+            missing, [],
+            f"Page at {url} references missing required assets: {missing}",
+        )
+        return response
+
+    def _input_values(self, html, field_name):
+        values = []
+        for tag in re.findall(r'<input[^>]*>', html):
+            if re.search(rf'name="{field_name}"', tag):
+                value = re.search(r'value="([^"]*)"', tag)
+                if value:
+                    values.append(value.group(1))
+        return values
+
+    def _player_counter(self, board_html):
+        deck_hand = board_html.split('<div class="deckHand">', 1)[1]
+        match = re.search(r'Deck: (\d+) \| Hand: (\d+)', deck_hand)
+        self.assertIsNotNone(match, "Board is missing its deck/hand counter")
+        return int(match.group(1)), int(match.group(2))
+
+    def test_player_page_starts_challenge_board_loads_assets_and_keeps_flow(self):
+        player_url = reverse("MMM:viewPlayer", args=[self.human.id])
+        response = self._open(player_url)
+        content = response.content.decode()
+        self.assertIn("Challenges", content)
+        create_link = reverse("MMM:createGame", args=[self.human.id]).rstrip("/")
+        self.assertContains(response, create_link)
+
+        response = self._open(reverse("MMM:createGame", args=[self.human.id]))
+        content = response.content.decode()
+        self.assertContains(response, "Initialize new game")
+        game_id = int(self._input_values(content, "newGameIdValue").pop())
+        self.assertEqual(self._input_values(content, "challenger"), [str(self.human.id)])
+        opponent_id = int(self._input_values(content, "challengePlayer").pop())
+        deck_id = int(self._input_values(content, "startingDeck").pop())
+        starting_card_id = int(self._input_values(content, "startingCard").pop())
+        self.assertEqual(self.human_deck.id, deck_id)
+
+        response = self.client.post(
+            reverse("MMM:initializeGame"),
+            {
+                "newGameIdValue": game_id,
+                "challenger": self.human.id,
+                "challengePlayer": opponent_id,
+                "startingDeck": deck_id,
+                "startingCard": starting_card_id,
+            },
+        )
+        game_detail_url = reverse("MMM:viewGameAsPlayer", args=[game_id, self.human.id])
+        self.assertRedirects(response, game_detail_url)
+
+        response = self._open(game_detail_url)
+        content = response.content.decode()
+        self.assertIn(self.bot.name, content)
+        self.assertIn("challenger:", content)
+        self.assertContains(response, "Shuffle the deck and load board")
+        confirm_url = reverse("MMM:confirmChallenge", args=[game_id, self.human.id])
+        self.assertContains(response, confirm_url)
+
+        board_url = reverse("MMM:viewBoard", args=[game_id, self.human.id])
+        response = self.client.post(confirm_url)
+        self.assertRedirects(response, board_url)
+
+        response = self._open(board_url)
+        board_before_draw = response.content.decode()
+        self.assertContains(response, '<link rel="stylesheet" href="/static/style.css">')
+        self.assertContains(response, '<link rel="stylesheet" href="/static/cards.css">')
+        self.assertContains(response, '<script type="module" src="/static/cardDragDrop.js"></script>')
+        self.assertContains(
+            response, '<script type="module" src="/static/loadingAnimations.js"></script>'
+        )
+        self.assertContains(response, '<script type="module" src="/static/laneStacking.js"></script>')
+        self.assertContains(response, '<script type="module" src="/static/hoverCooldown.js"></script>')
+        self.assertContains(
+            response, '<link rel="stylesheet" type="text/css" href="/static/cardDragDrop.css">'
+        )
+        self.assertContains(response, 'id="turnLimits"')
+        self.assertContains(response, '<div class="deckHand">')
+        self.assertContains(response, 'class="end-turn"')
+        self.assertContains(response, reverse("MMM:boardAction", args=[game_id, self.human.id]))
+        deck_count_before, hand_count_before = self._player_counter(board_before_draw)
+        self.assertGreater(deck_count_before, 0, "Loaded board left the player without a deck")
+
+        draw_url = reverse("MMM:boardAction", args=[game_id, self.human.id])
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+        self.assertNotContains(response, "Action error")
+        self.assertIn('class="cardContainer loading"', content)
+
+        board_after_draw = self._open(board_url).content.decode()
+        deck_count_after, hand_count_after = self._player_counter(board_after_draw)
+        self.assertEqual(deck_count_after, deck_count_before - 1)
+        self.assertEqual(hand_count_after, hand_count_before + 1)
+        self.assertIn('draggable="true" tabindex="0"', board_after_draw)
+        self.assertIn("data-card-id", board_after_draw)
+
+        self.assertContains(self._open(player_url), board_url)
+        resumed = self._open(board_url)
+        self.assertContains(resumed, 'id="turnLimits"')
+
+        self.client.post(draw_url, {"action": "end_turn"})
+        response = self._open(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+        response = self._open(board_url)
+        self.assertContains(response, 'data-phase="player"')
+
+        defeated_participant = Game.objects.get(pk=game_id).history.participants.get(
+            player_id=self.human.id
+        )
+        defeated_participant.defeated = True
+        defeated_participant.save()
+
+        response = self.client.post(draw_url, {"action": "end_turn"})
+        response = self._open(board_url)
+        result_url = reverse("MMM:viewResult", args=[game_id, self.human.id])
+        self.assertContains(response, f'data-next-url="{result_url}"')
+
+        response = self._open(result_url)
+        content = response.content.decode()
+        self.assertIn("result", content)
+        self.assertIn(self.human.name, content)
+        self.assertIn("Play again", content)
+
+
+class _LaneIndicatorFinder(HTMLParser):
+    """Walk rendered board and collect <p> indicators that are direct children of lane <li>s."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.target_lanes = ('Intelligence', 'Speed', 'Visciousness', 'Resolve')
+        self.found = {}
+        self.current_lane = None
+        self.li_depth_in_lane = 0
+        self.in_p_at_lane_depth = False
+        self.p_text = ''
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'li':
+            attrs_dict = dict(attrs)
+            cls = attrs_dict.get('class', '')
+            if self.current_lane is None:
+                parts = cls.split(' ', 1)
+                if len(parts) == 2 and parts[0] == 'lane' and parts[1] in self.target_lanes:
+                    self.current_lane = parts[1]
+                    self.li_depth_in_lane = 1
+                    return
+            else:
+                self.li_depth_in_lane += 1
+        elif tag == 'p' and self.current_lane is not None and self.li_depth_in_lane == 1:
+            self.in_p_at_lane_depth = True
+            self.p_text = ''
+
+    def handle_endtag(self, tag):
+        if tag == 'li' and self.current_lane is not None:
+            self.li_depth_in_lane -= 1
+            if self.li_depth_in_lane == 0:
+                self.current_lane = None
+        elif tag == 'p' and self.in_p_at_lane_depth:
+            if self.current_lane and self.li_depth_in_lane == 1:
+                self.found[self.current_lane] = self.p_text
+            self.in_p_at_lane_depth = False
+            self.p_text = ''
+
+    def handle_data(self, data):
+        if self.in_p_at_lane_depth:
+            self.p_text += data
+
+
+class GameActionApiTests(BattleBoardFixture):
+    """JSON API for the board actions, its OpenAPI docs and browser parity."""
+
+    def setUp(self):
+        super().setUp()
+        self.schema_url = "/api/schema/"
+        self.docs_url = "/api/docs/"
+        self.reset_url = "/api/games/reset/"
+        self.board_url = f"/api/games/{self.game.id}/board/{self.human.id}/"
+        self.play_url = f"{self.board_url}play/"
+        self.draw_url = f"{self.board_url}draw/"
+        self.end_turn_url = f"{self.board_url}end-turn/"
+
+    def _confirm_via_browser(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+
+    def _hand_card_ids(self, participant=None):
+        participant = participant or self.human_participant
+        return list(
+            GameCard.objects.filter(
+                game_id=self.game.id, user_id=participant.id, state__lane=0
+            ).order_by("state__laneOrdinal").values_list("id", flat=True)
+        )
+
+    def _participant_zone_counts(self, participant):
+        game_cards = GameCard.objects.filter(game_id=self.game.id, user_id=participant.id)
+        return {
+            "hand": game_cards.filter(state__lane=0).count(),
+            "lanes": game_cards.filter(state__lane__gt=0).count(),
+            "deck": game_cards.filter(state__inDeck=True).count(),
+        }
+
+    def _post_json(self, url, body=None, raw=None):
+        payload = raw if raw is not None else json.dumps(body) if body is not None else "{}"
+        return self.client.post(url, payload, content_type="application/json")
+
+    def _state_json(self, phase=None):
+        url = self.board_url if not phase else f"{self.board_url}?phase={phase}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        return json.loads(response.content.decode())
+
+    def test_openapi_schema_documents_actions_and_errors(self):
+        response = self.client.get(self.schema_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.has_header("Location"))
+        schema = json.loads(response.content.decode())
+
+        self.assertEqual(schema["openapi"], "3.0.3")
+        self.assertIn("game-action API", schema["info"]["title"])
+        self.assertNotIn("security", schema)
+        self.assertIn("", schema["components"]["schemas"]["BoardState"]["properties"]["turnPhase"]["enum"])
+
+        for path in (
+            self.schema_url,
+            self.docs_url,
+            self.reset_url,
+            "/api/games/{gameId}/board/{playerId}/",
+            "/api/games/{gameId}/board/{playerId}/play/",
+            "/api/games/{gameId}/board/{playerId}/draw/",
+            "/api/games/{gameId}/board/{playerId}/end-turn/",
+        ):
+            self.assertIn(path, schema["paths"], path)
+
+        play_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/play/"]["post"]
+        self.assertTrue(play_operation["requestBody"]["required"])
+        self.assertIn("200", play_operation["responses"])
+        for status in ("400", "404"):
+            self.assertIn(status, play_operation["responses"])
+            self.assertIn("#/components/schemas/Error", play_operation["responses"][status]["content"]["application/json"]["schema"]["$ref"])
+
+        end_turn_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/end-turn/"]["post"]
+        self.assertFalse(end_turn_operation["requestBody"]["required"])
+        for status in ("200", "400", "404"):
+            self.assertIn(status, end_turn_operation["responses"])
+
+        board_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/"]["get"]
+        self.assertEqual(
+            board_operation["parameters"][0]["schema"]["enum"],
+            ["player", "playerMoves", "enemy"],
+        )
+        for status in ("200", "400", "404", "409"):
+            self.assertIn(status, board_operation["responses"])
+
+        components = schema["components"]["schemas"]
+        for schema_name in (
+            "PlayRecord",
+            "ExecutedPlay",
+            "BoardActionResult",
+            "BoardState",
+            "ParticipantState",
+            "TurnAllowances",
+            "ResetResult",
+            "Error",
+        ):
+            self.assertIn(schema_name, components)
+
+        self.assertEqual(components["PlayRecord"]["required"], ["cardId", "laneValue"])
+        self.assertEqual(components["PlayRecord"]["properties"]["laneValue"]["enum"], [1, 2, 3, 4])
+        self.assertIn("error", components["Error"]["required"])
+
+    def test_swagger_ui_serves_open_docs_and_assets(self):
+        from django.contrib.staticfiles import finders
+
+        response = self.client.get(self.docs_url)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.schema_url, content)
+        self.assertIn("swagger-ui/swagger-ui-bundle.js", content)
+        self.assertIn("swagger-ui/swagger-ui.css", content)
+        self.assertIn("window.SwaggerUIBundle", content)
+        self.assertIn('dom_id: "#openApiDocs"', content)
+        self.assertIn("tryItOutEnabled: true", content)
+
+        for asset in (
+            "apiDocs.css",
+            "swagger-ui/swagger-ui.css",
+            "swagger-ui/swagger-ui-bundle.js",
+        ):
+            self.assertIsNotNone(finders.find(asset), asset)
+
+    def test_api_board_state_409_before_browser_confirm(self):
+        response = self.client.get(self.board_url)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(
+            "not initialized", json.loads(response.content.decode())["error"]
+        )
+
+    def test_api_board_state_404s_are_json(self):
+        response = self.client.get("/api/games/999999/board/1/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            json.loads(response.content.decode())["error"],
+            "no such game or participant",
+        )
+
+        response = self.client.get(f"/api/games/{self.game.id}/board/999999/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            json.loads(response.content.decode())["error"],
+            "no such game or participant",
+        )
+
+    def test_api_board_state_rejects_unknown_phase(self):
+        self._confirm_via_browser()
+        response = self.client.get(f"{self.board_url}?phase=boss")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("phase", json.loads(response.content.decode())["error"])
+
+    def test_api_board_state_maps_verified_browser_board_to_json(self):
+        self._confirm_via_browser()
+
+        browser_response = self.client.get(f"/game/{self.game.id}/board/{self.human.id}/")
+        self.assertEqual(browser_response.status_code, 200)
+        self.assertNotIn("Action error", browser_response.content.decode())
+
+        state = self._state_json()
+        self.assertEqual(state["gameId"], self.game.id)
+        self.assertEqual(state["playerId"], self.human.id)
+        self.assertEqual(state["roundNumber"], 1)
+        self.assertNotIn("error", state)
+        self.assertFalse(state["finished"])
+        self.assertEqual(state["turnPhase"], "")
+        self.assertEqual(state["nextTurnPhase"], "")
+        self.assertFalse(state["botTurnRan"])
+        self.assertEqual(state["botPlays"], [])
+
+        viewer = state["viewer"]
+        self.assertEqual(viewer["participantId"], self.human_participant.id)
+        self.assertEqual(viewer["playerName"], self.human.name)
+        self.assertFalse(viewer["computerControlled"])
+        self.assertEqual(viewer["deckCount"], self.human_deck.cards.count() - 1)
+        self.assertEqual(viewer["handCount"], 0)
+        self.assertEqual(viewer["allowances"]["draws_left"], 2)
+        self.assertEqual(viewer["allowances"]["plays_left"], 3)
+        self.assertEqual(viewer["allowances"]["flips_left"], 1)
+
+        lanes = {lane["name"]: lane for lane in viewer["lanes"]}
+        self.assertEqual(list(lanes), ["Intelligence", "Speed", "Visciousness", "Resolve"])
+        starting_card = lanes["Intelligence"]["trustedCards"][0]
+        self.assertTrue(starting_card["trusted"])
+        self.assertFalse(starting_card["faceDown"])
+        self.assertEqual(starting_card["lane"], 1)
+        self.assertEqual(starting_card["laneOrdinal"], 1)
+
+        participants = {entry["playerId"]: entry for entry in state["participants"]}
+        self.assertEqual(sorted(participants), [self.human.id, self.bot.id])
+        bot_state = participants[self.bot.id]
+        self.assertTrue(bot_state["computerControlled"])
+        self.assertEqual(bot_state["deckCount"], self.bot_deck.cards.count() - 1)
+        self.assertEqual(bot_state["handCards"], [])
+
+    def test_api_draw_matches_browser_limit_and_counts(self):
+        self._confirm_via_browser()
+
+        for drawn_amount in (1, 2):
+            response = self._post_json(self.draw_url)
+            self.assertEqual(response.status_code, 200, response.content.decode())
+            result = json.loads(response.content.decode())
+            self.assertIsNone(result["error"])
+            self.assertEqual(result["action"], "draw")
+            self.assertEqual(len(result["plays"]), 1)
+            self.assertEqual(result["plays"][0]["laneValue"], 0)
+            self.assertFalse(result["enemyPhasePending"])
+            self.assertEqual(
+                result["turnAllowances"]["draws_left"],
+                2 - drawn_amount,
+            )
+            self.assertEqual(len(self._hand_card_ids()), drawn_amount)
+
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.drawnCardsAmount, 2)
+
+        zones_before = self._participant_zone_counts(self.human_participant)
+        response = self._post_json(self.draw_url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "cannot draw more cards this turn", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+
+    def test_api_draw_empty_deck_reports_without_mutation(self):
+        self._confirm_via_browser()
+        GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__inDeck=True
+        ).delete()
+
+        response = self._post_json(self.draw_url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "No cards left in", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(self._participant_zone_counts(self.human_participant), {
+            "hand": 0, "lanes": 1, "deck": 0,
+        })
+
+    def test_api_play_consumes_play_and_flip(self):
+        self._confirm_via_browser()
+        self._post_json(self.draw_url)
+        hand_card_id = self._hand_card_ids()[0]
+
+        response = self._post_json(self.play_url, {
+            "plays": [{
+                "cardId": hand_card_id,
+                "laneValue": 3,
+                "flipFaceUp": False,
+                "sourceLane": 0,
+                "sourceOrdinal": 1,
+            }]
+        })
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["action"], "play")
+        self.assertEqual(result["plays"], [{
+            "cardId": hand_card_id,
+            "participantId": self.human_participant.id,
+            "laneValue": 3,
+            "sourceLane": 0,
+            "sourceOrdinal": 1,
+            "flipFaceUp": False,
+        }])
+        self.assertEqual(result["turnAllowances"]["played"], 1)
+        self.assertEqual(result["turnAllowances"]["flipped"], 0)
+
+        lane_card = GameCard.objects.get(pk=hand_card_id)
+        self.assertEqual(lane_card.state.lane, 3)
+        self.assertTrue(lane_card.state.faceDown)
+        self.assertFalse(lane_card.state.trusted)
+
+        response = self._post_json(self.play_url, {
+            "plays": [{
+                "cardId": hand_card_id,
+                "laneValue": 3,
+                "flipFaceUp": True,
+                "sourceLane": 3,
+                "sourceOrdinal": 1,
+            }]
+        })
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["plays"], [{
+            "cardId": hand_card_id,
+            "participantId": self.human_participant.id,
+            "laneValue": 3,
+            "sourceLane": 3,
+            "sourceOrdinal": 1,
+            "flipFaceUp": True,
+        }])
+        self.assertEqual(result["turnAllowances"]["flipped"], 1)
+
+        lane_card.refresh_from_db()
+        self.assertFalse(lane_card.state.faceDown)
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant)["lanes"], 2
+        )
+
+    def test_api_play_validation_rejects_without_mutation(self):
+        self._confirm_via_browser()
+        self._post_json(self.draw_url)
+        hand_card_id = self._hand_card_ids()[0]
+        foreign_card = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.bot_participant.id
+        ).first()
+        zones_before = self._participant_zone_counts(self.human_participant)
+
+        rejections = [
+            ("plays missing laneValue", {"plays": [{"cardId": hand_card_id}]}, "laneValue"),
+            ("unsupported fields", {"plays": [{"cardId": hand_card_id, "laneValue": 2, "magic": 1}]}, "unsupported"),
+            ("foreign card", {"plays": [{"cardId": foreign_card.id, "laneValue": 2}]}, "not a game card"),
+            ("lane out of range", {"plays": [{"cardId": hand_card_id, "laneValue": 5}]}, "laneValue"),
+            ("duplicate cards", {"plays": [
+                {"cardId": hand_card_id, "laneValue": 2},
+                {"cardId": hand_card_id, "laneValue": 3},
+            ]}, "more than once"),
+            ("flip not boolean", {"plays": [{"cardId": hand_card_id, "laneValue": 2, "flipFaceUp": "yes"}]}, "flipFaceUp"),
+            ("plays not a list", {"plays": "two"}, "array of play records"),
+            ("plays missing entirely", {}, "at least one"),
+        ]
+        for label, body, expected_text in rejections:
+            response = self._post_json(self.play_url, body)
+            self.assertEqual(response.status_code, 400, label)
+            self.assertIn(expected_text, json.loads(response.content.decode())["error"], label)
+
+        response = self._post_json(self.play_url, raw="{not json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not valid JSON", json.loads(response.content.decode())["error"])
+
+        response = self._post_json(self.play_url, raw="[1,2]")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("JSON object", json.loads(response.content.decode())["error"])
+
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+
+    def test_api_play_over_limit_rolls_back_partial_execution(self):
+        self._confirm_via_browser()
+        for _ in range(2):
+            response = self._post_json(self.draw_url)
+            self.assertEqual(response.status_code, 200)
+        hand_card_ids = self._hand_card_ids()
+        self.assertEqual(len(hand_card_ids), 2)
+        zones_before = self._participant_zone_counts(self.human_participant)
+
+        response = self._post_json(self.play_url, {"plays": [
+            {"cardId": hand_card_ids[0], "laneValue": 2},
+            {"cardId": hand_card_ids[1], "laneValue": 3},
+        ]})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "cannot play more cards", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.playedCardsAmount, 0)
+
+    def test_api_end_turn_defers_bot_turn_to_board_state_phase(self):
+        self._confirm_via_browser()
+        bot_before = self._participant_zone_counts(self.bot_participant)
+
+        response = self._post_json(self.end_turn_url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertTrue(result["enemyPhasePending"])
+        self.assertEqual(result["plays"], [])
+        self.assertEqual(result["turnAllowances"]["drawn"], 0)
+        self.assertEqual(result["turnAllowances"]["played"], 0)
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.roundNumber, 1)
+        self.assertEqual(
+            self._participant_zone_counts(self.bot_participant), bot_before
+        )
+
+        state = self._state_json("enemy")
+        bot_after = self._participant_zone_counts(self.bot_participant)
+        self.assertTrue(state["botTurnRan"])
+        self.assertEqual(len(state["botPlays"]), 2)
+        self.assertEqual(state["nextTurnPhase"], "player")
+        self.assertGreater(bot_after["lanes"], bot_before["lanes"])
+        self.assertEqual(state["roundNumber"], 2)
+
+        idle_state = self._state_json()
+        self.assertFalse(idle_state["botTurnRan"])
+        self.assertEqual(
+            self._participant_zone_counts(self.bot_participant), bot_after
+        )
+        self.assertEqual(idle_state["roundNumber"], 2)
+
+    def test_api_reset_and_browser_route_declare_removed_games(self):
+        self._confirm_via_browser()
+
+        response = self._post_json(self.reset_url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["status"], "reset")
+        self.assertEqual(result["removedGames"], 1)
+
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertEqual(BattleHistory.objects.count(), 0)
+        self.assertEqual(BattleParticipant.objects.count(), 0)
+        self.assertEqual(GameCard.objects.count(), 0)
+        self.assertEqual(CardState.objects.count(), 0)
+        self.assertEqual(Deck.objects.count(), 0)
+        self.assertEqual(Player.objects.count(), 2)
+
+        response = self.client.get("/game/reset/")
+        self.assertRedirects(response, "/", target_status_code=302)
+        self.assertEqual(self.client.get("/title/").status_code, 200)
+
+    def test_api_methods_follow_documented_status_codes(self):
+        self._confirm_via_browser()
+        self.assertEqual(self.client.get(self.draw_url).status_code, 405)
+        self.assertEqual(self.client.get(self.end_turn_url).status_code, 405)
+        self.assertEqual(self.client.get(self.reset_url).status_code, 405)
+        self.assertEqual(self.client.post(self.board_url, {}).status_code, 405)
+
+    def test_api_full_round_through_the_demo_flow(self):
+        response = self.client.get(reverse("MMM:createGame", args=[self.human.id]))
+        create_html = response.content.decode()
+        demo_game_id = int(
+            re.search(r'name="newGameIdValue"[^>]*value="(\d+)"', create_html).group(1)
+        )
+
+        response = self.client.post(
+            reverse("MMM:initializeGame"),
+            {
+                "newGameIdValue": demo_game_id,
+                "challenger": self.human.id,
+                "challengePlayer": self.bot.id,
+                "startingDeck": self.human_deck.id,
+                "startingCard": self.human_cards[0].id,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        demo_board_url = f"/api/games/{demo_game_id}/board/{self.human.id}/"
+
+        response = self.client.post(
+            reverse("MMM:confirmChallenge", args=[demo_game_id, self.human.id])
+        )
+        self.assertEqual(response.status_code, 302)
+
+        for drawn_amount in (1, 2):
+            response = self._post_json(f"{demo_board_url}draw/")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                GameCard.objects.filter(
+                    game_id=demo_game_id,
+                    user__player_id=self.human.id,
+                    state__lane=0,
+                ).count(),
+                drawn_amount,
+            )
+
+        response = self._post_json(f"{demo_board_url}end-turn/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content.decode())["enemyPhasePending"])
+
+        state = self._state_json_at(demo_board_url, "enemy")
+        self.assertTrue(state["botTurnRan"])
+        self.assertEqual(state["roundNumber"], 2)
+        self.assertEqual(state["gameId"], demo_game_id)
+        bot_view = next(
+            entry for entry in state["participants"]
+            if entry["playerId"] == self.bot.id
+        )
+        self.assertEqual(bot_view["handCount"], 0)
+        self.assertGreaterEqual(bot_view["deckCount"], 1)
+        self.assertGreater(
+            sum(lane["revealedCount"] for lane in bot_view["lanes"]), 0
+        )
+
+        idle_state = self._state_json_at(demo_board_url)
+        self.assertFalse(idle_state["botTurnRan"])
+        self.assertEqual(idle_state["roundNumber"], 2)
+
+    def _state_json_at(self, board_url, phase=None):
+        url = board_url if not phase else f"{board_url}?phase={phase}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        return json.loads(response.content.decode())
+
+
+class TitleGreetingTests(TestCase):
+    """First-visit rule and applicability of the Megan title greetings."""
+
+    def _recording_chooser(self):
+        offered_candidate_lists = []
+
+        def chooser(candidates):
+            offered_candidate_lists.append(list(candidates))
+            return candidates[0]
+
+        return offered_candidate_lists, chooser
+
+    def test_first_visit_returns_the_new_visitor_greeting_without_any_pool(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(False, "Hunters", chooser)
+
+        self.assertEqual(greeting, NEW_VISITOR_GREETING)
+        self.assertEqual(offered_candidate_lists, [])
+
+    def test_later_visits_without_name_mention_offer_only_generic_greetings(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(True, None, chooser)
+
+        self.assertEqual(greeting, GENERIC_GREETINGS[0])
+        self.assertEqual(offered_candidate_lists, [GENERIC_GREETINGS])
+
+    def test_later_visits_with_a_logged_in_name_add_name_specific_greetings(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(True, "Lucas", chooser)
+
+        applicable = applicable_title_greetings("Lucas")
+        self.assertEqual(greeting, applicable[0])
+        self.assertEqual(offered_candidate_lists, [applicable])
+        self.assertEqual(len(applicable), len(GENERIC_GREETINGS) + len(LOGGED_IN_NAME_GREETINGS))
+        for greeting_message in applicable[len(GENERIC_GREETINGS):]:
+            self.assertIn("Lucas", greeting_message)
+
+    def test_title_page_greets_only_once_and_later_from_the_applicable_pool(self):
+        first_response = self.client.get(reverse("MMM:titlePage"))
+        self.assertContains(first_response, NEW_VISITOR_GREETING)
+
+        second_response = self.client.get(reverse("MMM:titlePage"))
+        greeting_text = re.search(
+            r'<p class="demoGreeting">\s*(.*?)\s*</p>',
+            second_response.content.decode(),
+            re.S,
+        ).group(1).strip()
+        self.assertNotEqual(greeting_text, NEW_VISITOR_GREETING)
+        self.assertIn(greeting_text, applicable_title_greetings(None))
+
+
+class BoardCardPresentationTests(BattleBoardFixture):
+    """Board markup conceals GameCard ids, trusted cards read sideways and
+    hover zoom ships enabled by default with a session toggle."""
+
+    def _confirm_and_get_board(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        return self.client.get(board_url).content.decode()
+
+    def test_board_marks_carry_tokens_and_never_their_game_card_ids(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        self._initialize_with_hand_card(self.human_participant, self.human_cards[3])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        content = self.client.get(board_url).content.decode()
+
+        game_card_ids = {
+            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        self.assertTrue(game_card_ids)
+
+        token_values = re.findall(r'data-card-id="([^"]+)"', content)
+        self.assertTrue(token_values)
+        for token in token_values:
+            self.assertNotIn(token, game_card_ids)
+        self.assertEqual(re.findall(r'data-card-id="(\d+)"', content), [])
+        self.assertEqual(
+            re.findall(r'data-card-id="([^"]+)"', content),
+            re.findall(r'data-card-id="([^"]+)"', self.client.get(
+                reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+            ).content.decode()),
+        )
+        expected_tokens = set()
+        for card in GameCard.objects.filter(game_id=self.game.id):
+            expected_tokens.add(card_token(self.game.id, card.id))
+        self.assertTrue(set(token_values).issubset(expected_tokens))
+
+        own_trusted_card = GameCard.objects.get(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__trusted=True,
+        )
+        self.assertIn(card_token(self.game.id, own_trusted_card.id), token_values)
+        self.assertNotIn('data-card-id="%s"' % own_trusted_card.id, content)
+
+        hidden_id_inputs = re.findall(
+            r'<input type="hidden" name="card_id" value="([^"]+)">',
+            content,
+        )
+        self.assertTrue(hidden_id_inputs)
+        for value in hidden_id_inputs:
+            self.assertNotIn(value, game_card_ids)
+        self.assertTrue(set(hidden_id_inputs).issubset(expected_tokens))
+        hand_card = GameCard.objects.get(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__lane=0,
+        )
+        self.assertIn(card_token(self.game.id, hand_card.id), hidden_id_inputs)
+
+    def test_trusted_cards_render_sideways_for_both_participants(self):
+        content = self._confirm_and_get_board()
+
+        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as css_file:
+            cards_css = css_file.read()
+        self.assertIn(".playingCards li.cardContainer.trusted {\n    --card-rotation: 90deg;\n}", cards_css)
+
+        enemy_section = re.search(
+            r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
+            content, re.DOTALL,
+        ).group(1)
+        own_section = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL,
+        ).group(0)
+
+        for section in (enemy_section, own_section):
+            trusted_rows = re.findall(
+                r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
+                section,
+                re.DOTALL,
+            )
+            trusted_containers = [
+                attributes
+                for row in trusted_rows
+                for attributes in re.findall(r'<li class="cardContainer([^>]*)"', row)
+            ]
+            self.assertTrue(trusted_containers)
+            for attributes in trusted_containers:
+                classes = attributes.split('"')[0].split()
+                self.assertIn("trusted", classes)
+                self.assertNotIn("--card-rotation", attributes)
+
+        for section in (enemy_section, own_section):
+            lane_rows = re.findall(
+                r'<ul class="cardRow" title="cards">(.*?)</ul>',
+                section,
+                re.DOTALL,
+            )
+            for attributes in (
+                container
+                for row in lane_rows
+                for container in re.findall(r'<li class="cardContainer([^>]*)"', row)
+            ):
+                self.assertNotIn("trusted", attributes.split('"')[0].split())
+
+    def test_board_zoom_is_on_by_default_and_togglable_per_session(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        fresh_content = self._confirm_and_get_board()
+        self.assertIn('<div class="playerScreen playingCards rotateHand zoomCards">', fresh_content)
+
+        toggle_url = reverse("MMM:toggleCardZoom")
+        self.client.post(toggle_url, {"enable": "false"})
+        disabled_content = self._confirm_and_get_board()
+        self.assertIn('<div class="playerScreen playingCards rotateHand">', disabled_content)
+        self.assertNotIn("zoomCards", disabled_content)
+
+        self.client.post(toggle_url, {"enable": "true"})
+        enabled_content = self._confirm_and_get_board()
+        self.assertIn("zoomCards", enabled_content)
+
+    def test_card_zoom_toggle_lives_on_the_settings_page_session_roundtrip(self):
+        settings_url = reverse("MMM:demoSettings")
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-card-zoom="enabled"')
+        self.assertRegex(content, r'<form method="post"[^>]*action="/settings/zoom/"')
+        self.assertIn('<input type="hidden" name="enable" value="false">', content)
+        self.assertIn("Disable hover card zoom", content)
+
+        self.client.post(reverse("MMM:toggleCardZoom"), {"enable": "false"})
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-card-zoom="disabled"')
+        self.assertIn('<input type="hidden" name="enable" value="true">', content)
+        self.assertIn("Enable hover card zoom", content)
+
+        response = self.client.get(reverse("MMM:toggleCardZoom"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_zoom_feature_files_and_board_wiring_contract(self):
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.css")) as css_file:
+            zoom_css = css_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.js")) as js_file:
+            zoom_js = js_file.read()
+
+        self.assertIn(".playerScreen.zoomCards", zoom_css)
+        self.assertIn("transform: scale(var(--card-zoom-scale));", zoom_css)
+        self.assertNotIn("fullscreen", zoom_css)
+        self.assertNotIn("Fullscreen", zoom_css)
+        self.assertNotIn(":hover", zoom_css)
+        for forbidden in ("requestFullscreen", "showModal", "dialog"):
+            self.assertNotIn(forbidden, zoom_css)
+            self.assertNotIn(forbidden, zoom_js)
+
+        self.assertIn("const ZOOM_CLASS = 'card-zoomed';", zoom_js)
+        self.assertIn("release()", zoom_js)
+        self.assertIn("event.key === 'Escape'", zoom_js)
+        self.assertIn(
+            "'.playerScreen .cardContainer:not(.ghost):not(.loading):not(.duplicate)'",
+            zoom_js,
+        )
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        content = self._confirm_and_get_board()
+        self.assertIn("zoomCards", content)
+        self.assertIn('<script type="module" src="/static/cardZoom.js">', content)
+        self.assertIn('<link rel="stylesheet" type="text/css" href="/static/cardZoom.css">', content)
+
+    def test_token_staged_play_moves_hand_card_without_exposing_ids(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        hand_card = self._initialize_with_hand_card(self.human_participant, self.human_cards[1])
+        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 99, "flipFaceUp": false}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        hand_card.refresh_from_db()
+        self.assertEqual(hand_card.state.lane, 2)
+        self.assertIn('cardContainer faceDown loading', response.content.decode())
+        self.assertNotIn(f'data-card-id="{hand_card.id}"', response.content.decode())
+
+    def test_token_staged_flip_reveals_face_down_card(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        lane_card = self._initialize_with_hand_card(self.human_participant, self.human_cards[2])
+        self.human_participant.playCard(lane_card.id, specialClause=True)
+        lane_card.refresh_from_db()
+        self.assertTrue(lane_card.state.faceDown)
+
+        self.client.cookies[card_token(self.game.id, lane_card.id)] = (
+            '{"laneValue": 1, "sourceLane": 1, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        lane_card.refresh_from_db()
+        self.assertFalse(lane_card.state.faceDown)
+
+    def test_timeline_steps_conceal_game_card_ids(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self._replace_deck_with_count(self.human_participant, 1)
+        self.client.post(confirm_url)
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+        steps_match = re.search(
+            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(steps_match)
+        steps = json.loads(steps_match.group(1))
+        affected_cards = [
+            card_effect for step in steps for card_effect in step["affectedCards"]
+        ]
+        self.assertTrue(affected_cards)
+
+        game_card_ids = {
+            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        expected_tokens = {
+            card_token(self.game.id, card.id)
+            for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        for card_effect in affected_cards:
+            self.assertIn(str(card_effect["cardId"]), expected_tokens)
+            self.assertNotIn(str(card_effect["cardId"]), game_card_ids)
+
+        bot_deck_card = self.bot_participant.getNextDeckCard()
+        bot_token = card_token(self.game.id, bot_deck_card.id)
+        self.assertNotEqual(bot_token, str(bot_deck_card.id))
+        self.assertNotIn(f'data-card-id="{bot_deck_card.id}"', content)
+
+    def test_foreign_and_unknown_staged_tokens_are_ignored(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        bot_card = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.bot_participant.id
+        ).first()
+        bot_lane_cards = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+        foreign_card = Card.objects.create(title="Unrelated", artSource="", cardType=1)
+        foreign_game = Game.objects.create(
+            title="Other game",
+            history=BattleHistory.objects.create(challenger=self.human),
+            roundNumber=1,
+        )
+        foreign_game_card = GameCard.create(foreign_card.id, foreign_game.id, self.human_participant.id)
+        foreign_game_card.save()
+
+        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+        self.client.cookies[card_token(foreign_game.id, foreign_game_card.id)] = (
+            '{"laneValue": 3, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+        self.client.cookies["notatoken"] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.bot_participant.id,
+                state__lane__gt=0,
+            ).count(),
+            bot_lane_cards,
+        )
+        foreign_game_card.refresh_from_db()
+        self.assertTrue(foreign_game_card.state.inDeck)
+
+
+class DemoNavigationTests(TestCase):
+    """Root/title/admin routing plus the anonymous and team demo flows."""
+
+    def setUp(self):
+        self.lucas = Player.objects.create(name="Lucas")
+        self.lucas_owner = CardOwnerHistory.objects.create(cardOwner=self.lucas)
+        self.lucas_card_ids = []
+        for index in range(14):
+            card = Card.objects.create(
+                title=f"Collection-{index}", artSource="", cardType=index % 4
+            )
+            card.ownerHistory.add(self.lucas_owner)
+            self.lucas_card_ids.append(card.id)
+
+    def _created_player(self, name):
+        return Player.objects.filter(name=name).first()
+
+    def _latest_team_game(self, team_name):
+        team = self._created_player(team_name)
+        return (
+            Game.objects.filter(history__participants__player=team)
+            .latest("id")
+            if team
+            else None
+        )
+
+    def _deck_card_ids(self, deck):
+        return sorted(card.id for card in deck.cards.all())
+
+    def test_root_redirects_everyone_to_the_title_page(self):
+        response = self.client.get("/")
+        self.assertRedirects(response, "/title/", fetch_redirect_response=False)
+
+        title_response = self.client.get(response["Location"])
+        self.assertEqual(title_response.status_code, 200)
+        self.assertContains(title_response, "Magical Masters")
+
+    def test_current_index_renders_for_anyone_at_the_admin_route(self):
+        response = self.client.get(reverse("MMM:index"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Players", content)
+        self.assertIn("Cards", content)
+        self.assertIn(f'href="player/{self.lucas.id}"', content)
+        self.assertIn('href="game/reset/"', content)
+        self.assertIn('href="card/%d/"' % self.lucas_card_ids[0], content)
+
+    def test_settings_page_holds_only_the_card_zoom_preference(self):
+        response = self.client.get(reverse("MMM:demoSettings"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        for link in ("Title", "Deck", "Settings", "Admin"):
+            self.assertContains(response, link)
+        self.assertContains(response, "Card zoom")
+        self.assertContains(response, '<input type="hidden" name="enable" value="false">')
+        self.assertContains(response, "Disable hover card zoom")
+        self.assertNotIn("cardContainer", content)
+
+    def test_anonymous_play_opens_the_existing_annabel_vs_lucas_game(self):
+        response = self.client.post(reverse("MMM:play"))
+        board_url = response["Location"]
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(board_url.startswith("/game/"))
+        self.assertTrue(board_url.endswith("/board/%d/" % self._created_player("Annabel").id))
+
+        game = Game.objects.get(title="Annabel vs Lucas")
+        self.assertIn(f"/game/{game.id}/board/", board_url)
+        participants = list(game.history.participants.select_related("player"))
+        participants_by_player = {
+            participant.player.name: participant for participant in participants
+        }
+        self.assertEqual(
+            set(participants_by_player), {"Annabel", "Lucas"}
+        )
+        self.assertFalse(participants_by_player["Annabel"].computerControlled)
+        self.assertTrue(participants_by_player["Lucas"].computerControlled)
+
+        annabel_deck = participants_by_player["Annabel"].deck
+        self.assertEqual(len(self._deck_card_ids(annabel_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(set(self._deck_card_ids(annabel_deck)) <= set(self.lucas_card_ids))
+        lucas_deck = participants_by_player["Lucas"].deck
+        self.assertEqual(len(self._deck_card_ids(lucas_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(set(self._deck_card_ids(lucas_deck)) <= set(self.lucas_card_ids))
+
+        draft_response = self.client.get(board_url)
+        self.assertRedirects(
+            draft_response,
+            reverse("MMM:viewGameAsPlayer", args=[game.id, participants_by_player["Annabel"].player_id]),
+        )
+        draft = self.client.get(draft_response["Location"])
+        self.assertContains(draft, "Annabel vs Lucas game details")
+        self.assertContains(draft, "Shuffle the deck and load board")
+
+        confirm_response = self.client.post(
+            reverse("MMM:confirmChallenge", args=[game.id, participants_by_player["Annabel"].player_id])
+        )
+        self.assertRedirects(confirm_response, board_url)
+        board = self.client.get(board_url)
+        self.assertEqual(board.status_code, 200)
+        self.assertIn("Deck: 9 | Hand: 0", board.content.decode())
+
+        resumed = self.client.post(reverse("MMM:play"))
+        self.assertEqual(resumed["Location"], board_url)
+        self.assertEqual(self.client.get(board_url).status_code, 200)
+
+    def test_owlbears_play_passes_the_draft_and_reaches_lucasbot(self):
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        self.assertEqual(response.status_code, 302)
+
+        owlbears = self._created_player("Owlbears")
+        game = self._latest_team_game("Owlbears")
+        draft_url = response["Location"]
+        self.assertEqual(
+            draft_url, reverse("MMM:viewGameAsPlayer", args=[game.id, owlbears.id])
+        )
+
+        draft = self.client.get(draft_url)
+        self.assertContains(draft, "Owlbears vs Lucasbot game details")
+        self.assertContains(draft, "Lucasbot")
+        self.assertContains(draft, "Shuffle the deck and load board")
+
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Owlbears")
+
+        confirm = self.client.post(
+            reverse("MMM:confirmChallenge", args=[game.id, owlbears.id])
+        )
+        board_url = confirm["Location"]
+        self.assertEqual(board_url, reverse("MMM:viewBoard", args=[game.id, owlbears.id]))
+        board = self.client.get(board_url)
+        self.assertEqual(board.status_code, 200)
+        self.assertIn("Deck: 9 | Hand: 0", board.content.decode())
+
+        participants = {
+            participant.player.name: participant
+            for participant in game.history.participants.select_related("player")
+        }
+        self.assertFalse(participants["Owlbears"].computerControlled)
+        self.assertTrue(participants["Lucasbot"].computerControlled)
+        self.assertEqual(len(self._deck_card_ids(participants["Owlbears"].deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(
+            set(self._deck_card_ids(participants["Owlbears"].deck)) <= set(self.lucas_card_ids)
+        )
+
+        replay = self.client.post(reverse("MMM:play"))
+        self.assertEqual(replay["Location"], draft_url)
+
+    def test_hunters_play_passes_the_draft_and_reaches_annabelbot(self):
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+        self.assertEqual(response.status_code, 302)
+
+        hunters = self._created_player("Hunters")
+        game = self._latest_team_game("Hunters")
+        draft_url = response["Location"]
+        self.assertEqual(draft_url, reverse("MMM:viewGameAsPlayer", args=[game.id, hunters.id]))
+
+        draft = self.client.get(draft_url)
+        self.assertContains(draft, "Hunters vs Annabelbot game details")
+        self.assertContains(draft, "Annabelbot")
+
+        participants = {
+            participant.player.name: participant
+            for participant in game.history.participants.select_related("player")
+        }
+        self.assertFalse(participants["Hunters"].computerControlled)
+        self.assertTrue(participants["Annabelbot"].computerControlled)
+        self.assertEqual(len(self._deck_card_ids(participants["Hunters"].deck)), DEMO_DECK_CARD_COUNT)
+
+    def test_every_team_selection_deals_a_new_random_ten_card_lucas_deck(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        first_deck = self._created_player("Owlbears").deck_set.latest("id")
+        deck_count_after_first_selection = Deck.objects.count()
+
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        second_deck = self._created_player("Owlbears").deck_set.latest("id")
+
+        self.assertEqual(Deck.objects.count(), deck_count_after_first_selection + 1)
+        self.assertNotEqual(second_deck.id, first_deck.id)
+        self.assertEqual(len(self._deck_card_ids(second_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertEqual(second_deck.description, "ten cards from Lucas's collection")
+        self.assertTrue(set(self._deck_card_ids(second_deck)) <= set(self.lucas_card_ids))
+
+    def test_changing_team_leaves_the_old_scenario_and_enters_the_new_one(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+
+        hunters = self._created_player("Hunters")
+        game = self._latest_team_game("Hunters")
+        self.assertEqual(response["Location"], reverse("MMM:viewGameAsPlayer", args=[game.id, hunters.id]))
+        draft = self.client.get(response["Location"])
+        self.assertContains(draft, "Hunters vs Annabelbot game details")
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Hunters")
+        self.assertNotContains(deck_page, "Playing as Owlbears")
+
+    def test_deck_page_name_change_persists_on_the_logged_in_player(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+        hunters = self._created_player("Hunters")
+
+        response = self.client.post(reverse("MMM:renameDeckPlayer"), {"name": "Hunters Prime"})
+
+        self.assertEqual(response.status_code, 302)
+        hunters.refresh_from_db()
+        self.assertEqual(hunters.name, "Hunters Prime")
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Hunters Prime")
+        self.assertContains(deck_page, 'value="Hunters Prime"')
+
+        self.client.get(reverse("MMM:titlePage"))
+        title_page = self.client.get(reverse("MMM:titlePage"))
+        self.assertNotContains(title_page, NEW_VISITOR_GREETING)
+        self.assertIn(re.search(
+            r'<p class="demoGreeting">\s*(.*?)\s*</p>',
+            title_page.content.decode(),
+            re.S,
+        ).group(1).strip(), applicable_title_greetings("Hunters Prime"))
+
+    def test_anonymous_deck_page_shows_teams_without_name_or_deck(self):
+        response = self.client.get(reverse("MMM:deckPage"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("You are a visitor", content)
+        self.assertIn("Owlbears", content)
+        self.assertIn("Hunters", content)
+        self.assertNotIn("name=\"name\"", content)
+        self.assertNotIn("cardContainer", content)
+
+    def test_unknown_team_selection_is_refused(self):
+        with self.assertRaises(Exception):
+            self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Cats"})
+        self.assertIsNone(self._created_player("Cats"))
+
+
+def _run_node_harness(harness, label):
+    """Execute a generated node harness and return its stdout, skipping when node is absent."""
+    import os
+    import subprocess
+    import tempfile
+    from unittest import SkipTest
+
+    try:
+        node_binary = subprocess.run(
+            ['node', '--version'],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        raise SkipTest(f'node binary unavailable; skipping {label}')
+    if node_binary.returncode != 0:
+        raise SkipTest(f'node binary unavailable; skipping {label}')
+
+    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+        handle.write(harness)
+        temp_path = handle.name
+    try:
+        completed = subprocess.run(['node', temp_path], capture_output=True, text=True, check=False)
+    finally:
+        os.unlink(temp_path)
+    if completed.returncode != 0:
+        raise AssertionError(
+            f'{label} failed:\n'
+            f'stdout={completed.stdout}\nstderr={completed.stderr}'
+        )
+    return completed.stdout
+
+
+def _read_static_asset(file_name):
+    import os
+
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, file_name)) as static_file:
+        return static_file.read()
+
+
+class BoardViewportShortcutUnitTests(TestCase):
+    """Zoom/viewport fit and end-turn release-key contracts on the board page."""
+
+    def test_end_turn_hold_release_contract(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r"""
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '1',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    return descendantsInOrder(body).find((el) => el.id === id) || null;
+};
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+}
+
+global.document = fakeDocument;
+const holdTimers = [];
+let nextTimerId = 1;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () { this.observe = () => {}; this.disconnect = () => {}; };
+
+const endTurnSubmits = { count: 0 };
+endTurnButton.click = () => { endTurnSubmits.count += 1; };
+
+eval(__DRAG_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const keyupHandlers = documentListeners['keyup'] ?? [];
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const releaseKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: options.target ?? fakeDocument.activeElement,
+        preventDefault() { prevented = true; },
+    };
+    keyupHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const holdLoading = () => endTurnButton.classList.contains('shortcut-hold-loading');
+const submits = () => endTurnSubmits.count;
+const queuedTimers = () => holdTimers.length;
+const flushTimers = () => {
+    for (const task of holdTimers.splice(0)) task.callback();
+};
+
+fakeDocument.activeElement = endTurnButton;
+
+assert('Space hold starts like the e shortcut',
+    pressKey(' ') && holdLoading() && endTurnButton.getAttribute('aria-busy') === 'true' &&
+    submits() === 0 && queuedTimers() === 1);
+assert('releasing Space before loading completes cancels without submitting',
+    releaseKey(' ') && !holdLoading() && endTurnButton.getAttribute('aria-busy') === null &&
+    queuedTimers() === 0 && submits() === 0);
+flushTimers();
+assert('the released Space hold stays silent', submits() === 0);
+
+assert('Enter hold starts like the e shortcut', pressKey('Enter') && holdLoading() && submits() === 0);
+assert('releasing Enter before loading completes cancels without submitting',
+    releaseKey('Enter') && !holdLoading() && queuedTimers() === 0 && submits() === 0);
+
+assert('the e shortcut still starts its hold', pressKey('e') && holdLoading() && submits() === 0);
+assert('releasing e before loading completes cancels', releaseKey('e') && !holdLoading() && submits() === 0);
+
+assert('Space hold submits once when it completes', pressKey(' ') && holdLoading());
+flushTimers();
+assert('the completed Space hold submitted exactly once', submits() === 1 && !holdLoading());
+assert('releasing Space after the submit only resets the protected hold',
+    releaseKey(' ') && queuedTimers() === 0 && submits() === 1);
+
+assert('Enter hold completes and submits once too', pressKey('Enter') && holdLoading());
+flushTimers();
+assert('the completed Enter hold submitted exactly once', submits() === 2 && queuedTimers() === 0);
+assert('releasing Enter resets the protected hold', releaseKey('Enter') && queuedTimers() === 0);
+
+assert('repeating Space presses never schedule a second hold',
+    pressKey(' ') && pressKey(' ', { repeat: true }) && queuedTimers() === 1);
+releaseKey(' ');
+assert('repeating Enter presses never schedule a second hold',
+    pressKey('Enter', { repeat: true }) && queuedTimers() === 0);
+
+assert('a plain Space keyup without a held activation stays unhandled (draw click stays native)',
+    !releaseKey(' '));
+assert('a plain Enter keyup without a held activation stays unhandled', !releaseKey('Enter'));
+
+console.log('end turn release keys ok');
+""".replace('__DRAG_JS__', repr(drag_js))
+
+        self.assertIn('end turn release keys ok', _run_node_harness(
+            harness, 'end-turn release-key hold rehearsal'))
+
+    def test_loading_phases_suppress_key_release_end_turn_submits(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+        loading_js = _read_static_asset('loadingAnimations.js')
+
+        for board_phase in ('playerMoves', 'enemy', 'player'):
+            harness = FAKE_ELEMENT_DATASET_CORE + r"""
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+
+const phase = '__BOARD_PHASE__';
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', phase);
+turnPhaseEl.dataset = { phase };
+body.appendChild(turnPhaseEl);
+const boardNext = new FakeElement('div');
+boardNext.setAttribute('id', 'boardNext');
+boardNext.setAttribute('data-next-url', '/game/1/board/1/');
+body.appendChild(boardNext);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementsByClassName(className) {
+        const names = String(className).split(/\s+/).filter(Boolean);
+        return descendantsInOrder(body).filter((el) =>
+            names.every((name) => el.classList && el.classList.contains(name)));
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    readyState: 'complete',
+    body,
+    activeElement: null,
+};
+for (const el of [body, playerScreen, playerBoard, deckHand, endTurnForm, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+}
+
+global.document = fakeDocument;
+const loadingTimers = [];
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    loadingAnimations: null,
+    location: { pathname: '/game/1/board/1/' },
+    scrollTo() {},
+    setTimeout(callback) { loadingTimers.push(callback); return loadingTimers.length; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () { this.observe = () => {}; this.disconnect = () => {}; };
+global.requestAnimationFrame = (callback) => 1;
+
+const endTurnSubmits = { count: 0 };
+endTurnButton.click = () => { endTurnSubmits.count += 1; };
+
+eval(__DRAG_JS__);
+eval(__LOADING_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+const loading = global.window.loadingAnimations;
+if (!loading) throw new Error('loadingAnimations not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const keyupHandlers = documentListeners['keyup'] ?? [];
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const releaseKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: options.target ?? fakeDocument.activeElement,
+        preventDefault() { prevented = true; },
+    };
+    keyupHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const holdLoading = () => endTurnButton.classList.contains('shortcut-hold-loading');
+const submits = () => endTurnSubmits.count;
+const guard = loading._endTurnGuard;
+
+fakeDocument.activeElement = endTurnButton;
+
+if (phase === 'playerMoves' || phase === 'enemy') {
+    assert(`the ${phase} phase keeps the loading end turn guard armed`, guard.active === true);
+    assert(`Enter on the focused end turn is suppressed during ${phase}`,
+        pressKey('Enter') && submits() === 0 && !holdLoading());
+    assert(`repeating Enter during ${phase} stays suppressed`,
+        pressKey('Enter', { repeat: true }) && submits() === 0);
+    assert(`Space on the focused end turn is suppressed during ${phase}`,
+        pressKey(' ') && submits() === 0 && !holdLoading());
+    assert(`releasing Enter during ${phase} cannot end the turn`,
+        releaseKey('Enter') && submits() === 0);
+    assert(`releasing Space during ${phase} cannot end the turn`,
+        releaseKey(' ') && submits() === 0);
+    assert(`the non-activation e key release stays untouched during ${phase}`, !releaseKey('e'));
+    assert(`Space elsewhere during ${phase} is not captured by the guard`,
+        (fakeDocument.activeElement = deckHand, !pressKey(' ')));
+    fakeDocument.activeElement = endTurnButton;
+} else {
+    assert('the plain player phase leaves the loading end turn guard off', guard.active === false);
+    assert('Enter on the focused end turn starts the hold during the player phase',
+        pressKey('Enter') && holdLoading() && submits() === 0);
+    assert('releasing Enter before loading completes cancels the hold',
+        releaseKey('Enter') && !holdLoading() && submits() === 0);
+}
+
+console.log('loading end turn guard ok');
+""".replace('__BOARD_PHASE__', board_phase).replace('__DRAG_JS__', repr(drag_js)).replace(
+                '__LOADING_JS__', repr(loading_js))
+
+            self.assertIn('loading end turn guard ok', _run_node_harness(
+                harness, f'loading end-turn guard ({board_phase})'))
+
+    def test_viewport_fit_stages_zoom_compact_and_collapse_the_enemy_board(self):
+        stacking_js = _read_static_asset('laneStacking.js')
+
+        harness = r"""
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.id = '';
+        this.title = '';
+        this.clientWidth = 100;
+        this.eventHandlers = {};
+        const self = this;
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+            width: 100,
+            height: fakeLayout.heightOf(self),
+        });
+    }
+    get className() { return [...this.classes].join(' '); }
+    set className(value) {
+        this.classes = new Set(String(value).split(/\s+/).filter(Boolean));
+    }
+    get offsetWidth() { return 60; }
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map((part) => tokenizeChain(part.trim()));
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+    appendChild(child) {
+        if (child.parentNode) {
+            const index = child.parentNode.children.indexOf(child);
+            if (index !== -1) child.parentNode.children.splice(index, 1);
+        }
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+    insertBefore(newNode, reference) {
+        if (newNode.parentNode) {
+            const index = newNode.parentNode.children.indexOf(newNode);
+            if (index !== -1) newNode.parentNode.children.splice(index, 1);
+        }
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (name === 'title') this.title = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+    }
+    getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+    removeAttribute(name) { this.attributes.delete(name); }
+    addEventListener(name, handler) { (this.eventHandlers[name] ??= []).push(handler); }
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+}
+
+const fakeLayout = {
+    viewport: 900,
+    zoneHeights: new Map(),
+    compactShrink: new Map(),
+    heightOf(element) {
+        const stored = this.zoneHeights.get(element) ?? 0;
+        if (stored === 0) return 0;
+        if (element.classList.contains('enemy-board-fit-compact')) {
+            return this.compactShrink.get(element) ?? stored;
+        }
+        return stored;
+    },
+};
+
+const documentListeners = {};
+const windowListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playersHeader = new FakeElement('div', 'players');
+playerScreen.appendChild(playersHeader);
+const enemyZone = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyZone);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyZone.appendChild(enemyBoard);
+enemyBoard.appendChild(new FakeElement('h2'));
+const enemyDeckHand = new FakeElement('div', 'enemyDeckHand');
+enemyBoard.appendChild(enemyDeckHand);
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = new FakeElement('li', 'lane Intelligence');
+enemyLane.clientWidth = 30;
+enemyLanes.appendChild(enemyLane);
+const enemyCardRow = new FakeElement('ul', 'cardRow');
+enemyCardRow.setAttribute('title', 'cards');
+enemyLane.appendChild(enemyCardRow);
+for (let index = 0; index < 3; index++) {
+    enemyCardRow.appendChild(new FakeElement('li', 'cardContainer'));
+}
+const playerMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+playerMat.appendChild(playerBoard);
+const playerLanes = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(playerLanes);
+const playerLane = new FakeElement('li', 'lane Resolve');
+playerLane.clientWidth = 30;
+playerLanes.appendChild(playerLane);
+const playerCardRow = new FakeElement('ul', 'cardRow');
+playerCardRow.setAttribute('title', 'cards');
+playerLane.appendChild(playerCardRow);
+for (let index = 0; index < 3; index++) {
+    playerCardRow.appendChild(new FakeElement('li', 'cardContainer'));
+}
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+
+fakeLayout.zoneHeights.set(playersHeader, 120);
+fakeLayout.zoneHeights.set(enemyZone, 200);
+fakeLayout.compactShrink.set(enemyZone, 140);
+fakeLayout.zoneHeights.set(playerBoard, 250);
+fakeLayout.zoneHeights.set(deckHand, 150);
+
+const fakeDocument = {
+    createElement: (tag) => new FakeElement(tag),
+    documentElement: { contains: () => true, clientHeight: 900 },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getComputedStyle: () => ({ fontSize: '10px' }),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    readyState: 'complete',
+    body,
+    hidden: false,
+    visibilityState: 'visible',
+    activeElement: null,
+};
+
+global.document = fakeDocument;
+global.getComputedStyle = fakeDocument.getComputedStyle;
+const pendingTimers = [];
+let nextTimerId = 1;
+global.window = {
+    addEventListener(event, handler) { (windowListeners[event] ??= []).push(handler); },
+    removeEventListener() {},
+    innerHeight: 900,
+    laneCardStacking: null,
+    boardViewportFit: null,
+};
+global.setTimeout = (callback) => {
+    pendingTimers.push({ id: nextTimerId, callback });
+    return nextTimerId++;
+};
+global.clearTimeout = (id) => {
+    const index = pendingTimers.findIndex((task) => task.id === id);
+    if (index !== -1) pendingTimers.splice(index, 1);
+};
+
+eval(__STACKING_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const stacking = global.window.laneCardStacking;
+const fit = global.window.boardViewportFit;
+if (!stacking || !fit) throw new Error('lane stacking or viewport fit not instantiated');
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const flushTimers = () => {
+    for (const task of pendingTimers.splice(0)) task.callback();
+};
+const applyResize = () => {
+    for (const handler of windowListeners['resize'] ?? []) handler();
+    flushTimers();
+};
+const setViewport = (height) => {
+    fakeLayout.viewport = height;
+    global.window.innerHeight = height;
+    global.document.documentElement.clientHeight = height;
+};
+const enemyCollapsed = () => enemyBoard.classList.contains('enemy-board-fit-hidden');
+const compactActive = () => enemyZone.classList.contains('enemy-board-fit-compact');
+const splitRows = (row) => row.parentNode.querySelectorAll('ul.cardRow.overflow-row').length;
+
+assert('both boards overflow-row split through the shared reflow',
+    splitRows(enemyCardRow) === 2 && splitRows(playerCardRow) === 2);
+assert('a roomy viewport keeps the enemy board fully rendered',
+    !enemyCollapsed() && !compactActive());
+
+flushTimers();
+assert('loading settle rechecks the fit without new stages',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(900);
+applyResize();
+assert('a very long board stays untouched above the compact threshold',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(760);
+applyResize();
+assert('the confident fit keeps every enemy board at the first compact stage',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(700);
+applyResize();
+assert('zooming changes the enemy board by compacting it while the player stays intact',
+    compactActive() && !enemyCollapsed());
+assert('the player board never receives a compact or hidden fit class',
+    !playerBoard.classList.contains('enemy-board-fit-compact') &&
+    !playerBoard.classList.contains('enemy-board-fit-hidden'));
+
+setViewport(560);
+applyResize();
+assert('when the compact board still overlaps the player zone it collapses completely',
+    enemyCollapsed() && !compactActive());
+assert('the collapsed enemy zone keeps its list while each board hides fully',
+    enemyZone.children.length === 1 && enemyZone.children[0] === enemyBoard &&
+    enemyBoard.parentNode === enemyZone);
+
+assert('re-applying the fit gives the same overlap decision', (fit.apply(), enemyCollapsed()));
+
+setViewport(900);
+applyResize();
+assert('zooming back out restores the complete enemy board',
+    !enemyCollapsed() && !compactActive());
+
+console.log('board viewport fit ok');
+""".replace('__STACKING_JS__', repr(stacking_js))
+
+        self.assertIn('board viewport fit ok', _run_node_harness(
+            harness, 'board viewport fit rehearsal'))
+
+    def test_viewport_and_release_shortcut_source_contract(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+        loading_js = _read_static_asset('loadingAnimations.js')
+        stacking_js = _read_static_asset('laneStacking.js')
+        cards_css = _read_static_asset('cards.css')
+
+        self.assertIn('_isEndTurnActivationKey(event) {', drag_js)
+        self.assertIn("event.key === ' ' ||", drag_js)
+        self.assertIn("event.key === 'Spacebar'", drag_js)
+        release_method = drag_js[
+            drag_js.index('    onKeyboardKeyUp(event) {'):
+            drag_js.index('    _submitHeldEndTurn() {')
+        ]
+        self.assertIn('this._isEndTurnReleaseKey(event)', release_method)
+        self.assertIn('this.endTurnHold.release()', release_method)
+        self.assertIn('this._isDrawKey(event) && this.drawHold.release()', release_method)
+        self.assertIn(
+            'return this._isEndTurnKey(event) || this._isEndTurnActivationKey(event);',
+            drag_js,
+        )
+
+        self.assertIn('class LoadingEndTurnGuard', loading_js)
+        self.assertIn("document.addEventListener('keyup', this.keyupHandler, true)", loading_js)
+        guard_code = loading_js[
+            loading_js.index('class LoadingEndTurnGuard'):
+            loading_js.index('class loadingAnimationsSystem')
+        ]
+        self.assertIn("'.playerScreen .end-turn'", guard_code)
+        guard_run = loading_js[
+            loading_js.index("        if (phase === 'playerMoves' || phase === 'enemy'"):
+            loading_js.index("        if (phase === 'player') {")
+        ]
+        self.assertIn('this._endTurnGuard.activate()', guard_run)
+        self.assertIn('this._endTurnGuard.deactivate()', guard_run)
+
+        self.assertIn(
+            "'.playerBoard .lane, ul.enemyBoards li.enemyBoard ul.lanes li.lane'",
+            stacking_js,
+        )
+        self.assertIn('class BoardViewportFit', stacking_js)
+        self.assertIn('SMALL_VIEWPORT_MAX_HEIGHT = 768', stacking_js)
+        self.assertIn("COMPACT_CLASS = 'enemy-board-fit-compact'", stacking_js)
+        self.assertIn("OVERLAP_HIDDEN_CLASS = 'enemy-board-fit-hidden'", stacking_js)
+        self.assertIn('collapseEnemyBoards()', stacking_js)
+        apply_code = stacking_js[
+            stacking_js.index('    apply() {'):stacking_js.index('    revealEnemyBoards() {')
+        ]
+        self.assertIn('enemyZone.classList.add(BoardViewportFit.COMPACT_CLASS)', apply_code)
+        self.assertLess(
+            apply_code.index('enemyZone.classList.add(BoardViewportFit.COMPACT_CLASS)'),
+            apply_code.index('this.collapseEnemyBoards()'),
+            'compaction must be tried before complete enemy boards are hidden',
+        )
+
+        self.assertIn('min-height: min(1080px, 100vh);', cards_css)
+        self.assertIn(
+            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard .enemyDeckHand ul.hand,',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard ul.cardRow[title="trustedCards"]',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen ul.enemyBoards li.enemyBoard.enemy-board-fit-hidden',
+            cards_css,
+        )
+
+
+class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
+    """End turn across loading phases keeps the deferred bot flow reachable and shipped."""
+
+    def test_board_page_ships_viewport_fit_and_release_shortcut_assets(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        self.assertEqual(response.status_code, 200)
+
+        html = response.content.decode()
+        referenced_assets = set(re.findall(r'/static/([a-zA-Z0-9._-]+)', html))
+        missing = [name for name in sorted(referenced_assets) if finders.find(name) is None]
+        self.assertEqual(missing, [], f"Board references missing static assets: {missing}")
+
+        asset_markers = {
+            'cards.css': [
+                'enemy-board-fit-compact',
+                'enemy-board-fit-hidden',
+                'min-height: min(1080px, 100vh);',
+            ],
+            'laneStacking.js': ['class BoardViewportFit', 'SMALL_VIEWPORT_MAX_HEIGHT = 768'],
+            'loadingAnimations.js': ['class LoadingEndTurnGuard', "phase === 'playerMoves'"],
+            'cardDragDrop.js': ['_isEndTurnReleaseKey', 'ShortcutHoldAction'],
+        }
+        for asset, markers in asset_markers.items():
+            asset_path = finders.find(asset)
+            self.assertIsNotNone(asset_path)
+            with open(asset_path) as asset_file:
+                asset_content = asset_file.read()
+            for marker in markers:
+                self.assertIn(marker, asset_content)
+
+    def test_end_turn_release_flow_keeps_deferred_bot_once_and_reachable_button(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        plain_content = response.content.decode()
+        self.assertNotIn('id="turnPhase"', plain_content)
+        self.assertContains(response, 'class="end-turn"')
+        self.assertRegex(plain_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+        self.assertEqual(response.status_code, 200)
+        moved_content = response.content.decode()
+        self.assertNotContains(response, "Action error")
+        self.assertIn('data-phase="playerMoves"', moved_content)
+        self.assertContains(response, 'class="end-turn"')
+
+        self.game.refresh_from_db()
+        bot_lane_before = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+
+        response = self.client.get(board_url)
+        enemy_content = response.content.decode()
+        self.assertIn('data-phase="enemy"', enemy_content)
+        self.assertNotRegex(
+            enemy_content,
+            r'<button[^>]*class="end-turn"[^>]*autofocus',
+        )
+
+        response = self.client.get(board_url)
+        player_content = response.content.decode()
+        self.assertIn('data-phase="player"', player_content)
+        self.assertRegex(player_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.roundNumber, 2)
+        bot_lane_after = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+        self.assertGreater(bot_lane_after, bot_lane_before)
+
+        settled_content = self.client.get(board_url).content.decode()
+        self.assertNotIn('id="turnPhase"', settled_content)
+        self.assertRegex(settled_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+        self.assertEqual(Game.objects.get(pk=self.game.id).roundNumber, 2)

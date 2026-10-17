@@ -1,8 +1,5 @@
-/**
- * Pausable timer scheduler. Replaces raw setTimeout for animation sequences
- * so the enemy-turn/timeline playback can be paused (W/Space) and resumed,
- * or skipped entirely (E/Enter/Escape).
- */
+const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
+
 class PausableTimeout {
     constructor(now = () => performance.now()) {
         this.now = now;
@@ -144,10 +141,67 @@ class AnimationControls {
     }
 }
 
+class LoadingEndTurnGuard {
+    constructor() {
+        this.active = false;
+        this.keydownHandler = (event) => this._onKeyDown(event);
+        this.keyupHandler = (event) => this._onKeyUp(event);
+    }
+
+    activate() {
+        if (this.active) return;
+        this.active = true;
+        document.addEventListener('keydown', this.keydownHandler, true);
+        document.addEventListener('keyup', this.keyupHandler, true);
+    }
+
+    deactivate() {
+        if (!this.active) return;
+        this.active = false;
+        document.removeEventListener('keydown', this.keydownHandler, true);
+        document.removeEventListener('keyup', this.keyupHandler, true);
+    }
+
+    _isActivationKey(event) {
+        return (
+            event.key === 'Enter' ||
+            event.key === ' ' ||
+            event.key === 'Space' ||
+            event.key === 'Spacebar'
+        );
+    }
+
+    _onKeyDown(event) {
+        if (!this.active) return;
+        if (event.repeat) return;
+        if (!this._isActivationKey(event)) return;
+        if (!this._isEndTurnEvent(event)) return;
+        event.preventDefault();
+    }
+
+    _onKeyUp(event) {
+        if (!this.active) return;
+        if (!this._isActivationKey(event)) return;
+        if (!this._isEndTurnEvent(event)) return;
+        event.preventDefault();
+    }
+
+    _isEndTurnEvent(event) {
+        return [event.target, document.activeElement].some((candidate) =>
+            Boolean(
+                candidate &&
+                typeof candidate.closest === 'function' &&
+                candidate.closest('.playerScreen .end-turn')
+            )
+        );
+    }
+}
+
 class loadingAnimationsSystem {
     constructor() {
         this._scheduler = new PausableTimeout();
         this._controls = new AnimationControls(this);
+        this._endTurnGuard = new LoadingEndTurnGuard();
         this._reloadStarted = false;
         this._skipped = false;
         this._nextUrl = null;
@@ -300,6 +354,9 @@ class loadingAnimationsSystem {
         };
         this._boardPath = boardPath;
         this._nextUrl = nextUrl;
+        if (!phase && animationsElements.length === 0) {
+            this.restoreDrawFocus(boardPath());
+        }
 
         const reloadToBoard = () => this._reloadToBoard();
 
@@ -309,20 +366,28 @@ class loadingAnimationsSystem {
             this._controls.activate();
         }
 
+        if (phase === 'playerMoves' || phase === 'enemy' || (timeline && timeline.length > 0)) {
+            this._endTurnGuard.activate();
+        } else {
+            this._endTurnGuard.deactivate();
+        }
+
         if (phase === 'player') {
             turnMarker(delay, 'Your turn', this._scheduler);
             animationsElements.forEach((element) => element.classList.remove('loading'));
-            const deckHand = document.querySelector('.playerScreen .deckHand');
-            if (deckHand) {
-                deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            }
-            const endTurnBtn = document.querySelector(
-                '.playerScreen .deckHand .end-turn'
-            );
-            if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
-                requestAnimationFrame(() => {
-                    endTurnBtn.focus({ preventScroll: false });
-                });
+            if (animationsElements.length > 0) {
+                const deckHand = document.querySelector('.playerScreen .deckHand');
+                if (deckHand) {
+                    deckHand.scrollIntoView({ block: 'end' });
+                }
+                const endTurnBtn = document.querySelector(
+                    '.playerScreen .deckHand .end-turn'
+                );
+                if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+                    requestAnimationFrame(() => {
+                        endTurnBtn.focus({ preventScroll: true });
+                    });
+                }
             }
             return;
         }
@@ -437,6 +502,33 @@ class loadingAnimationsSystem {
         } else {
             console.log(`No elements found with '${classSelector}' class.`);
         }
+    }
+
+    restoreDrawFocus(currentBoardPath) {
+        if (!this._consumeDrawFocusReturn(currentBoardPath)) return;
+        const drawButton = this._drawButtonForPlayer();
+        if (!drawButton) return;
+        requestAnimationFrame(() => {
+            drawButton.focus({ preventScroll: true });
+        });
+    }
+
+    _consumeDrawFocusReturn(currentBoardPath) {
+        let rememberedPath = null;
+        try {
+            rememberedPath = sessionStorage.getItem(DRAW_FOCUS_RETURN_KEY);
+            sessionStorage.removeItem(DRAW_FOCUS_RETURN_KEY);
+        } catch {
+            return false;
+        }
+        return rememberedPath === currentBoardPath;
+    }
+
+    _drawButtonForPlayer() {
+        const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+        const drawButton = deck ? deck.querySelector('button.draw') : null;
+        if (!drawButton || drawButton.disabled || drawButton.closest('.blocked')) return null;
+        return drawButton;
     }
 
     /**
@@ -623,9 +715,6 @@ class loadingAnimationsSystem {
         });
     }
 
-    /**
-     * Create a face-down card element for animation purposes.
-     */
     _makeCardClone() {
         const li = document.createElement('li');
         li.className = 'cardContainer faceDown duplicate-deck-flight';
@@ -635,13 +724,6 @@ class loadingAnimationsSystem {
         return li;
     }
 
-    /**
-     * Insert a temporary card element at the source lane/hand position
-     * (determined by cardInfo.sourceLane / cardInfo.sourceOrdinal) and return it.
-     * The clone is temporarily inserted into the source container for layout.
-     * Returns {element, sourceRect} where sourceRect is the bounding box of
-     * the source position, or null if the source container can't be found.
-     */
     _positionCloneAtSource(cardInfo, participantId) {
         const board = this._boardForParticipant(participantId);
         if (!board) return null;
@@ -735,10 +817,6 @@ class loadingAnimationsSystem {
         }, duration + 50);
     }
 
-    /**
-     * Find the board element (player or enemy) for a given participantId.
-     * Returns the .playerBoard or .enemyBoard element, or null.
-     */
     _boardForParticipant(participantId) {
         // Try player board first
         const playerBoard = document.querySelector('.playerBoard');
@@ -798,10 +876,6 @@ class loadingAnimationsSystem {
     }
 }
 
-/**
- * Show a banner overlay with the given text and variant styling.
- * Variants: 'special' (gold), 'defeat' (red), 'flee' (grey).
- */
 function showBanner(text, holdMs = 2000, variant = 'special', scheduler = null) {
     const timer = scheduler ? (fn, ms) => scheduler.schedule(fn, ms) : (fn, ms) => window.setTimeout(fn, ms);
     const banner = document.createElement('div');
@@ -900,11 +974,6 @@ function activeDeckForBoard(board) {
     return board.querySelector('.enemyDeckHand .active-deck');
 }
 
-/**
- * Find the correct .cardRow within a lane for a given ordinal.
- * Only the main cards row group counts: overflow rows created by
- * LaneCardStacking keep title="cards", the trustedCards row does not.
- */
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {
     const rows = laneElement.querySelectorAll(':scope > ul.cardRow[title="cards"]');
     if (rows.length === 0) return null;

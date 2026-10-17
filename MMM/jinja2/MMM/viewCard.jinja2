@@ -21,7 +21,7 @@
         </div>
         {% else %}
         {% if card.artSource == "" %}
-        <img class="fit-picture spotlight" src="{{ static('1flubeltje.jpg')}}"
+        <img class="fit-picture spotlight" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}"
             alt="no art of {{card.title}}" />
         {% else %}
         <img class="fit-picture spotlight" src="{{ static(card.artSource)}}"

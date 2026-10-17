@@ -1,0 +1,168 @@
+Wire focus delegation so the new `KeyboardSelectionControl` shows the curved arrow on `focusin` for: (a) a played hand card, (b) a selected ghost of a played card, (c) a flipped face-down lane card. Fill in the `onFocusIn` / `onFocusOut` stubs left by `keyboard-selection-control-refactor-20261012`.
+
+## Behavior
+
+- Focusing a hand card whose id matches a staged play hologram (`hologram[data-staged-for-card-id="<cardId>"]`) shows the curved arrow from the hand card to the hologram.
+- Focusing a flipped face-down lane card (`dataset.stagedFlipped === 'true'`) shows the curved arrow from the lane card to the flip hologram in the same lane's `.hologramRow`.
+- Blurring the focused element removes the focus-driven arrow.
+- Existing `mouseenter`/`mouseleave` behavior of `_addHoverArrow` is unchanged.
+- The focus-driven arrow and the stage-driven arrow (`_addHoverArrow` already bound on the source) are visually one — no duplicate SVG in the DOM.
+
+## Code locations (verified)
+
+`var/www/static/cardDragDrop.js`:
+
+- `_addHoverArrow(sourceEl, targetEl)` — lines 1350-1386 (focusin/focusout already bound on `sourceEl`).
+- `_createCurvedArrow(sourceEl, targetEl)` — lines 1388-1441.
+- `setupKeyboardSelection()` — lines 332-408 (wire focus delegation here).
+- `clearKeyboardSelection()` — lines 1134-1150 (cleanup on selection clear).
+- `destroy()` — lines 1546-1567 (remove focus delegation listeners).
+- `KeyboardSelectionControl` — class added by the refactor goal between `ShortcutHoldAction` (lines 1-122) and `CardDragDropSystem` (line 124+); constructor receives `_focusArrowTarget` and `_createFocusArrow` as injected deps.
+- DOM scope: `.playerScreen` (template at `MMM/jinja2/MMM/battle/viewBoard.jinja2:25`) wraps `.deckHand` (hand) and `.playerBoard` (lanes + `ul.hologramRow`). Trusted-cards row uses `ul.cardRow[title="trustedCards"]` (lines 125 and 240) and is excluded from focus delegation.
+
+## Implementation
+
+### 1. `_createFocusArrow(sourceEl, targetEl)` — new helper on `CardDragDropSystem`
+
+Place after `_createCurvedArrow` (after line 1441). Wraps `_createCurvedArrow` without binding listeners — the control owns the lifecycle:
+
+```js
+_createFocusArrow(sourceEl, targetEl) {
+    const arrow = this._createCurvedArrow(sourceEl, targetEl);
+    document.body.appendChild(arrow);
+    sourceEl.classList.add('hover');
+    targetEl.classList.add('hover');
+    return arrow;
+}
+```
+
+### 2. `_focusArrowTarget(card)` — new helper on `CardDragDropSystem`
+
+Place next to `_createFocusArrow`. Resolves the focus-arrow target from the card's role. Returns `null` for trusted-cards, end-turn, draw, deck, hologram keyboard-preview, and non-flipped lane cards:
+
+```js
+_focusArrowTarget(card) {
+    if (!card || typeof card.closest !== 'function') return null;
+    if (card.closest('.playerScreen .deckHand')) {
+        const cardIdInput = this._cardIdInput(card);
+        const cardId = cardIdInput?.value;
+        if (!cardId) return null;
+        const hologram = document.querySelector(
+            `.hologram[data-staged-for-card-id="${CSS.escape(cardId)}"]`
+        );
+        return hologram?.querySelector('.cardContainer') || null;
+    }
+    if (
+        card.closest('.playerScreen .playerBoard ul.cardRow') &&
+        card.dataset.stagedFlipped === 'true'
+    ) {
+        const lane = card.closest('li.lane');
+        const flipHologram = lane?.querySelector(':scope > .hologramRow > .hologram');
+        return flipHologram?.querySelector('.cardContainer') || null;
+    }
+    return null;
+}
+```
+
+### 3. Focus delegation wiring — add inside `setupKeyboardSelection()`
+
+Insert before `this.keyboardListenersBound = true;` (line 407). Focus events do not bubble, so capture phase is required:
+
+```js
+const playerScreen = document.querySelector('.playerScreen');
+if (playerScreen) {
+    this.focusDelegateHandler = (event) => {
+        const card = event.target.closest('.cardContainer');
+        if (!card || !playerScreen.contains(card)) return;
+        if (card.closest('.playerScreen ul.cardRow[title="trustedCards"]')) return;
+        if (event.type === 'focusin') {
+            this.keyboardSelectionControl.onFocusIn(card);
+        } else {
+            this.keyboardSelectionControl.onFocusOut(card);
+        }
+    };
+    playerScreen.addEventListener('focusin', this.focusDelegateHandler, true);
+    playerScreen.addEventListener('focusout', this.focusDelegateHandler, true);
+}
+```
+
+### 4. Remove focus delegation in `destroy()` (lines 1546-1567)
+
+Insert before `this.keyboardListenersBound = false;` (line 1565):
+
+```js
+if (this.focusDelegateHandler) {
+    const playerScreen = document.querySelector('.playerScreen');
+    if (playerScreen) {
+        playerScreen.removeEventListener('focusin', this.focusDelegateHandler, true);
+        playerScreen.removeEventListener('focusout', this.focusDelegateHandler, true);
+    }
+    this.focusDelegateHandler = null;
+}
+```
+
+### 5. Fill in `KeyboardSelectionControl.onFocusIn(card)` and `onFocusOut(card)`
+
+The control owns `this._focusArrow = null` as a constructor field:
+
+```js
+onFocusIn(card) {
+    if (!card) return;
+    const target = this._focusArrowTarget(card);
+    if (!target) return;
+    if (
+        this._focusArrow &&
+        this._focusArrow.source === card &&
+        this._focusArrow.target === target
+    ) return;
+    if (this._focusArrow) {
+        this._focusArrow.arrow.remove();
+        this._focusArrow = null;
+    }
+    this._focusArrow = {
+        source: card,
+        target,
+        arrow: this._createFocusArrow(card, target),
+    };
+}
+
+onFocusOut(card) {
+    if (!this._focusArrow) return;
+    if (this._focusArrow.source !== card) return;
+    this._focusArrow.arrow.remove();
+    this._focusArrow = null;
+}
+```
+
+`_focusArrow` is reset to `null` in `clear()` (the refactor's equivalent of `CardDragDropSystem.clearKeyboardSelection`).
+
+### 6. `clearKeyboardSelection()` cleanup (lines 1134-1150)
+
+Before `if (removePreview && selection.hologram?.parentNode) ...` (line 1148):
+
+```js
+if (this.keyboardSelectionControl?._focusArrow) {
+    this.keyboardSelectionControl._focusArrow.arrow.remove();
+    this.keyboardSelectionControl._focusArrow = null;
+}
+```
+
+## Acceptance criteria
+
+- [ ] `_createFocusArrow(sourceEl, targetEl)` calls `_createCurvedArrow(sourceEl, targetEl)`, appends to `document.body`, adds `.hover` to both, returns the SVG — and binds no event listeners.
+- [ ] `_focusArrowTarget(card)` returns the `.cardContainer` inside the staged play hologram (`hologram[data-staged-for-card-id="<cardId>"]`) for a hand card.
+- [ ] `_focusArrowTarget(card)` returns the `.cardContainer` inside `.hologramRow > .hologram` in the same lane for a lane card with `dataset.stagedFlipped === 'true'`.
+- [ ] `_focusArrowTarget(card)` returns `null` for trusted-cards, end-turn, draw, deck, keyboard-preview holograms, and non-flipped lane cards.
+- [ ] Focus delegation registers `focusin` / `focusout` listeners on `.playerScreen` with capture phase (`true`), filters by `.cardContainer`, excludes `ul.cardRow[title="trustedCards"]`.
+- [ ] `KeyboardSelectionControl.onFocusIn(card)` calls `_focusArrowTarget`, creates the arrow via `_createFocusArrow`, and stores `{source, target, arrow}` on `this._focusArrow`.
+- [ ] `KeyboardSelectionControl.onFocusOut(card)` removes the stored arrow only when `card === _focusArrow.source`; no-op otherwise.
+- [ ] `destroy()` removes the focus delegation listeners.
+- [ ] `clearKeyboardSelection()` clears `_focusArrow` before resetting selection state.
+- [ ] Existing `mouseenter`/`mouseleave` behavior of `_addHoverArrow` (lines 1380-1385) is unchanged.
+- [ ] Focusing a hand card with a staged hologram produces exactly one curved arrow SVG in the DOM (focus path does not double-create alongside `_addHoverArrow`'s existing focusin listener).
+
+## Dependencies
+
+- Depends on `keyboard-selection-control-refactor-20261012/` (the `onFocusIn` / `onFocusOut` stubs and constructor-injected `_focusArrowTarget` / `_createFocusArrow`).
+- Soft dependency on sibling `hologram-flip-click-fix-20261012`: the flipped-face-down focus case relies on the `dataset.stagedFlipped = 'true'` guard on the lane card.
+- Independent of `last-focused-hand-card-persistence-20261012`, `arrow-key-routing-20261012`, `backtick-debug-overlay-20261012`.

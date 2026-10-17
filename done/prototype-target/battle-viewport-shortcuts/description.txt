@@ -1,0 +1,12 @@
+Keep the battle board usable and make Space/Enter end-turn behave like e. Objective: board controls and lanes remain reachable while animations resolve, with no unintended submit on key release during loading.
+
+Implementation:
+1. Reproduce viewport clipping and repair layout in `var/www/static/cards.css`, `laneStacking.js`, and `loadingAnimations.js` without breaking overflow or enemy-phase animation. Zooming the board view changes the enemy board while preserving the player board as much as possible; if boards overlap on a small screen, hide complete enemy board(s).
+2. Update shortcut handling in `var/www/static/cardDragDrop.js` and `loadingAnimations.js`: holding Space/Enter on the end-turn button works like e; release before loading completes must not end the turn.
+3. Add focused browser coverage for viewport reachability and key press/hold/release across loading.
+
+Acceptance criteria:
+- [x] Zooming changes the enemy board while preserving the player board as much as possible; if boards overlap on a small screen, complete enemy board(s) are hidden.
+- [x] Every rendered lane and player control is reachable at the verified target viewport; overflow cards are not clipped.
+- [x] Holding Space/Enter on the end-turn button has the same end-turn effect as e; releasing before loading completes does not end the turn.
+- [x] End-turn retains player-moves → enemy animation → player-phase flow and runs deferred bot execution once.

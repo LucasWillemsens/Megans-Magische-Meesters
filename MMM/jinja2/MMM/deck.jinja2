@@ -1,0 +1,89 @@
+{% extends 'demo_shell.jinja2' %}
+
+{% block title %}Deck{% endblock %}
+
+{% block demo_content %}
+{% import 'MMM/macros.jinja2' as cardMacros %}
+
+<div class="title">
+    <h1> Deck </h1>
+    <p>
+        Your demo deck, team and name.
+    </p>
+</div>
+
+<div class="players demoIdentity">
+    <div class="playersText">
+        <h2> Identity </h2>
+        {% if player %}
+        <p>
+            Playing as {{ player.name }}
+        </p>
+        {% else %}
+        <p>
+            You are a visitor. Pick a team below or press PLAY on the title for the demo battle.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="players demoTeams">
+    <div class="playersText">
+        <h2> Teams </h2>
+        <p>
+            Selecting a team logs you in as that Player and deals a new random deck from Lucas's collection.
+        </p>
+    </div>
+    {% for team_name, bot_name in teamBotPairs %}
+    <div class="createButton demoTeamPick">
+        <form method="post" action="{{ teamPickUrl }}">
+            {{ csrf_input }}
+            <input type="hidden" name="team" value="{{ team_name }}" required/>
+            <button type="submit" draggable="false">
+                {{ team_name }} &rarr; {{ bot_name }}
+            </button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+
+{% if player %}
+<div class="players demoName">
+    <div class="playersText">
+        <h2> Name </h2>
+        <p>
+            Your logged in Player name:
+        </p>
+    </div>
+    <form method="post" class="demoNameForm" action="{{ renamePlayerUrl }}">
+        {{ csrf_input }}
+        <input type="text" id="playerName" name="name" value="{{ player.name }}" maxlength="200" required/>
+        <button type="submit" draggable="false">
+            Save name
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<div class="cards demoDeck">
+    <div class="cardsText">
+        <h2> Deck </h2>
+        {% if activeDeck %}
+        <p>
+            {{ activeDeck.title }}: {{ activeDeck.description }}
+        </p>
+        {% else %}
+        <p>
+            No deck dealt yet. Pick a team to receive a random deck from Lucas's collection.
+        </p>
+        {% endif %}
+    </div>
+    {% if deckCards %}
+    <ul class="basic-mat">
+        {% for card in deckCards %}
+        {{ cardMacros.small_card(card, "/card/" ~ card.id ~ "/") }}
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endblock %}

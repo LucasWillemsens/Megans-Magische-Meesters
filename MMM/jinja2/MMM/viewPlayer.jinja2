@@ -1,5 +1,7 @@
 {% extends 'base.jinja2' %}
 
+{% import 'MMM/macros.jinja2' as collectionMacros %}
+
 {% block content %}
     <div class="players">
         <div class="title">
@@ -15,9 +17,9 @@
         <div class="playerInfo">
             <h2>{{player.name|e}}</h2>
             {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name|e}}'s profile picture" />
+                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}" alt="{{player.name|e}}'s profile picture" />
             {% else %}
-                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}" alt="{{player.name|e}}'s profile picture" />
+                <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}" alt="{{player.name|e}}'s profile picture" />
             {% endif %}
         </div>
     </div>
@@ -110,30 +112,7 @@
             {% if ownedCards %}
             <ul class="basic-mat">
                 {% for card in ownedCards %}
-                <li class="cardContainer">
-                    <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
-                        href="{{returnURL}}card/{{ card.id }}/">
-                        {% if card.artSource == "static" %}
-                        <span class="rank">{{ card|playing_card_rank_display }}</span>
-                        <span class="suit">{{ card|playing_card_suit_display }}</span>
-                        {% else %}
-                        {% if card.artSource == "" %}
-                        <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
-                        {% else %}
-                        <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
-                        {% endif %}
-                        {% endif %}
-                
-                        <div class="smallCardInfo">
-                            {% if card.artSource != "static" %}
-                            <p class="cardTitle">{{ card.title }}</p>
-                            {% endif %}
-                            <p class="cardType">
-                                {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
-                            </p>
-                        </div>
-                    </a>
-                </li>
+                {{ collectionMacros.small_card(card, returnURL ~ 'card/' ~ card.id ~ '/', assestsDir) }}
                 {% endfor %}
             </ul>
             {% else %}

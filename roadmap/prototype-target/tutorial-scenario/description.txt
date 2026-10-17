@@ -1,0 +1,12 @@
+Replace the deferred tutorial with a custom scenario where the player meets Megan.
+
+Objective + intent of end-to-end test: Verify the tutorial scenario starts with the specified trusted Resolve card and standard-card deck.
+
+Implementation:
+1. Create a custom scenario in which the player meets Megan.
+2. Start the player with a trusted Resolve card named `soul` and a random deck containing all 52 standard cards.
+3. Decide tutorial progression and any other interaction mechanics before implementing them; they are unspecified.
+
+Acceptance criteria:
+- [ ] The tutorial is a custom scenario in which the player meets Megan.
+- [ ] Its starting player has a trusted Resolve card named `soul` and a random deck containing all 52 standard cards.
