@@ -1,0 +1,21 @@
+{% extends 'demo_shell.jinja2' %}
+
+{% block title %}Magical Masters{% endblock %}
+
+{% block demo_content %}
+<div class="title demoTitle">
+    <h1> Magical Masters </h1>
+    <p class="demoGreeting">
+        {{ greeting }}
+    </p>
+</div>
+
+<div class="createButton demoPlayButton">
+    <form method="post" action="{{ playUrl }}">
+        {{ csrf_input }}
+        <button type="submit" draggable="false">
+            PLAY
+        </button>
+    </form>
+</div>
+{% endblock %}

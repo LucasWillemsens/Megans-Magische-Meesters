@@ -1,0 +1,20 @@
+Build the demo in dependency order: restore existing pages, expose game actions through documented API/UI, implement named team/scenario navigation, then finish board viewport and card presentation. The title route replaces the current root index; retain that index at a second route. API docs/UI are usable by anyone in the demo. The title greeting is first-time-only for new visitors; otherwise randomly select an applicable generic greeting or a logged-in name-specific greeting. Tutorial is deferred; anonymous/no-team PLAY opens the existing Annabel-vs-Lucas game with its Annabel and Lucas participants. Teams are Players users log in as when selecting a team. Team selection always chooses a random 10-card deck from Lucas's collection; later this may become premade. Settings is empty. Card zoom is enabled by default, enlarges in-page (no overlay or browser fullscreen), and is optionally controlled by a session preference.
+
+## Subgoals (dependency order)
+1. `page-stability/` — restore existing page/template/client behavior and add a browser regression test.
+2. `game-action-api/` — expose current board actions and resetgames through an API and provide admin-usable OpenAPI/Swagger docs/UI.
+3. `prototype-navigation/` — add title/admin routing, demo team/scenario flow, deck/team/name page, and empty settings.
+4. `battle-viewport-shortcuts/` — stabilize board reachability and match Space/Enter end-turn behavior to e.
+5. `board-card-presentation/` — conceal card IDs, rotate trusted cards, and add default-on in-page card zoom with a session preference.
+
+Dependencies: API follows page stability; prototype navigation follows API; viewport and presentation work follow page stability. Draft is only the existing routing step before team scenarios; do not invent card-choice mechanics. Never treat roadmap goals as done until acceptance is demonstrated. Tutorial and deployment are out of scope. On end-turn, holding Space/Enter on the end-turn button acts like e; releasing before loading completes must not end the turn.
+
+## Verified behavior to retain
+- Current index is `MMM.views.index` at `/`; `MMM.urls` currently aliases three names to that route. `/game/reset/` is a mutating HTML endpoint. Current browser actions POST to `/game/<game>/board/<player>/action/` and are cookie-staged.
+- Player and Deck models exist; `BattleParticipant.createRandomDeck()` is collection-based with variable deck size, so the 10-card Lucas selection is new demo-flow logic.
+- Existing board keyboard code maps e to end-turn; Space/Enter already interact with selection/loading. Ensure the agreed shortcut does not regress these controls.
+- Team universe is Owlbears/Hunters and bot mappings are Lucasbot/Annabelbot; anonymous/no-team PLAY opens Annabel-vs-Lucas with explicit Annabel and Lucas participants. No unresolved product decisions remain. Swagger UI must be usable by anyone in the demo (not Django Admin actions).
+
+
+## Completion
+All five subgoals implemented and verified on 2026-10-17. `python3 manage.py check` reports only the documented missing `assets/downloaded/` warning; `python3 manage.py test` passes 211 tests. Real-browser viewport/zoom visual verification remains recommended.

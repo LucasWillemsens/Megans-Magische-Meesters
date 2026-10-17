@@ -1,6 +1,8 @@
 class LaneCardStacking {
     static OVERFLOW_ROW_CLASS = 'overflow-row';
     static MAX_CARDS_PER_ROW = 25;
+    static BOARD_LANE_SELECTOR =
+        '.playerBoard .lane, ul.enemyBoards li.enemyBoard ul.lanes li.lane';
 
     constructor() {
         this.debounceTimer = null;
@@ -17,7 +19,7 @@ class LaneCardStacking {
     }
 
     reflowAll() {
-        const lanes = document.querySelectorAll('.playerBoard .lane');
+        const lanes = document.querySelectorAll(LaneCardStacking.BOARD_LANE_SELECTOR);
         lanes.forEach(lane => this.reflowLane(lane));
     }
 
@@ -93,6 +95,106 @@ class LaneCardStacking {
     }
 }
 
+class BoardViewportFit {
+    static SMALL_VIEWPORT_MAX_HEIGHT = 768;
+    static ENEMY_BOARD_SELECTOR = '.playerScreen ul.enemyBoards li.enemyBoard';
+    static ENEMY_ZONE_SELECTOR = '.playerScreen ul.enemyBoards';
+    static PLAYER_ZONE_SELECTORS = [
+        '.playerScreen .players',
+        '.playerScreen li.playerBoard',
+        '.playerScreen .deckHand',
+    ];
+    static COMPACT_CLASS = 'enemy-board-fit-compact';
+    static OVERLAP_HIDDEN_CLASS = 'enemy-board-fit-hidden';
+    static RESIZE_RECHECK_MS = 200;
+    static SETTLE_RECHECK_MS = 200;
+
+    constructor(stacking) {
+        this.stacking = stacking;
+        this.resizeTimer = null;
+        this.settleTimer = null;
+        this.init();
+    }
+
+    init() {
+        this.apply();
+        window.addEventListener('resize', () => {
+            clearTimeout(this.resizeTimer);
+            this.resizeTimer = setTimeout(() => this.apply(), BoardViewportFit.RESIZE_RECHECK_MS);
+        });
+        if (document.readyState !== 'complete') {
+            window.addEventListener('load', () => this.scheduleSettleRecheck(), { once: true });
+        }
+        this.scheduleSettleRecheck();
+    }
+
+    scheduleSettleRecheck() {
+        clearTimeout(this.settleTimer);
+        this.settleTimer = setTimeout(
+            () => this.apply(),
+            BoardViewportFit.SETTLE_RECHECK_MS,
+        );
+    }
+
+    apply() {
+        this.revealEnemyBoards();
+        this.stacking?.reflowAll();
+        const enemyZone = document.querySelector(BoardViewportFit.ENEMY_ZONE_SELECTOR);
+        if (!enemyZone || !this.smallViewport()) return;
+        if (!this.boardsShareShortViewport()) return;
+        enemyZone.classList.add(BoardViewportFit.COMPACT_CLASS);
+        if (!this.boardsShareShortViewport()) return;
+        enemyZone.classList.remove(BoardViewportFit.COMPACT_CLASS);
+        this.collapseEnemyBoards();
+    }
+
+    revealEnemyBoards() {
+        document.querySelector(BoardViewportFit.ENEMY_ZONE_SELECTOR)
+            ?.classList.remove(BoardViewportFit.COMPACT_CLASS);
+        document
+            .querySelectorAll(BoardViewportFit.ENEMY_BOARD_SELECTOR)
+            .forEach(board => board.classList.remove(BoardViewportFit.OVERLAP_HIDDEN_CLASS));
+    }
+
+    collapseEnemyBoards() {
+        document
+            .querySelectorAll(BoardViewportFit.ENEMY_BOARD_SELECTOR)
+            .forEach(board => board.classList.add(BoardViewportFit.OVERLAP_HIDDEN_CLASS));
+    }
+
+    smallViewport() {
+        return this.viewportHeight() <= BoardViewportFit.SMALL_VIEWPORT_MAX_HEIGHT;
+    }
+
+    viewportHeight() {
+        const innerHeight = Number(window.innerHeight);
+        if (Number.isFinite(innerHeight) && innerHeight > 0) return innerHeight;
+        return Number(document.documentElement?.clientHeight) || 0;
+    }
+
+    boardsShareShortViewport() {
+        const enemyZoneHeight = elementHeight(
+            document.querySelector(BoardViewportFit.ENEMY_ZONE_SELECTOR)
+        );
+        if (enemyZoneHeight <= 0) return false;
+        return enemyZoneHeight + this.playerZoneHeight() > this.viewportHeight();
+    }
+
+    playerZoneHeight() {
+        return BoardViewportFit.PLAYER_ZONE_SELECTORS.reduce(
+            (height, selector) => height + elementHeight(document.querySelector(selector)),
+            0,
+        );
+    }
+}
+
+function elementHeight(element) {
+    const height = element?.getBoundingClientRect?.().height;
+    return Number.isFinite(height) ? height : 0;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    window.laneCardStacking = new LaneCardStacking();
+    const stacking = new LaneCardStacking();
+    window.laneCardStacking = stacking;
+    window.boardViewportFit = new BoardViewportFit(stacking);
 });

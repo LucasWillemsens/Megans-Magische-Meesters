@@ -1,0 +1,32 @@
+{% extends 'demo_shell.jinja2' %}
+
+{% block title %}Settings{% endblock %}
+
+{% block demo_content %}
+<div class="title">
+    <h1> Settings </h1>
+    <p>
+        Demo preferences. They are kept for this session only.
+    </p>
+</div>
+
+<div class="players demoSettingsPanel">
+    <div class="playersText">
+        <h2> Card zoom </h2>
+        <p>
+            Enlarges board cards in-page while hovering them, without an overlay or fullscreen.
+            Escape releases a zoomed card.
+        </p>
+    </div>
+    <p class="demoSettingState" data-card-zoom="{{ 'enabled' if cardZoomEnabled else 'disabled' }}">
+        Hover card zoom is {% if cardZoomEnabled %}enabled{% else %}disabled{% endif %}.
+    </p>
+    <form method="post" class="demoNameForm" action="{{ toggleZoomUrl }}">
+        {{ csrf_input }}
+        <input type="hidden" name="enable" value="{{ 'false' if cardZoomEnabled else 'true' }}">
+        <button type="submit" draggable="false">
+            {% if cardZoomEnabled %}Disable hover card zoom{% else %}Enable hover card zoom{% endif %}
+        </button>
+    </form>
+</div>
+{% endblock %}

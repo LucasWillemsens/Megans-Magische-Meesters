@@ -141,10 +141,67 @@ class AnimationControls {
     }
 }
 
+class LoadingEndTurnGuard {
+    constructor() {
+        this.active = false;
+        this.keydownHandler = (event) => this._onKeyDown(event);
+        this.keyupHandler = (event) => this._onKeyUp(event);
+    }
+
+    activate() {
+        if (this.active) return;
+        this.active = true;
+        document.addEventListener('keydown', this.keydownHandler, true);
+        document.addEventListener('keyup', this.keyupHandler, true);
+    }
+
+    deactivate() {
+        if (!this.active) return;
+        this.active = false;
+        document.removeEventListener('keydown', this.keydownHandler, true);
+        document.removeEventListener('keyup', this.keyupHandler, true);
+    }
+
+    _isActivationKey(event) {
+        return (
+            event.key === 'Enter' ||
+            event.key === ' ' ||
+            event.key === 'Space' ||
+            event.key === 'Spacebar'
+        );
+    }
+
+    _onKeyDown(event) {
+        if (!this.active) return;
+        if (event.repeat) return;
+        if (!this._isActivationKey(event)) return;
+        if (!this._isEndTurnEvent(event)) return;
+        event.preventDefault();
+    }
+
+    _onKeyUp(event) {
+        if (!this.active) return;
+        if (!this._isActivationKey(event)) return;
+        if (!this._isEndTurnEvent(event)) return;
+        event.preventDefault();
+    }
+
+    _isEndTurnEvent(event) {
+        return [event.target, document.activeElement].some((candidate) =>
+            Boolean(
+                candidate &&
+                typeof candidate.closest === 'function' &&
+                candidate.closest('.playerScreen .end-turn')
+            )
+        );
+    }
+}
+
 class loadingAnimationsSystem {
     constructor() {
         this._scheduler = new PausableTimeout();
         this._controls = new AnimationControls(this);
+        this._endTurnGuard = new LoadingEndTurnGuard();
         this._reloadStarted = false;
         this._skipped = false;
         this._nextUrl = null;
@@ -307,6 +364,12 @@ class loadingAnimationsSystem {
         // timeline animations are playing.
         if (phase === 'enemy' || (timeline && timeline.length > 0)) {
             this._controls.activate();
+        }
+
+        if (phase === 'playerMoves' || phase === 'enemy' || (timeline && timeline.length > 0)) {
+            this._endTurnGuard.activate();
+        } else {
+            this._endTurnGuard.deactivate();
         }
 
         if (phase === 'player') {

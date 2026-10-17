@@ -1,1 +1,5 @@
-Define the prototype target for the project: a reliable 1v1 demo with clear visuals, a readable match flow, and a polished battle experience. Deployment requirements
+Extend the demo's scenarios and team deck setup with the deferred tutorial and premade-deck work.
+
+## Subgoals
+1. `tutorial-scenario/` — define and build the custom tutorial scenario with Megan.
+2. `premade-team-deck/` — replace the team's random Lucas-collection selection with a premade deck.

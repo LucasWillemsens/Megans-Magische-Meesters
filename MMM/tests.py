@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
@@ -8,21 +9,34 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
+from django.contrib.staticfiles import finders
 
 from . import views
+from . import battle_services
+from .card_tokens import card_token
+from .demo_flow import DEMO_DECK_CARD_COUNT
+from .demo_greetings import (
+    GENERIC_GREETINGS,
+    LOGGED_IN_NAME_GREETINGS,
+    NEW_VISITOR_GREETING,
+    applicable_title_greetings,
+    title_greeting,
+)
 from .models import (
     BattleHistory,
     BattleParticipant,
     Card,
     CardOwnerHistory,
+    CardState,
     Deck,
     Game,
     GameCard,
     Player,
 )
 
-FAKE_ELEMENT_NAVIGATION_CORE = r'''
-const matchPart = (el, part) => {
+STATIC_TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "var", "www", "static")
+
+FAKE_ELEMENT_NAVIGATION_CORE = r'''const matchPart = (el, part) => {
     if (!el || !el.tagName) return false;
     const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
     if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
@@ -441,7 +455,9 @@ class FakeElement {
 '''
 
 
-class BattleFlowTests(TestCase):
+class BattleBoardFixture(TestCase):
+    """Two-participant game fixture shared by browser and API tests."""
+
     def _create_owned_card(self, owner_history, title, card_type):
         card = Card.objects.create(title=title, artSource="", cardType=card_type)
         card.ownerHistory.add(owner_history)
@@ -550,6 +566,8 @@ class BattleFlowTests(TestCase):
             deck_id=self.bot_deck.id,
         )
 
+
+class BattleFlowTests(BattleBoardFixture):
     def test_turn_allowances_match_fresh_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
@@ -720,6 +738,10 @@ class BattleFlowTests(TestCase):
     def test_hand_fan_cards_keep_action_and_source_attributes(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         self._replace_hand_with_count(self.human_participant, 14)
+        game_card_ids = {
+            str(card.id)
+            for card in GameCard.objects.filter(game_id=self.game.id)
+        }
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         content = response.content.decode()
         hand_fans = re.findall(
@@ -728,13 +750,24 @@ class BattleFlowTests(TestCase):
             re.DOTALL,
         )
         hand_html = "".join(hand_fans)
-        hand_cards = re.findall(
-            r'<li class="cardContainer [^>]+data-card-id="(\d+)"[^>]*>',
+        hand_tokens = re.findall(
+            r'<li class="cardContainer [^>]+data-card-id="([^"]+)"[^>]*>',
             hand_html,
         )
 
-        self.assertEqual(len(hand_cards), 14)
+        self.assertEqual(len(hand_tokens), 14)
+        self.assertEqual(len(set(hand_tokens)), 14)
+        for token in hand_tokens:
+            self.assertNotIn(token, game_card_ids)
+        for card in GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        ):
+            self.assertIn(card_token(self.game.id, card.id), hand_tokens)
         self.assertEqual(hand_html.count('name="card_id"'), 14)
+        hidden_card_token_values = re.findall(r'name="card_id" value="([^"]+)"', hand_html)
+        self.assertEqual(set(hidden_card_token_values), set(hand_tokens))
+        for value in hidden_card_token_values:
+            self.assertNotIn(value, game_card_ids)
         self.assertEqual(hand_html.count('data-source-lane="0"'), 14)
         self.assertEqual(hand_html.count('data-source-ordinal="'), 14)
         self.assertEqual(hand_html.count('draggable="true"'), 14)
@@ -782,7 +815,7 @@ class BattleFlowTests(TestCase):
         card = self.human_cards[0]
         response = self.client.get(reverse("MMM:viewCard", args=[card.id]))
         content = response.content.decode()
-        self.assertIn("/static/1flubeltje.jpg", content)
+        self.assertIn("/static/MMM/1flubeltje.jpg", content)
         self.assertNotIn("playing-card-spotlight card staticCard", content)
 
         card.artSource = "static"
@@ -870,7 +903,7 @@ class BattleFlowTests(TestCase):
         self.assertEqual(len(hand_cards), len(set(hand_cards)))
 
     def test_play_cookie_payload_contains_source_state(self):
-        payload = views._parse_play_cookie_value(
+        payload = battle_services.parse_play_cookie_payload(
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 3, "flipFaceUp": true}'
         )
 
@@ -912,7 +945,7 @@ class BattleFlowTests(TestCase):
         )
         intelligence_lane = next(
             lane
-            for lane in views.contextBoard(
+            for lane in battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.human_participant.id,
             )["laneRows"]
@@ -956,7 +989,7 @@ class BattleFlowTests(TestCase):
         second_card.state.save()
         self.human_participant.playCard(second_card.id, lane=1)
 
-        board = views.contextBoard(
+        board = battle_services.context_board(
             GameCard.objects.filter(game_id=self.game.id).order_by("-state__laneOrdinal"),
             self.human_participant.id,
         )
@@ -977,15 +1010,15 @@ class BattleFlowTests(TestCase):
             self.human_cards[1],
         )
 
-        views.playcards(
+        battle_services.consume_staged_plays(
             self.game,
             {
-                str(hand_card.id): json.dumps({
+                str(hand_card.id): {
                     "laneValue": 4,
                     "sourceLane": 0,
                     "sourceOrdinal": 99,
                     "flipFaceUp": False,
-                })
+                }
             },
             self.human_participant,
         )
@@ -1010,7 +1043,7 @@ class BattleFlowTests(TestCase):
         existing_card.state.updateOrdinal(3)
         existing_card.state.save()
 
-        bot_actions, _ = views._run_bot_turn(self.game, self.human.id)
+        bot_actions, _ = battle_services.run_bot_turn(self.game, self.human.id)
 
         self.assertEqual(len(bot_actions), 1)
         self.assertEqual(bot_actions[0]["sourceOrdinal"], 99)
@@ -1025,7 +1058,7 @@ class BattleFlowTests(TestCase):
         )
 
         timeline = []
-        views.intSpecial(self.human_participant, 1, timeline)
+        battle_services.run_int_special(self.human_participant, 1, timeline)
 
         hand_card.refresh_from_db()
         self.assertEqual(hand_card.state.lane, 2)
@@ -1121,7 +1154,7 @@ class BattleFlowTests(TestCase):
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertContains(response, 'cardContainer loading')
         self.assertContains(response, '<div class="card smallCard">')
-        self.assertContains(response, "/static/1flubeltje.jpg")
+        self.assertContains(response, "/static/MMM/1flubeltje.jpg")
         self.assertContains(response, 'data-source-lane="-')
 
         loading_tag = re.search(
@@ -1228,11 +1261,11 @@ class BattleFlowTests(TestCase):
             self._replace_deck_with_count(self.human_participant, deck_count)
             self._replace_deck_with_count(self.bot_participant, deck_count)
 
-            own_board = views.contextBoard(
+            own_board = battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.human_participant.id,
             )
-            enemy_board = views.contextBoard(
+            enemy_board = battle_services.context_board(
                 GameCard.objects.filter(game_id=self.game.id),
                 self.bot_participant.id,
             )
@@ -1492,7 +1525,7 @@ class BattleFlowTests(TestCase):
         self.assertIsNotNone(bot_lane_card)
         final_ordinal = bot_lane_card.state.laneOrdinal
 
-        lane_rows = views.contextBoard(
+        lane_rows = battle_services.context_board(
             GameCard.objects.filter(game_id=self.game.id), self.bot_participant.id
         )["laneRows"]
         plays = [
@@ -1534,7 +1567,7 @@ class BattleFlowTests(TestCase):
             state__lane__gt=0,
         ).count()
         
-        self.client.cookies[str(bot_card.id)] = (
+        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
         )
         response = self.client.post(action_url, {"action": "draw"})
@@ -1907,7 +1940,7 @@ class BattleFlowTests(TestCase):
 
         # Stage a play cookie that plays the card face-down (no flip) to consume
         # both a play and leave the card face-down in the lane
-        self.client.cookies[str(hand_card.id)] = (
+        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -1961,8 +1994,8 @@ class BattleFlowTests(TestCase):
         ))
         self.assertEqual(len(hand_cards), 2)
 
-        # Stage 1 play via cookie (play to lane 4, face-down, no flip)
-        self.client.cookies[str(hand_cards[0].id)] = (
+        # Stage 1 play via the card's presentation token (play to lane 4, face down)
+        self.client.cookies[card_token(self.game.id, hand_cards[0].id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -1988,10 +2021,10 @@ class BattleFlowTests(TestCase):
             game_id=game.id, user_id=participant.id, state__lane=0
         ).first()
 
-        # Play it face-down to lane 4 (flipFaceUp=false).
+        # Play it face-down to lane 4 (flipFaceUp=false) via its presentation token.
         # With int=0, spd=0, after 1 draw + 1 face-down play:
         # flips_left = max(0, 1+min(0, 1-1-1)-0) = 0
-        self.client.cookies[str(hand_card.id)] = (
+        self.client.cookies[card_token(game.id, hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -10288,7 +10321,7 @@ class SpecialTimelineTests(TestCase):
 
     def test_vis_special_win_defeats_opponent_and_records_attack_timeline(self):
         """End-to-end: winning via viciousness must not read as a resolve drain."""
-        from MMM.views import visSpecial
+        from MMM.battle_services import run_vis_special
 
         # Human: one face-up untrusted resolve card to spend.
         self._reset_all_cards_to_deck()
@@ -10303,7 +10336,7 @@ class SpecialTimelineTests(TestCase):
         resolve_card.state.save()
 
         timeline = []
-        result = visSpecial(self.human_participant, 5, timeline=timeline)
+        result = run_vis_special(self.human_participant, 5, timeline=timeline)
 
         # The human had resolve, so the attack succeeds and the OPPONENT loses.
         self.assertIn("attacks and defeats", result)
@@ -10360,7 +10393,7 @@ class SpecialTimelineTests(TestCase):
         which calls playCard BEFORE building the timeline. The timeline should
         still include card-effect steps for the played cards.
         """
-        from MMM.views import intSpecial
+        from MMM.battle_services import run_int_special
         from MMM.special_timeline import SPECIAL_TRIGGER, CARD_EFFECT
 
         self._reset_all_cards_to_deck()
@@ -10384,7 +10417,7 @@ class SpecialTimelineTests(TestCase):
         # Call intSpecial with a timeline (this calls playCard then build_int_timeline)
         timeline = []
         try:
-            intSpecial(self.human_participant, 3, timeline)
+            run_int_special(self.human_participant, 3, timeline)
         except Exception as e:
             self.fail(f"intSpecial raised exception: {e}")
 
@@ -10830,6 +10863,175 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         self.assertIn('backtick debug paragraphs ok', completed.stdout)
 
 
+class PlayerPageToBoardEndToEndTests(TestCase):
+    """Browser regression walk: open a player page, start and resume a challenge,
+    and keep the board loaded with its required assets and staged action flow."""
+
+    def setUp(self):
+        self.human = Player.objects.create(name="Human")
+        self.bot = Player.objects.create(name="Bot")
+
+        human_owner = CardOwnerHistory.objects.create(cardOwner=self.human)
+        self.human_cards = [
+            Card.objects.create(title=f"Human-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in self.human_cards:
+            card.ownerHistory.add(human_owner)
+        self.bot_cards = [
+            Card.objects.create(title=f"Bot-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        bot_owner = CardOwnerHistory.objects.create(cardOwner=self.bot)
+        for card in self.bot_cards:
+            card.ownerHistory.add(bot_owner)
+
+        self.human_deck = Deck.create(
+            self.human.id,
+            deckTitle="Human walk deck",
+            newDescription="walking a challenge",
+            newDeckCards=self.human_cards,
+        )
+        self.bot_deck = Deck.create(
+            self.bot.id,
+            deckTitle="Bot walk deck",
+            newDescription="defending the walk",
+            newDeckCards=self.bot_cards,
+        )
+
+    def _open(self, url):
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, 200, f"Navigation failed for {url}")
+        html = response.content.decode()
+        scripts = re.findall(r'<script[^>]*src="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        links = re.findall(r'<link[^>]*href="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        referenced = sorted(set(scripts + links))
+        missing = [ref for ref in referenced if finders.find(ref) is None]
+        self.assertEqual(
+            missing, [],
+            f"Page at {url} references missing required assets: {missing}",
+        )
+        return response
+
+    def _input_values(self, html, field_name):
+        values = []
+        for tag in re.findall(r'<input[^>]*>', html):
+            if re.search(rf'name="{field_name}"', tag):
+                value = re.search(r'value="([^"]*)"', tag)
+                if value:
+                    values.append(value.group(1))
+        return values
+
+    def _player_counter(self, board_html):
+        deck_hand = board_html.split('<div class="deckHand">', 1)[1]
+        match = re.search(r'Deck: (\d+) \| Hand: (\d+)', deck_hand)
+        self.assertIsNotNone(match, "Board is missing its deck/hand counter")
+        return int(match.group(1)), int(match.group(2))
+
+    def test_player_page_starts_challenge_board_loads_assets_and_keeps_flow(self):
+        player_url = reverse("MMM:viewPlayer", args=[self.human.id])
+        response = self._open(player_url)
+        content = response.content.decode()
+        self.assertIn("Challenges", content)
+        create_link = reverse("MMM:createGame", args=[self.human.id]).rstrip("/")
+        self.assertContains(response, create_link)
+
+        response = self._open(reverse("MMM:createGame", args=[self.human.id]))
+        content = response.content.decode()
+        self.assertContains(response, "Initialize new game")
+        game_id = int(self._input_values(content, "newGameIdValue").pop())
+        self.assertEqual(self._input_values(content, "challenger"), [str(self.human.id)])
+        opponent_id = int(self._input_values(content, "challengePlayer").pop())
+        deck_id = int(self._input_values(content, "startingDeck").pop())
+        starting_card_id = int(self._input_values(content, "startingCard").pop())
+        self.assertEqual(self.human_deck.id, deck_id)
+
+        response = self.client.post(
+            reverse("MMM:initializeGame"),
+            {
+                "newGameIdValue": game_id,
+                "challenger": self.human.id,
+                "challengePlayer": opponent_id,
+                "startingDeck": deck_id,
+                "startingCard": starting_card_id,
+            },
+        )
+        game_detail_url = reverse("MMM:viewGameAsPlayer", args=[game_id, self.human.id])
+        self.assertRedirects(response, game_detail_url)
+
+        response = self._open(game_detail_url)
+        content = response.content.decode()
+        self.assertIn(self.bot.name, content)
+        self.assertIn("challenger:", content)
+        self.assertContains(response, "Shuffle the deck and load board")
+        confirm_url = reverse("MMM:confirmChallenge", args=[game_id, self.human.id])
+        self.assertContains(response, confirm_url)
+
+        board_url = reverse("MMM:viewBoard", args=[game_id, self.human.id])
+        response = self.client.post(confirm_url)
+        self.assertRedirects(response, board_url)
+
+        response = self._open(board_url)
+        board_before_draw = response.content.decode()
+        self.assertContains(response, '<link rel="stylesheet" href="/static/style.css">')
+        self.assertContains(response, '<link rel="stylesheet" href="/static/cards.css">')
+        self.assertContains(response, '<script type="module" src="/static/cardDragDrop.js"></script>')
+        self.assertContains(
+            response, '<script type="module" src="/static/loadingAnimations.js"></script>'
+        )
+        self.assertContains(response, '<script type="module" src="/static/laneStacking.js"></script>')
+        self.assertContains(response, '<script type="module" src="/static/hoverCooldown.js"></script>')
+        self.assertContains(
+            response, '<link rel="stylesheet" type="text/css" href="/static/cardDragDrop.css">'
+        )
+        self.assertContains(response, 'id="turnLimits"')
+        self.assertContains(response, '<div class="deckHand">')
+        self.assertContains(response, 'class="end-turn"')
+        self.assertContains(response, reverse("MMM:boardAction", args=[game_id, self.human.id]))
+        deck_count_before, hand_count_before = self._player_counter(board_before_draw)
+        self.assertGreater(deck_count_before, 0, "Loaded board left the player without a deck")
+
+        draw_url = reverse("MMM:boardAction", args=[game_id, self.human.id])
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+        self.assertNotContains(response, "Action error")
+        self.assertIn('class="cardContainer loading"', content)
+
+        board_after_draw = self._open(board_url).content.decode()
+        deck_count_after, hand_count_after = self._player_counter(board_after_draw)
+        self.assertEqual(deck_count_after, deck_count_before - 1)
+        self.assertEqual(hand_count_after, hand_count_before + 1)
+        self.assertIn('draggable="true" tabindex="0"', board_after_draw)
+        self.assertIn("data-card-id", board_after_draw)
+
+        self.assertContains(self._open(player_url), board_url)
+        resumed = self._open(board_url)
+        self.assertContains(resumed, 'id="turnLimits"')
+
+        self.client.post(draw_url, {"action": "end_turn"})
+        response = self._open(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+        response = self._open(board_url)
+        self.assertContains(response, 'data-phase="player"')
+
+        defeated_participant = Game.objects.get(pk=game_id).history.participants.get(
+            player_id=self.human.id
+        )
+        defeated_participant.defeated = True
+        defeated_participant.save()
+
+        response = self.client.post(draw_url, {"action": "end_turn"})
+        response = self._open(board_url)
+        result_url = reverse("MMM:viewResult", args=[game_id, self.human.id])
+        self.assertContains(response, f'data-next-url="{result_url}"')
+
+        response = self._open(result_url)
+        content = response.content.decode()
+        self.assertIn("result", content)
+        self.assertIn(self.human.name, content)
+        self.assertIn("Play again", content)
+
+
 class _LaneIndicatorFinder(HTMLParser):
     """Walk rendered board and collect <p> indicators that are direct children of lane <li>s."""
 
@@ -10872,3 +11074,1930 @@ class _LaneIndicatorFinder(HTMLParser):
     def handle_data(self, data):
         if self.in_p_at_lane_depth:
             self.p_text += data
+
+
+class GameActionApiTests(BattleBoardFixture):
+    """JSON API for the board actions, its OpenAPI docs and browser parity."""
+
+    def setUp(self):
+        super().setUp()
+        self.schema_url = "/api/schema/"
+        self.docs_url = "/api/docs/"
+        self.reset_url = "/api/games/reset/"
+        self.board_url = f"/api/games/{self.game.id}/board/{self.human.id}/"
+        self.play_url = f"{self.board_url}play/"
+        self.draw_url = f"{self.board_url}draw/"
+        self.end_turn_url = f"{self.board_url}end-turn/"
+
+    def _confirm_via_browser(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+
+    def _hand_card_ids(self, participant=None):
+        participant = participant or self.human_participant
+        return list(
+            GameCard.objects.filter(
+                game_id=self.game.id, user_id=participant.id, state__lane=0
+            ).order_by("state__laneOrdinal").values_list("id", flat=True)
+        )
+
+    def _participant_zone_counts(self, participant):
+        game_cards = GameCard.objects.filter(game_id=self.game.id, user_id=participant.id)
+        return {
+            "hand": game_cards.filter(state__lane=0).count(),
+            "lanes": game_cards.filter(state__lane__gt=0).count(),
+            "deck": game_cards.filter(state__inDeck=True).count(),
+        }
+
+    def _post_json(self, url, body=None, raw=None):
+        payload = raw if raw is not None else json.dumps(body) if body is not None else "{}"
+        return self.client.post(url, payload, content_type="application/json")
+
+    def _state_json(self, phase=None):
+        url = self.board_url if not phase else f"{self.board_url}?phase={phase}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        return json.loads(response.content.decode())
+
+    def test_openapi_schema_documents_actions_and_errors(self):
+        response = self.client.get(self.schema_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.has_header("Location"))
+        schema = json.loads(response.content.decode())
+
+        self.assertEqual(schema["openapi"], "3.0.3")
+        self.assertIn("game-action API", schema["info"]["title"])
+        self.assertNotIn("security", schema)
+        self.assertIn("", schema["components"]["schemas"]["BoardState"]["properties"]["turnPhase"]["enum"])
+
+        for path in (
+            self.schema_url,
+            self.docs_url,
+            self.reset_url,
+            "/api/games/{gameId}/board/{playerId}/",
+            "/api/games/{gameId}/board/{playerId}/play/",
+            "/api/games/{gameId}/board/{playerId}/draw/",
+            "/api/games/{gameId}/board/{playerId}/end-turn/",
+        ):
+            self.assertIn(path, schema["paths"], path)
+
+        play_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/play/"]["post"]
+        self.assertTrue(play_operation["requestBody"]["required"])
+        self.assertIn("200", play_operation["responses"])
+        for status in ("400", "404"):
+            self.assertIn(status, play_operation["responses"])
+            self.assertIn("#/components/schemas/Error", play_operation["responses"][status]["content"]["application/json"]["schema"]["$ref"])
+
+        end_turn_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/end-turn/"]["post"]
+        self.assertFalse(end_turn_operation["requestBody"]["required"])
+        for status in ("200", "400", "404"):
+            self.assertIn(status, end_turn_operation["responses"])
+
+        board_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/"]["get"]
+        self.assertEqual(
+            board_operation["parameters"][0]["schema"]["enum"],
+            ["player", "playerMoves", "enemy"],
+        )
+        for status in ("200", "400", "404", "409"):
+            self.assertIn(status, board_operation["responses"])
+
+        components = schema["components"]["schemas"]
+        for schema_name in (
+            "PlayRecord",
+            "ExecutedPlay",
+            "BoardActionResult",
+            "BoardState",
+            "ParticipantState",
+            "TurnAllowances",
+            "ResetResult",
+            "Error",
+        ):
+            self.assertIn(schema_name, components)
+
+        self.assertEqual(components["PlayRecord"]["required"], ["cardId", "laneValue"])
+        self.assertEqual(components["PlayRecord"]["properties"]["laneValue"]["enum"], [1, 2, 3, 4])
+        self.assertIn("error", components["Error"]["required"])
+
+    def test_swagger_ui_serves_open_docs_and_assets(self):
+        from django.contrib.staticfiles import finders
+
+        response = self.client.get(self.docs_url)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.schema_url, content)
+        self.assertIn("swagger-ui/swagger-ui-bundle.js", content)
+        self.assertIn("swagger-ui/swagger-ui.css", content)
+        self.assertIn("window.SwaggerUIBundle", content)
+        self.assertIn('dom_id: "#openApiDocs"', content)
+        self.assertIn("tryItOutEnabled: true", content)
+
+        for asset in (
+            "apiDocs.css",
+            "swagger-ui/swagger-ui.css",
+            "swagger-ui/swagger-ui-bundle.js",
+        ):
+            self.assertIsNotNone(finders.find(asset), asset)
+
+    def test_api_board_state_409_before_browser_confirm(self):
+        response = self.client.get(self.board_url)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(
+            "not initialized", json.loads(response.content.decode())["error"]
+        )
+
+    def test_api_board_state_404s_are_json(self):
+        response = self.client.get("/api/games/999999/board/1/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            json.loads(response.content.decode())["error"],
+            "no such game or participant",
+        )
+
+        response = self.client.get(f"/api/games/{self.game.id}/board/999999/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            json.loads(response.content.decode())["error"],
+            "no such game or participant",
+        )
+
+    def test_api_board_state_rejects_unknown_phase(self):
+        self._confirm_via_browser()
+        response = self.client.get(f"{self.board_url}?phase=boss")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("phase", json.loads(response.content.decode())["error"])
+
+    def test_api_board_state_maps_verified_browser_board_to_json(self):
+        self._confirm_via_browser()
+
+        browser_response = self.client.get(f"/game/{self.game.id}/board/{self.human.id}/")
+        self.assertEqual(browser_response.status_code, 200)
+        self.assertNotIn("Action error", browser_response.content.decode())
+
+        state = self._state_json()
+        self.assertEqual(state["gameId"], self.game.id)
+        self.assertEqual(state["playerId"], self.human.id)
+        self.assertEqual(state["roundNumber"], 1)
+        self.assertNotIn("error", state)
+        self.assertFalse(state["finished"])
+        self.assertEqual(state["turnPhase"], "")
+        self.assertEqual(state["nextTurnPhase"], "")
+        self.assertFalse(state["botTurnRan"])
+        self.assertEqual(state["botPlays"], [])
+
+        viewer = state["viewer"]
+        self.assertEqual(viewer["participantId"], self.human_participant.id)
+        self.assertEqual(viewer["playerName"], self.human.name)
+        self.assertFalse(viewer["computerControlled"])
+        self.assertEqual(viewer["deckCount"], self.human_deck.cards.count() - 1)
+        self.assertEqual(viewer["handCount"], 0)
+        self.assertEqual(viewer["allowances"]["draws_left"], 2)
+        self.assertEqual(viewer["allowances"]["plays_left"], 3)
+        self.assertEqual(viewer["allowances"]["flips_left"], 1)
+
+        lanes = {lane["name"]: lane for lane in viewer["lanes"]}
+        self.assertEqual(list(lanes), ["Intelligence", "Speed", "Visciousness", "Resolve"])
+        starting_card = lanes["Intelligence"]["trustedCards"][0]
+        self.assertTrue(starting_card["trusted"])
+        self.assertFalse(starting_card["faceDown"])
+        self.assertEqual(starting_card["lane"], 1)
+        self.assertEqual(starting_card["laneOrdinal"], 1)
+
+        participants = {entry["playerId"]: entry for entry in state["participants"]}
+        self.assertEqual(sorted(participants), [self.human.id, self.bot.id])
+        bot_state = participants[self.bot.id]
+        self.assertTrue(bot_state["computerControlled"])
+        self.assertEqual(bot_state["deckCount"], self.bot_deck.cards.count() - 1)
+        self.assertEqual(bot_state["handCards"], [])
+
+    def test_api_draw_matches_browser_limit_and_counts(self):
+        self._confirm_via_browser()
+
+        for drawn_amount in (1, 2):
+            response = self._post_json(self.draw_url)
+            self.assertEqual(response.status_code, 200, response.content.decode())
+            result = json.loads(response.content.decode())
+            self.assertIsNone(result["error"])
+            self.assertEqual(result["action"], "draw")
+            self.assertEqual(len(result["plays"]), 1)
+            self.assertEqual(result["plays"][0]["laneValue"], 0)
+            self.assertFalse(result["enemyPhasePending"])
+            self.assertEqual(
+                result["turnAllowances"]["draws_left"],
+                2 - drawn_amount,
+            )
+            self.assertEqual(len(self._hand_card_ids()), drawn_amount)
+
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.drawnCardsAmount, 2)
+
+        zones_before = self._participant_zone_counts(self.human_participant)
+        response = self._post_json(self.draw_url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "cannot draw more cards this turn", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+
+    def test_api_draw_empty_deck_reports_without_mutation(self):
+        self._confirm_via_browser()
+        GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id, state__inDeck=True
+        ).delete()
+
+        response = self._post_json(self.draw_url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "No cards left in", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(self._participant_zone_counts(self.human_participant), {
+            "hand": 0, "lanes": 1, "deck": 0,
+        })
+
+    def test_api_play_consumes_play_and_flip(self):
+        self._confirm_via_browser()
+        self._post_json(self.draw_url)
+        hand_card_id = self._hand_card_ids()[0]
+
+        response = self._post_json(self.play_url, {
+            "plays": [{
+                "cardId": hand_card_id,
+                "laneValue": 3,
+                "flipFaceUp": False,
+                "sourceLane": 0,
+                "sourceOrdinal": 1,
+            }]
+        })
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["action"], "play")
+        self.assertEqual(result["plays"], [{
+            "cardId": hand_card_id,
+            "participantId": self.human_participant.id,
+            "laneValue": 3,
+            "sourceLane": 0,
+            "sourceOrdinal": 1,
+            "flipFaceUp": False,
+        }])
+        self.assertEqual(result["turnAllowances"]["played"], 1)
+        self.assertEqual(result["turnAllowances"]["flipped"], 0)
+
+        lane_card = GameCard.objects.get(pk=hand_card_id)
+        self.assertEqual(lane_card.state.lane, 3)
+        self.assertTrue(lane_card.state.faceDown)
+        self.assertFalse(lane_card.state.trusted)
+
+        response = self._post_json(self.play_url, {
+            "plays": [{
+                "cardId": hand_card_id,
+                "laneValue": 3,
+                "flipFaceUp": True,
+                "sourceLane": 3,
+                "sourceOrdinal": 1,
+            }]
+        })
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["plays"], [{
+            "cardId": hand_card_id,
+            "participantId": self.human_participant.id,
+            "laneValue": 3,
+            "sourceLane": 3,
+            "sourceOrdinal": 1,
+            "flipFaceUp": True,
+        }])
+        self.assertEqual(result["turnAllowances"]["flipped"], 1)
+
+        lane_card.refresh_from_db()
+        self.assertFalse(lane_card.state.faceDown)
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant)["lanes"], 2
+        )
+
+    def test_api_play_validation_rejects_without_mutation(self):
+        self._confirm_via_browser()
+        self._post_json(self.draw_url)
+        hand_card_id = self._hand_card_ids()[0]
+        foreign_card = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.bot_participant.id
+        ).first()
+        zones_before = self._participant_zone_counts(self.human_participant)
+
+        rejections = [
+            ("plays missing laneValue", {"plays": [{"cardId": hand_card_id}]}, "laneValue"),
+            ("unsupported fields", {"plays": [{"cardId": hand_card_id, "laneValue": 2, "magic": 1}]}, "unsupported"),
+            ("foreign card", {"plays": [{"cardId": foreign_card.id, "laneValue": 2}]}, "not a game card"),
+            ("lane out of range", {"plays": [{"cardId": hand_card_id, "laneValue": 5}]}, "laneValue"),
+            ("duplicate cards", {"plays": [
+                {"cardId": hand_card_id, "laneValue": 2},
+                {"cardId": hand_card_id, "laneValue": 3},
+            ]}, "more than once"),
+            ("flip not boolean", {"plays": [{"cardId": hand_card_id, "laneValue": 2, "flipFaceUp": "yes"}]}, "flipFaceUp"),
+            ("plays not a list", {"plays": "two"}, "array of play records"),
+            ("plays missing entirely", {}, "at least one"),
+        ]
+        for label, body, expected_text in rejections:
+            response = self._post_json(self.play_url, body)
+            self.assertEqual(response.status_code, 400, label)
+            self.assertIn(expected_text, json.loads(response.content.decode())["error"], label)
+
+        response = self._post_json(self.play_url, raw="{not json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not valid JSON", json.loads(response.content.decode())["error"])
+
+        response = self._post_json(self.play_url, raw="[1,2]")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("JSON object", json.loads(response.content.decode())["error"])
+
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+
+    def test_api_play_over_limit_rolls_back_partial_execution(self):
+        self._confirm_via_browser()
+        for _ in range(2):
+            response = self._post_json(self.draw_url)
+            self.assertEqual(response.status_code, 200)
+        hand_card_ids = self._hand_card_ids()
+        self.assertEqual(len(hand_card_ids), 2)
+        zones_before = self._participant_zone_counts(self.human_participant)
+
+        response = self._post_json(self.play_url, {"plays": [
+            {"cardId": hand_card_ids[0], "laneValue": 2},
+            {"cardId": hand_card_ids[1], "laneValue": 3},
+        ]})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "cannot play more cards", json.loads(response.content.decode())["error"]
+        )
+        self.assertEqual(
+            self._participant_zone_counts(self.human_participant), zones_before
+        )
+        self.human_participant.refresh_from_db()
+        self.assertEqual(self.human_participant.playedCardsAmount, 0)
+
+    def test_api_end_turn_defers_bot_turn_to_board_state_phase(self):
+        self._confirm_via_browser()
+        bot_before = self._participant_zone_counts(self.bot_participant)
+
+        response = self._post_json(self.end_turn_url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertTrue(result["enemyPhasePending"])
+        self.assertEqual(result["plays"], [])
+        self.assertEqual(result["turnAllowances"]["drawn"], 0)
+        self.assertEqual(result["turnAllowances"]["played"], 0)
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.roundNumber, 1)
+        self.assertEqual(
+            self._participant_zone_counts(self.bot_participant), bot_before
+        )
+
+        state = self._state_json("enemy")
+        bot_after = self._participant_zone_counts(self.bot_participant)
+        self.assertTrue(state["botTurnRan"])
+        self.assertEqual(len(state["botPlays"]), 2)
+        self.assertEqual(state["nextTurnPhase"], "player")
+        self.assertGreater(bot_after["lanes"], bot_before["lanes"])
+        self.assertEqual(state["roundNumber"], 2)
+
+        idle_state = self._state_json()
+        self.assertFalse(idle_state["botTurnRan"])
+        self.assertEqual(
+            self._participant_zone_counts(self.bot_participant), bot_after
+        )
+        self.assertEqual(idle_state["roundNumber"], 2)
+
+    def test_api_reset_and_browser_route_declare_removed_games(self):
+        self._confirm_via_browser()
+
+        response = self._post_json(self.reset_url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        result = json.loads(response.content.decode())
+        self.assertEqual(result["status"], "reset")
+        self.assertEqual(result["removedGames"], 1)
+
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertEqual(BattleHistory.objects.count(), 0)
+        self.assertEqual(BattleParticipant.objects.count(), 0)
+        self.assertEqual(GameCard.objects.count(), 0)
+        self.assertEqual(CardState.objects.count(), 0)
+        self.assertEqual(Deck.objects.count(), 0)
+        self.assertEqual(Player.objects.count(), 2)
+
+        response = self.client.get("/game/reset/")
+        self.assertRedirects(response, "/", target_status_code=302)
+        self.assertEqual(self.client.get("/title/").status_code, 200)
+
+    def test_api_methods_follow_documented_status_codes(self):
+        self._confirm_via_browser()
+        self.assertEqual(self.client.get(self.draw_url).status_code, 405)
+        self.assertEqual(self.client.get(self.end_turn_url).status_code, 405)
+        self.assertEqual(self.client.get(self.reset_url).status_code, 405)
+        self.assertEqual(self.client.post(self.board_url, {}).status_code, 405)
+
+    def test_api_full_round_through_the_demo_flow(self):
+        response = self.client.get(reverse("MMM:createGame", args=[self.human.id]))
+        create_html = response.content.decode()
+        demo_game_id = int(
+            re.search(r'name="newGameIdValue"[^>]*value="(\d+)"', create_html).group(1)
+        )
+
+        response = self.client.post(
+            reverse("MMM:initializeGame"),
+            {
+                "newGameIdValue": demo_game_id,
+                "challenger": self.human.id,
+                "challengePlayer": self.bot.id,
+                "startingDeck": self.human_deck.id,
+                "startingCard": self.human_cards[0].id,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        demo_board_url = f"/api/games/{demo_game_id}/board/{self.human.id}/"
+
+        response = self.client.post(
+            reverse("MMM:confirmChallenge", args=[demo_game_id, self.human.id])
+        )
+        self.assertEqual(response.status_code, 302)
+
+        for drawn_amount in (1, 2):
+            response = self._post_json(f"{demo_board_url}draw/")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                GameCard.objects.filter(
+                    game_id=demo_game_id,
+                    user__player_id=self.human.id,
+                    state__lane=0,
+                ).count(),
+                drawn_amount,
+            )
+
+        response = self._post_json(f"{demo_board_url}end-turn/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content.decode())["enemyPhasePending"])
+
+        state = self._state_json_at(demo_board_url, "enemy")
+        self.assertTrue(state["botTurnRan"])
+        self.assertEqual(state["roundNumber"], 2)
+        self.assertEqual(state["gameId"], demo_game_id)
+        bot_view = next(
+            entry for entry in state["participants"]
+            if entry["playerId"] == self.bot.id
+        )
+        self.assertEqual(bot_view["handCount"], 0)
+        self.assertGreaterEqual(bot_view["deckCount"], 1)
+        self.assertGreater(
+            sum(lane["revealedCount"] for lane in bot_view["lanes"]), 0
+        )
+
+        idle_state = self._state_json_at(demo_board_url)
+        self.assertFalse(idle_state["botTurnRan"])
+        self.assertEqual(idle_state["roundNumber"], 2)
+
+    def _state_json_at(self, board_url, phase=None):
+        url = board_url if not phase else f"{board_url}?phase={phase}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        return json.loads(response.content.decode())
+
+
+class TitleGreetingTests(TestCase):
+    """First-visit rule and applicability of the Megan title greetings."""
+
+    def _recording_chooser(self):
+        offered_candidate_lists = []
+
+        def chooser(candidates):
+            offered_candidate_lists.append(list(candidates))
+            return candidates[0]
+
+        return offered_candidate_lists, chooser
+
+    def test_first_visit_returns_the_new_visitor_greeting_without_any_pool(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(False, "Hunters", chooser)
+
+        self.assertEqual(greeting, NEW_VISITOR_GREETING)
+        self.assertEqual(offered_candidate_lists, [])
+
+    def test_later_visits_without_name_mention_offer_only_generic_greetings(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(True, None, chooser)
+
+        self.assertEqual(greeting, GENERIC_GREETINGS[0])
+        self.assertEqual(offered_candidate_lists, [GENERIC_GREETINGS])
+
+    def test_later_visits_with_a_logged_in_name_add_name_specific_greetings(self):
+        offered_candidate_lists, chooser = self._recording_chooser()
+
+        greeting = title_greeting(True, "Lucas", chooser)
+
+        applicable = applicable_title_greetings("Lucas")
+        self.assertEqual(greeting, applicable[0])
+        self.assertEqual(offered_candidate_lists, [applicable])
+        self.assertEqual(len(applicable), len(GENERIC_GREETINGS) + len(LOGGED_IN_NAME_GREETINGS))
+        for greeting_message in applicable[len(GENERIC_GREETINGS):]:
+            self.assertIn("Lucas", greeting_message)
+
+    def test_title_page_greets_only_once_and_later_from_the_applicable_pool(self):
+        first_response = self.client.get(reverse("MMM:titlePage"))
+        self.assertContains(first_response, NEW_VISITOR_GREETING)
+
+        second_response = self.client.get(reverse("MMM:titlePage"))
+        greeting_text = re.search(
+            r'<p class="demoGreeting">\s*(.*?)\s*</p>',
+            second_response.content.decode(),
+            re.S,
+        ).group(1).strip()
+        self.assertNotEqual(greeting_text, NEW_VISITOR_GREETING)
+        self.assertIn(greeting_text, applicable_title_greetings(None))
+
+
+class BoardCardPresentationTests(BattleBoardFixture):
+    """Board markup conceals GameCard ids, trusted cards read sideways and
+    hover zoom ships enabled by default with a session toggle."""
+
+    def _confirm_and_get_board(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        return self.client.get(board_url).content.decode()
+
+    def test_board_marks_carry_tokens_and_never_their_game_card_ids(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        self._initialize_with_hand_card(self.human_participant, self.human_cards[3])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        content = self.client.get(board_url).content.decode()
+
+        game_card_ids = {
+            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        self.assertTrue(game_card_ids)
+
+        token_values = re.findall(r'data-card-id="([^"]+)"', content)
+        self.assertTrue(token_values)
+        for token in token_values:
+            self.assertNotIn(token, game_card_ids)
+        self.assertEqual(re.findall(r'data-card-id="(\d+)"', content), [])
+        self.assertEqual(
+            re.findall(r'data-card-id="([^"]+)"', content),
+            re.findall(r'data-card-id="([^"]+)"', self.client.get(
+                reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+            ).content.decode()),
+        )
+        expected_tokens = set()
+        for card in GameCard.objects.filter(game_id=self.game.id):
+            expected_tokens.add(card_token(self.game.id, card.id))
+        self.assertTrue(set(token_values).issubset(expected_tokens))
+
+        own_trusted_card = GameCard.objects.get(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__trusted=True,
+        )
+        self.assertIn(card_token(self.game.id, own_trusted_card.id), token_values)
+        self.assertNotIn('data-card-id="%s"' % own_trusted_card.id, content)
+
+        hidden_id_inputs = re.findall(
+            r'<input type="hidden" name="card_id" value="([^"]+)">',
+            content,
+        )
+        self.assertTrue(hidden_id_inputs)
+        for value in hidden_id_inputs:
+            self.assertNotIn(value, game_card_ids)
+        self.assertTrue(set(hidden_id_inputs).issubset(expected_tokens))
+        hand_card = GameCard.objects.get(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__lane=0,
+        )
+        self.assertIn(card_token(self.game.id, hand_card.id), hidden_id_inputs)
+
+    def test_trusted_cards_render_sideways_for_both_participants(self):
+        content = self._confirm_and_get_board()
+
+        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as css_file:
+            cards_css = css_file.read()
+        self.assertIn(".playingCards li.cardContainer.trusted {\n    --card-rotation: 90deg;\n}", cards_css)
+
+        enemy_section = re.search(
+            r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
+            content, re.DOTALL,
+        ).group(1)
+        own_section = re.search(
+            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            content, re.DOTALL,
+        ).group(0)
+
+        for section in (enemy_section, own_section):
+            trusted_rows = re.findall(
+                r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
+                section,
+                re.DOTALL,
+            )
+            trusted_containers = [
+                attributes
+                for row in trusted_rows
+                for attributes in re.findall(r'<li class="cardContainer([^>]*)"', row)
+            ]
+            self.assertTrue(trusted_containers)
+            for attributes in trusted_containers:
+                classes = attributes.split('"')[0].split()
+                self.assertIn("trusted", classes)
+                self.assertNotIn("--card-rotation", attributes)
+
+        for section in (enemy_section, own_section):
+            lane_rows = re.findall(
+                r'<ul class="cardRow" title="cards">(.*?)</ul>',
+                section,
+                re.DOTALL,
+            )
+            for attributes in (
+                container
+                for row in lane_rows
+                for container in re.findall(r'<li class="cardContainer([^>]*)"', row)
+            ):
+                self.assertNotIn("trusted", attributes.split('"')[0].split())
+
+    def test_board_zoom_is_on_by_default_and_togglable_per_session(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        fresh_content = self._confirm_and_get_board()
+        self.assertIn('<div class="playerScreen playingCards rotateHand zoomCards">', fresh_content)
+
+        toggle_url = reverse("MMM:toggleCardZoom")
+        self.client.post(toggle_url, {"enable": "false"})
+        disabled_content = self._confirm_and_get_board()
+        self.assertIn('<div class="playerScreen playingCards rotateHand">', disabled_content)
+        self.assertNotIn("zoomCards", disabled_content)
+
+        self.client.post(toggle_url, {"enable": "true"})
+        enabled_content = self._confirm_and_get_board()
+        self.assertIn("zoomCards", enabled_content)
+
+    def test_card_zoom_toggle_lives_on_the_settings_page_session_roundtrip(self):
+        settings_url = reverse("MMM:demoSettings")
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-card-zoom="enabled"')
+        self.assertRegex(content, r'<form method="post"[^>]*action="/settings/zoom/"')
+        self.assertIn('<input type="hidden" name="enable" value="false">', content)
+        self.assertIn("Disable hover card zoom", content)
+
+        self.client.post(reverse("MMM:toggleCardZoom"), {"enable": "false"})
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-card-zoom="disabled"')
+        self.assertIn('<input type="hidden" name="enable" value="true">', content)
+        self.assertIn("Enable hover card zoom", content)
+
+        response = self.client.get(reverse("MMM:toggleCardZoom"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_zoom_feature_files_and_board_wiring_contract(self):
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.css")) as css_file:
+            zoom_css = css_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.js")) as js_file:
+            zoom_js = js_file.read()
+
+        self.assertIn(".playerScreen.zoomCards", zoom_css)
+        self.assertIn("transform: scale(var(--card-zoom-scale));", zoom_css)
+        self.assertNotIn("fullscreen", zoom_css)
+        self.assertNotIn("Fullscreen", zoom_css)
+        self.assertNotIn(":hover", zoom_css)
+        for forbidden in ("requestFullscreen", "showModal", "dialog"):
+            self.assertNotIn(forbidden, zoom_css)
+            self.assertNotIn(forbidden, zoom_js)
+
+        self.assertIn("const ZOOM_CLASS = 'card-zoomed';", zoom_js)
+        self.assertIn("release()", zoom_js)
+        self.assertIn("event.key === 'Escape'", zoom_js)
+        self.assertIn(
+            "'.playerScreen .cardContainer:not(.ghost):not(.loading):not(.duplicate)'",
+            zoom_js,
+        )
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        content = self._confirm_and_get_board()
+        self.assertIn("zoomCards", content)
+        self.assertIn('<script type="module" src="/static/cardZoom.js">', content)
+        self.assertIn('<link rel="stylesheet" type="text/css" href="/static/cardZoom.css">', content)
+
+    def test_token_staged_play_moves_hand_card_without_exposing_ids(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        hand_card = self._initialize_with_hand_card(self.human_participant, self.human_cards[1])
+        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 99, "flipFaceUp": false}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        hand_card.refresh_from_db()
+        self.assertEqual(hand_card.state.lane, 2)
+        self.assertIn('cardContainer faceDown loading', response.content.decode())
+        self.assertNotIn(f'data-card-id="{hand_card.id}"', response.content.decode())
+
+    def test_token_staged_flip_reveals_face_down_card(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        lane_card = self._initialize_with_hand_card(self.human_participant, self.human_cards[2])
+        self.human_participant.playCard(lane_card.id, specialClause=True)
+        lane_card.refresh_from_db()
+        self.assertTrue(lane_card.state.faceDown)
+
+        self.client.cookies[card_token(self.game.id, lane_card.id)] = (
+            '{"laneValue": 1, "sourceLane": 1, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        lane_card.refresh_from_db()
+        self.assertFalse(lane_card.state.faceDown)
+
+    def test_timeline_steps_conceal_game_card_ids(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self._replace_deck_with_count(self.human_participant, 1)
+        self.client.post(confirm_url)
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+        steps_match = re.search(
+            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(steps_match)
+        steps = json.loads(steps_match.group(1))
+        affected_cards = [
+            card_effect for step in steps for card_effect in step["affectedCards"]
+        ]
+        self.assertTrue(affected_cards)
+
+        game_card_ids = {
+            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        expected_tokens = {
+            card_token(self.game.id, card.id)
+            for card in GameCard.objects.filter(game_id=self.game.id)
+        }
+        for card_effect in affected_cards:
+            self.assertIn(str(card_effect["cardId"]), expected_tokens)
+            self.assertNotIn(str(card_effect["cardId"]), game_card_ids)
+
+        bot_deck_card = self.bot_participant.getNextDeckCard()
+        bot_token = card_token(self.game.id, bot_deck_card.id)
+        self.assertNotEqual(bot_token, str(bot_deck_card.id))
+        self.assertNotIn(f'data-card-id="{bot_deck_card.id}"', content)
+
+    def test_foreign_and_unknown_staged_tokens_are_ignored(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        bot_card = GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.bot_participant.id
+        ).first()
+        bot_lane_cards = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+        foreign_card = Card.objects.create(title="Unrelated", artSource="", cardType=1)
+        foreign_game = Game.objects.create(
+            title="Other game",
+            history=BattleHistory.objects.create(challenger=self.human),
+            roundNumber=1,
+        )
+        foreign_game_card = GameCard.create(foreign_card.id, foreign_game.id, self.human_participant.id)
+        foreign_game_card.save()
+
+        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
+            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+        self.client.cookies[card_token(foreign_game.id, foreign_game_card.id)] = (
+            '{"laneValue": 3, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+        self.client.cookies["notatoken"] = (
+            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+        )
+
+        response = self.client.post(action_url, {"action": "play"})
+
+        self.assertNotContains(response, "Action error")
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.bot_participant.id,
+                state__lane__gt=0,
+            ).count(),
+            bot_lane_cards,
+        )
+        foreign_game_card.refresh_from_db()
+        self.assertTrue(foreign_game_card.state.inDeck)
+
+
+class DemoNavigationTests(TestCase):
+    """Root/title/admin routing plus the anonymous and team demo flows."""
+
+    def setUp(self):
+        self.lucas = Player.objects.create(name="Lucas")
+        self.lucas_owner = CardOwnerHistory.objects.create(cardOwner=self.lucas)
+        self.lucas_card_ids = []
+        for index in range(14):
+            card = Card.objects.create(
+                title=f"Collection-{index}", artSource="", cardType=index % 4
+            )
+            card.ownerHistory.add(self.lucas_owner)
+            self.lucas_card_ids.append(card.id)
+
+    def _created_player(self, name):
+        return Player.objects.filter(name=name).first()
+
+    def _latest_team_game(self, team_name):
+        team = self._created_player(team_name)
+        return (
+            Game.objects.filter(history__participants__player=team)
+            .latest("id")
+            if team
+            else None
+        )
+
+    def _deck_card_ids(self, deck):
+        return sorted(card.id for card in deck.cards.all())
+
+    def test_root_redirects_everyone_to_the_title_page(self):
+        response = self.client.get("/")
+        self.assertRedirects(response, "/title/", fetch_redirect_response=False)
+
+        title_response = self.client.get(response["Location"])
+        self.assertEqual(title_response.status_code, 200)
+        self.assertContains(title_response, "Magical Masters")
+
+    def test_current_index_renders_for_anyone_at_the_admin_route(self):
+        response = self.client.get(reverse("MMM:index"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Players", content)
+        self.assertIn("Cards", content)
+        self.assertIn(f'href="player/{self.lucas.id}"', content)
+        self.assertIn('href="game/reset/"', content)
+        self.assertIn('href="card/%d/"' % self.lucas_card_ids[0], content)
+
+    def test_settings_page_holds_only_the_card_zoom_preference(self):
+        response = self.client.get(reverse("MMM:demoSettings"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        for link in ("Title", "Deck", "Settings", "Admin"):
+            self.assertContains(response, link)
+        self.assertContains(response, "Card zoom")
+        self.assertContains(response, '<input type="hidden" name="enable" value="false">')
+        self.assertContains(response, "Disable hover card zoom")
+        self.assertNotIn("cardContainer", content)
+
+    def test_anonymous_play_opens_the_existing_annabel_vs_lucas_game(self):
+        response = self.client.post(reverse("MMM:play"))
+        board_url = response["Location"]
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(board_url.startswith("/game/"))
+        self.assertTrue(board_url.endswith("/board/%d/" % self._created_player("Annabel").id))
+
+        game = Game.objects.get(title="Annabel vs Lucas")
+        self.assertIn(f"/game/{game.id}/board/", board_url)
+        participants = list(game.history.participants.select_related("player"))
+        participants_by_player = {
+            participant.player.name: participant for participant in participants
+        }
+        self.assertEqual(
+            set(participants_by_player), {"Annabel", "Lucas"}
+        )
+        self.assertFalse(participants_by_player["Annabel"].computerControlled)
+        self.assertTrue(participants_by_player["Lucas"].computerControlled)
+
+        annabel_deck = participants_by_player["Annabel"].deck
+        self.assertEqual(len(self._deck_card_ids(annabel_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(set(self._deck_card_ids(annabel_deck)) <= set(self.lucas_card_ids))
+        lucas_deck = participants_by_player["Lucas"].deck
+        self.assertEqual(len(self._deck_card_ids(lucas_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(set(self._deck_card_ids(lucas_deck)) <= set(self.lucas_card_ids))
+
+        draft_response = self.client.get(board_url)
+        self.assertRedirects(
+            draft_response,
+            reverse("MMM:viewGameAsPlayer", args=[game.id, participants_by_player["Annabel"].player_id]),
+        )
+        draft = self.client.get(draft_response["Location"])
+        self.assertContains(draft, "Annabel vs Lucas game details")
+        self.assertContains(draft, "Shuffle the deck and load board")
+
+        confirm_response = self.client.post(
+            reverse("MMM:confirmChallenge", args=[game.id, participants_by_player["Annabel"].player_id])
+        )
+        self.assertRedirects(confirm_response, board_url)
+        board = self.client.get(board_url)
+        self.assertEqual(board.status_code, 200)
+        self.assertIn("Deck: 9 | Hand: 0", board.content.decode())
+
+        resumed = self.client.post(reverse("MMM:play"))
+        self.assertEqual(resumed["Location"], board_url)
+        self.assertEqual(self.client.get(board_url).status_code, 200)
+
+    def test_owlbears_play_passes_the_draft_and_reaches_lucasbot(self):
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        self.assertEqual(response.status_code, 302)
+
+        owlbears = self._created_player("Owlbears")
+        game = self._latest_team_game("Owlbears")
+        draft_url = response["Location"]
+        self.assertEqual(
+            draft_url, reverse("MMM:viewGameAsPlayer", args=[game.id, owlbears.id])
+        )
+
+        draft = self.client.get(draft_url)
+        self.assertContains(draft, "Owlbears vs Lucasbot game details")
+        self.assertContains(draft, "Lucasbot")
+        self.assertContains(draft, "Shuffle the deck and load board")
+
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Owlbears")
+
+        confirm = self.client.post(
+            reverse("MMM:confirmChallenge", args=[game.id, owlbears.id])
+        )
+        board_url = confirm["Location"]
+        self.assertEqual(board_url, reverse("MMM:viewBoard", args=[game.id, owlbears.id]))
+        board = self.client.get(board_url)
+        self.assertEqual(board.status_code, 200)
+        self.assertIn("Deck: 9 | Hand: 0", board.content.decode())
+
+        participants = {
+            participant.player.name: participant
+            for participant in game.history.participants.select_related("player")
+        }
+        self.assertFalse(participants["Owlbears"].computerControlled)
+        self.assertTrue(participants["Lucasbot"].computerControlled)
+        self.assertEqual(len(self._deck_card_ids(participants["Owlbears"].deck)), DEMO_DECK_CARD_COUNT)
+        self.assertTrue(
+            set(self._deck_card_ids(participants["Owlbears"].deck)) <= set(self.lucas_card_ids)
+        )
+
+        replay = self.client.post(reverse("MMM:play"))
+        self.assertEqual(replay["Location"], draft_url)
+
+    def test_hunters_play_passes_the_draft_and_reaches_annabelbot(self):
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+        self.assertEqual(response.status_code, 302)
+
+        hunters = self._created_player("Hunters")
+        game = self._latest_team_game("Hunters")
+        draft_url = response["Location"]
+        self.assertEqual(draft_url, reverse("MMM:viewGameAsPlayer", args=[game.id, hunters.id]))
+
+        draft = self.client.get(draft_url)
+        self.assertContains(draft, "Hunters vs Annabelbot game details")
+        self.assertContains(draft, "Annabelbot")
+
+        participants = {
+            participant.player.name: participant
+            for participant in game.history.participants.select_related("player")
+        }
+        self.assertFalse(participants["Hunters"].computerControlled)
+        self.assertTrue(participants["Annabelbot"].computerControlled)
+        self.assertEqual(len(self._deck_card_ids(participants["Hunters"].deck)), DEMO_DECK_CARD_COUNT)
+
+    def test_every_team_selection_deals_a_new_random_ten_card_lucas_deck(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        first_deck = self._created_player("Owlbears").deck_set.latest("id")
+        deck_count_after_first_selection = Deck.objects.count()
+
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        second_deck = self._created_player("Owlbears").deck_set.latest("id")
+
+        self.assertEqual(Deck.objects.count(), deck_count_after_first_selection + 1)
+        self.assertNotEqual(second_deck.id, first_deck.id)
+        self.assertEqual(len(self._deck_card_ids(second_deck)), DEMO_DECK_CARD_COUNT)
+        self.assertEqual(second_deck.description, "ten cards from Lucas's collection")
+        self.assertTrue(set(self._deck_card_ids(second_deck)) <= set(self.lucas_card_ids))
+
+    def test_changing_team_leaves_the_old_scenario_and_enters_the_new_one(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+
+        response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+
+        hunters = self._created_player("Hunters")
+        game = self._latest_team_game("Hunters")
+        self.assertEqual(response["Location"], reverse("MMM:viewGameAsPlayer", args=[game.id, hunters.id]))
+        draft = self.client.get(response["Location"])
+        self.assertContains(draft, "Hunters vs Annabelbot game details")
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Hunters")
+        self.assertNotContains(deck_page, "Playing as Owlbears")
+
+    def test_deck_page_name_change_persists_on_the_logged_in_player(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+        hunters = self._created_player("Hunters")
+
+        response = self.client.post(reverse("MMM:renameDeckPlayer"), {"name": "Hunters Prime"})
+
+        self.assertEqual(response.status_code, 302)
+        hunters.refresh_from_db()
+        self.assertEqual(hunters.name, "Hunters Prime")
+        deck_page = self.client.get(reverse("MMM:deckPage"))
+        self.assertContains(deck_page, "Playing as Hunters Prime")
+        self.assertContains(deck_page, 'value="Hunters Prime"')
+
+        self.client.get(reverse("MMM:titlePage"))
+        title_page = self.client.get(reverse("MMM:titlePage"))
+        self.assertNotContains(title_page, NEW_VISITOR_GREETING)
+        self.assertIn(re.search(
+            r'<p class="demoGreeting">\s*(.*?)\s*</p>',
+            title_page.content.decode(),
+            re.S,
+        ).group(1).strip(), applicable_title_greetings("Hunters Prime"))
+
+    def test_anonymous_deck_page_shows_teams_without_name_or_deck(self):
+        response = self.client.get(reverse("MMM:deckPage"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("You are a visitor", content)
+        self.assertIn("Owlbears", content)
+        self.assertIn("Hunters", content)
+        self.assertNotIn("name=\"name\"", content)
+        self.assertNotIn("cardContainer", content)
+
+    def test_unknown_team_selection_is_refused(self):
+        with self.assertRaises(Exception):
+            self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Cats"})
+        self.assertIsNone(self._created_player("Cats"))
+
+
+def _run_node_harness(harness, label):
+    """Execute a generated node harness and return its stdout, skipping when node is absent."""
+    import os
+    import subprocess
+    import tempfile
+    from unittest import SkipTest
+
+    try:
+        node_binary = subprocess.run(
+            ['node', '--version'],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        raise SkipTest(f'node binary unavailable; skipping {label}')
+    if node_binary.returncode != 0:
+        raise SkipTest(f'node binary unavailable; skipping {label}')
+
+    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+        handle.write(harness)
+        temp_path = handle.name
+    try:
+        completed = subprocess.run(['node', temp_path], capture_output=True, text=True, check=False)
+    finally:
+        os.unlink(temp_path)
+    if completed.returncode != 0:
+        raise AssertionError(
+            f'{label} failed:\n'
+            f'stdout={completed.stdout}\nstderr={completed.stderr}'
+        )
+    return completed.stdout
+
+
+def _read_static_asset(file_name):
+    import os
+
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+    with open(os.path.join(static_dir, file_name)) as static_file:
+        return static_file.read()
+
+
+class BoardViewportShortcutUnitTests(TestCase):
+    """Zoom/viewport fit and end-turn release-key contracts on the board page."""
+
+    def test_end_turn_hold_release_contract(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r"""
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '1',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+fakeDocument.getElementById = (id) => {
+    if (id === 'turnLimits') return turnLimits;
+    return descendantsInOrder(body).find((el) => el.id === id) || null;
+};
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+}
+
+global.document = fakeDocument;
+const holdTimers = [];
+let nextTimerId = 1;
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    location: { pathname: '/game/1/board/1/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () { this.observe = () => {}; this.disconnect = () => {}; };
+
+const endTurnSubmits = { count: 0 };
+endTurnButton.click = () => { endTurnSubmits.count += 1; };
+
+eval(__DRAG_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const keyupHandlers = documentListeners['keyup'] ?? [];
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const releaseKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: options.target ?? fakeDocument.activeElement,
+        preventDefault() { prevented = true; },
+    };
+    keyupHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const holdLoading = () => endTurnButton.classList.contains('shortcut-hold-loading');
+const submits = () => endTurnSubmits.count;
+const queuedTimers = () => holdTimers.length;
+const flushTimers = () => {
+    for (const task of holdTimers.splice(0)) task.callback();
+};
+
+fakeDocument.activeElement = endTurnButton;
+
+assert('Space hold starts like the e shortcut',
+    pressKey(' ') && holdLoading() && endTurnButton.getAttribute('aria-busy') === 'true' &&
+    submits() === 0 && queuedTimers() === 1);
+assert('releasing Space before loading completes cancels without submitting',
+    releaseKey(' ') && !holdLoading() && endTurnButton.getAttribute('aria-busy') === null &&
+    queuedTimers() === 0 && submits() === 0);
+flushTimers();
+assert('the released Space hold stays silent', submits() === 0);
+
+assert('Enter hold starts like the e shortcut', pressKey('Enter') && holdLoading() && submits() === 0);
+assert('releasing Enter before loading completes cancels without submitting',
+    releaseKey('Enter') && !holdLoading() && queuedTimers() === 0 && submits() === 0);
+
+assert('the e shortcut still starts its hold', pressKey('e') && holdLoading() && submits() === 0);
+assert('releasing e before loading completes cancels', releaseKey('e') && !holdLoading() && submits() === 0);
+
+assert('Space hold submits once when it completes', pressKey(' ') && holdLoading());
+flushTimers();
+assert('the completed Space hold submitted exactly once', submits() === 1 && !holdLoading());
+assert('releasing Space after the submit only resets the protected hold',
+    releaseKey(' ') && queuedTimers() === 0 && submits() === 1);
+
+assert('Enter hold completes and submits once too', pressKey('Enter') && holdLoading());
+flushTimers();
+assert('the completed Enter hold submitted exactly once', submits() === 2 && queuedTimers() === 0);
+assert('releasing Enter resets the protected hold', releaseKey('Enter') && queuedTimers() === 0);
+
+assert('repeating Space presses never schedule a second hold',
+    pressKey(' ') && pressKey(' ', { repeat: true }) && queuedTimers() === 1);
+releaseKey(' ');
+assert('repeating Enter presses never schedule a second hold',
+    pressKey('Enter', { repeat: true }) && queuedTimers() === 0);
+
+assert('a plain Space keyup without a held activation stays unhandled (draw click stays native)',
+    !releaseKey(' '));
+assert('a plain Enter keyup without a held activation stays unhandled', !releaseKey('Enter'));
+
+console.log('end turn release keys ok');
+""".replace('__DRAG_JS__', repr(drag_js))
+
+        self.assertIn('end turn release keys ok', _run_node_harness(
+            harness, 'end-turn release-key hold rehearsal'))
+
+    def test_loading_phases_suppress_key_release_end_turn_submits(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+        loading_js = _read_static_asset('loadingAnimations.js')
+
+        for board_phase in ('playerMoves', 'enemy', 'player'):
+            harness = FAKE_ELEMENT_DATASET_CORE + r"""
+const documentListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playerBoard = new FakeElement('div', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+
+const phase = '__BOARD_PHASE__';
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', phase);
+turnPhaseEl.dataset = { phase };
+body.appendChild(turnPhaseEl);
+const boardNext = new FakeElement('div');
+boardNext.setAttribute('id', 'boardNext');
+boardNext.setAttribute('data-next-url', '/game/1/board/1/');
+body.appendChild(boardNext);
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementsByClassName(className) {
+        const names = String(className).split(/\s+/).filter(Boolean);
+        return descendantsInOrder(body).filter((el) =>
+            names.every((name) => el.classList && el.classList.contains(name)));
+    },
+    getElementById(id) {
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    readyState: 'complete',
+    body,
+    activeElement: null,
+};
+for (const el of [body, playerScreen, playerBoard, deckHand, endTurnForm, endTurnButton]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+}
+
+global.document = fakeDocument;
+const loadingTimers = [];
+global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    cardDragDrop: null,
+    loadingAnimations: null,
+    location: { pathname: '/game/1/board/1/' },
+    scrollTo() {},
+    setTimeout(callback) { loadingTimers.push(callback); return loadingTimers.length; },
+    clearTimeout() {},
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function () { this.observe = () => {}; this.disconnect = () => {}; };
+global.requestAnimationFrame = (callback) => 1;
+
+const endTurnSubmits = { count: 0 };
+endTurnButton.click = () => { endTurnSubmits.count += 1; };
+
+eval(__DRAG_JS__);
+eval(__LOADING_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+const loading = global.window.loadingAnimations;
+if (!loading) throw new Error('loadingAnimations not instantiated');
+
+const keyboardHandlers = documentListeners['keydown'] ?? [];
+const keyupHandlers = documentListeners['keyup'] ?? [];
+const pressKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: options.repeat ?? false,
+        target: options.target ?? fakeDocument.activeElement,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() { prevented = true; },
+    };
+    keyboardHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const releaseKey = (key, options = {}) => {
+    let prevented = false;
+    const event = {
+        key,
+        repeat: false,
+        target: options.target ?? fakeDocument.activeElement,
+        preventDefault() { prevented = true; },
+    };
+    keyupHandlers.forEach((entry) => entry(event));
+    return prevented;
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const holdLoading = () => endTurnButton.classList.contains('shortcut-hold-loading');
+const submits = () => endTurnSubmits.count;
+const guard = loading._endTurnGuard;
+
+fakeDocument.activeElement = endTurnButton;
+
+if (phase === 'playerMoves' || phase === 'enemy') {
+    assert(`the ${phase} phase keeps the loading end turn guard armed`, guard.active === true);
+    assert(`Enter on the focused end turn is suppressed during ${phase}`,
+        pressKey('Enter') && submits() === 0 && !holdLoading());
+    assert(`repeating Enter during ${phase} stays suppressed`,
+        pressKey('Enter', { repeat: true }) && submits() === 0);
+    assert(`Space on the focused end turn is suppressed during ${phase}`,
+        pressKey(' ') && submits() === 0 && !holdLoading());
+    assert(`releasing Enter during ${phase} cannot end the turn`,
+        releaseKey('Enter') && submits() === 0);
+    assert(`releasing Space during ${phase} cannot end the turn`,
+        releaseKey(' ') && submits() === 0);
+    assert(`the non-activation e key release stays untouched during ${phase}`, !releaseKey('e'));
+    assert(`Space elsewhere during ${phase} is not captured by the guard`,
+        (fakeDocument.activeElement = deckHand, !pressKey(' ')));
+    fakeDocument.activeElement = endTurnButton;
+} else {
+    assert('the plain player phase leaves the loading end turn guard off', guard.active === false);
+    assert('Enter on the focused end turn starts the hold during the player phase',
+        pressKey('Enter') && holdLoading() && submits() === 0);
+    assert('releasing Enter before loading completes cancels the hold',
+        releaseKey('Enter') && !holdLoading() && submits() === 0);
+}
+
+console.log('loading end turn guard ok');
+""".replace('__BOARD_PHASE__', board_phase).replace('__DRAG_JS__', repr(drag_js)).replace(
+                '__LOADING_JS__', repr(loading_js))
+
+            self.assertIn('loading end turn guard ok', _run_node_harness(
+                harness, f'loading end-turn guard ({board_phase})'))
+
+    def test_viewport_fit_stages_zoom_compact_and_collapse_the_enemy_board(self):
+        stacking_js = _read_static_asset('laneStacking.js')
+
+        harness = r"""
+const matchPart = (el, part) => {
+    if (!el || !el.tagName) return false;
+    const tagMatch = part.match(/^[a-zA-Z][\w-]*/);
+    if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+    const idMatch = part.match(/#([\w-]+)/);
+    if (idMatch && (el.id || '') !== idMatch[1]) return false;
+    for (const cls of part.match(/\.([\w-]+)/g) || []) {
+        if (!el.classList || !el.classList.contains(cls.slice(1))) return false;
+    }
+    const attrRe = /\[([\w-]+)(?:="([^"]*)")?\]/g;
+    let match;
+    while ((match = attrRe.exec(part))) {
+        const value = el.getAttribute ? el.getAttribute(match[1]) : null;
+        if (match[2] === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== match[2]) return false;
+    }
+    const notRe = /:not\(\.([\w-]+)\)/g;
+    while ((match = notRe.exec(part))) {
+        if (el.classList && el.classList.contains(match[1])) return false;
+    }
+    if (part.replace(/:not\([^)]*\)/g, '').includes(':')) return false;
+    return true;
+};
+const matchChainFrom = (el, tokens) => {
+    const last = tokens[tokens.length - 1];
+    if (!matchPart(el, last.part)) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchChainFrom(el.parentNode, rest);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchChainFrom(node, rest)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+const tokenizeChain = (chain) => {
+    const tokens = [];
+    const re = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = re.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    if (tokens.length > 0 && tokens[0].part === ':scope') {
+        const [head, ...rest] = tokens;
+        rest[0].combinator = '>';
+        return rest;
+    }
+    return tokens;
+};
+const descendantsInOrder = (root) => {
+    const result = [];
+    const stack = [...root.children];
+    while (stack.length) {
+        const node = stack.shift();
+        result.push(node);
+        stack.unshift(...node.children);
+    }
+    return result;
+};
+
+class FakeElement {
+    constructor(tag, className = '') {
+        this.tagName = String(tag).toUpperCase();
+        this.classes = new Set(String(className).split(/\s+/).filter(Boolean));
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+        this.parentNode = null;
+        this.id = '';
+        this.title = '';
+        this.clientWidth = 100;
+        this.eventHandlers = {};
+        const self = this;
+        this.classList = {
+            add: (...names) => names.forEach((name) => this.classes.add(name)),
+            remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+            contains: (name) => this.classes.has(name),
+        };
+        this.style = {
+            setProperty: () => {},
+            getPropertyValue: () => '',
+            getPropertyPriority: () => '',
+            removeProperty: () => {},
+        };
+        this.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+            width: 100,
+            height: fakeLayout.heightOf(self),
+        });
+    }
+    get className() { return [...this.classes].join(' '); }
+    set className(value) {
+        this.classes = new Set(String(value).split(/\s+/).filter(Boolean));
+    }
+    get offsetWidth() { return 60; }
+    matches(selector) {
+        return String(selector).split(',').some((part) => part.trim() &&
+            matchChainFrom(this, tokenizeChain(part.trim())));
+    }
+    closest(selector) {
+        let node = this;
+        while (node) {
+            if (node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+    querySelectorAll(selector) {
+        const alternatives = String(selector).split(',').map((part) => tokenizeChain(part.trim()));
+        return descendantsInOrder(this).filter((candidate) =>
+            alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+    }
+    appendChild(child) {
+        if (child.parentNode) {
+            const index = child.parentNode.children.indexOf(child);
+            if (index !== -1) child.parentNode.children.splice(index, 1);
+        }
+        this.children.push(child);
+        child.parentNode = this;
+        return child;
+    }
+    insertBefore(newNode, reference) {
+        if (newNode.parentNode) {
+            const index = newNode.parentNode.children.indexOf(newNode);
+            if (index !== -1) newNode.parentNode.children.splice(index, 1);
+        }
+        let index = reference ? this.children.indexOf(reference) : this.children.length;
+        if (index === -1) index = this.children.length;
+        this.children.splice(index, 0, newNode);
+        newNode.parentNode = this;
+        return newNode;
+    }
+    setAttribute(name, value) {
+        this.attributes.set(name, String(value));
+        if (name === 'id') this.id = String(value);
+        if (name === 'title') this.title = String(value);
+        if (/^[a-zA-Z][\w-]*$/.test(name)) this[name] = String(value);
+    }
+    getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+    removeAttribute(name) { this.attributes.delete(name); }
+    addEventListener(name, handler) { (this.eventHandlers[name] ??= []).push(handler); }
+    removeEventListener(name, handler) {
+        this.eventHandlers[name] = (this.eventHandlers[name] ?? []).filter((h) => h !== handler);
+    }
+}
+
+const fakeLayout = {
+    viewport: 900,
+    zoneHeights: new Map(),
+    compactShrink: new Map(),
+    heightOf(element) {
+        const stored = this.zoneHeights.get(element) ?? 0;
+        if (stored === 0) return 0;
+        if (element.classList.contains('enemy-board-fit-compact')) {
+            return this.compactShrink.get(element) ?? stored;
+        }
+        return stored;
+    },
+};
+
+const documentListeners = {};
+const windowListeners = {};
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const playersHeader = new FakeElement('div', 'players');
+playerScreen.appendChild(playersHeader);
+const enemyZone = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyZone);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyZone.appendChild(enemyBoard);
+enemyBoard.appendChild(new FakeElement('h2'));
+const enemyDeckHand = new FakeElement('div', 'enemyDeckHand');
+enemyBoard.appendChild(enemyDeckHand);
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = new FakeElement('li', 'lane Intelligence');
+enemyLane.clientWidth = 30;
+enemyLanes.appendChild(enemyLane);
+const enemyCardRow = new FakeElement('ul', 'cardRow');
+enemyCardRow.setAttribute('title', 'cards');
+enemyLane.appendChild(enemyCardRow);
+for (let index = 0; index < 3; index++) {
+    enemyCardRow.appendChild(new FakeElement('li', 'cardContainer'));
+}
+const playerMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(playerMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+playerMat.appendChild(playerBoard);
+const playerLanes = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(playerLanes);
+const playerLane = new FakeElement('li', 'lane Resolve');
+playerLane.clientWidth = 30;
+playerLanes.appendChild(playerLane);
+const playerCardRow = new FakeElement('ul', 'cardRow');
+playerCardRow.setAttribute('title', 'cards');
+playerLane.appendChild(playerCardRow);
+for (let index = 0; index < 3; index++) {
+    playerCardRow.appendChild(new FakeElement('li', 'cardContainer'));
+}
+const deckHand = new FakeElement('div', 'deckHand');
+playerScreen.appendChild(deckHand);
+
+fakeLayout.zoneHeights.set(playersHeader, 120);
+fakeLayout.zoneHeights.set(enemyZone, 200);
+fakeLayout.compactShrink.set(enemyZone, 140);
+fakeLayout.zoneHeights.set(playerBoard, 250);
+fakeLayout.zoneHeights.set(deckHand, 150);
+
+const fakeDocument = {
+    createElement: (tag) => new FakeElement(tag),
+    documentElement: { contains: () => true, clientHeight: 900 },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getComputedStyle: () => ({ fontSize: '10px' }),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    readyState: 'complete',
+    body,
+    hidden: false,
+    visibilityState: 'visible',
+    activeElement: null,
+};
+
+global.document = fakeDocument;
+global.getComputedStyle = fakeDocument.getComputedStyle;
+const pendingTimers = [];
+let nextTimerId = 1;
+global.window = {
+    addEventListener(event, handler) { (windowListeners[event] ??= []).push(handler); },
+    removeEventListener() {},
+    innerHeight: 900,
+    laneCardStacking: null,
+    boardViewportFit: null,
+};
+global.setTimeout = (callback) => {
+    pendingTimers.push({ id: nextTimerId, callback });
+    return nextTimerId++;
+};
+global.clearTimeout = (id) => {
+    const index = pendingTimers.findIndex((task) => task.id === id);
+    if (index !== -1) pendingTimers.splice(index, 1);
+};
+
+eval(__STACKING_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const stacking = global.window.laneCardStacking;
+const fit = global.window.boardViewportFit;
+if (!stacking || !fit) throw new Error('lane stacking or viewport fit not instantiated');
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const flushTimers = () => {
+    for (const task of pendingTimers.splice(0)) task.callback();
+};
+const applyResize = () => {
+    for (const handler of windowListeners['resize'] ?? []) handler();
+    flushTimers();
+};
+const setViewport = (height) => {
+    fakeLayout.viewport = height;
+    global.window.innerHeight = height;
+    global.document.documentElement.clientHeight = height;
+};
+const enemyCollapsed = () => enemyBoard.classList.contains('enemy-board-fit-hidden');
+const compactActive = () => enemyZone.classList.contains('enemy-board-fit-compact');
+const splitRows = (row) => row.parentNode.querySelectorAll('ul.cardRow.overflow-row').length;
+
+assert('both boards overflow-row split through the shared reflow',
+    splitRows(enemyCardRow) === 2 && splitRows(playerCardRow) === 2);
+assert('a roomy viewport keeps the enemy board fully rendered',
+    !enemyCollapsed() && !compactActive());
+
+flushTimers();
+assert('loading settle rechecks the fit without new stages',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(900);
+applyResize();
+assert('a very long board stays untouched above the compact threshold',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(760);
+applyResize();
+assert('the confident fit keeps every enemy board at the first compact stage',
+    !enemyCollapsed() && !compactActive());
+
+setViewport(700);
+applyResize();
+assert('zooming changes the enemy board by compacting it while the player stays intact',
+    compactActive() && !enemyCollapsed());
+assert('the player board never receives a compact or hidden fit class',
+    !playerBoard.classList.contains('enemy-board-fit-compact') &&
+    !playerBoard.classList.contains('enemy-board-fit-hidden'));
+
+setViewport(560);
+applyResize();
+assert('when the compact board still overlaps the player zone it collapses completely',
+    enemyCollapsed() && !compactActive());
+assert('the collapsed enemy zone keeps its list while each board hides fully',
+    enemyZone.children.length === 1 && enemyZone.children[0] === enemyBoard &&
+    enemyBoard.parentNode === enemyZone);
+
+assert('re-applying the fit gives the same overlap decision', (fit.apply(), enemyCollapsed()));
+
+setViewport(900);
+applyResize();
+assert('zooming back out restores the complete enemy board',
+    !enemyCollapsed() && !compactActive());
+
+console.log('board viewport fit ok');
+""".replace('__STACKING_JS__', repr(stacking_js))
+
+        self.assertIn('board viewport fit ok', _run_node_harness(
+            harness, 'board viewport fit rehearsal'))
+
+    def test_viewport_and_release_shortcut_source_contract(self):
+        drag_js = _read_static_asset('cardDragDrop.js')
+        loading_js = _read_static_asset('loadingAnimations.js')
+        stacking_js = _read_static_asset('laneStacking.js')
+        cards_css = _read_static_asset('cards.css')
+
+        self.assertIn('_isEndTurnActivationKey(event) {', drag_js)
+        self.assertIn("event.key === ' ' ||", drag_js)
+        self.assertIn("event.key === 'Spacebar'", drag_js)
+        release_method = drag_js[
+            drag_js.index('    onKeyboardKeyUp(event) {'):
+            drag_js.index('    _submitHeldEndTurn() {')
+        ]
+        self.assertIn('this._isEndTurnReleaseKey(event)', release_method)
+        self.assertIn('this.endTurnHold.release()', release_method)
+        self.assertIn('this._isDrawKey(event) && this.drawHold.release()', release_method)
+        self.assertIn(
+            'return this._isEndTurnKey(event) || this._isEndTurnActivationKey(event);',
+            drag_js,
+        )
+
+        self.assertIn('class LoadingEndTurnGuard', loading_js)
+        self.assertIn("document.addEventListener('keyup', this.keyupHandler, true)", loading_js)
+        guard_code = loading_js[
+            loading_js.index('class LoadingEndTurnGuard'):
+            loading_js.index('class loadingAnimationsSystem')
+        ]
+        self.assertIn("'.playerScreen .end-turn'", guard_code)
+        guard_run = loading_js[
+            loading_js.index("        if (phase === 'playerMoves' || phase === 'enemy'"):
+            loading_js.index("        if (phase === 'player') {")
+        ]
+        self.assertIn('this._endTurnGuard.activate()', guard_run)
+        self.assertIn('this._endTurnGuard.deactivate()', guard_run)
+
+        self.assertIn(
+            "'.playerBoard .lane, ul.enemyBoards li.enemyBoard ul.lanes li.lane'",
+            stacking_js,
+        )
+        self.assertIn('class BoardViewportFit', stacking_js)
+        self.assertIn('SMALL_VIEWPORT_MAX_HEIGHT = 768', stacking_js)
+        self.assertIn("COMPACT_CLASS = 'enemy-board-fit-compact'", stacking_js)
+        self.assertIn("OVERLAP_HIDDEN_CLASS = 'enemy-board-fit-hidden'", stacking_js)
+        self.assertIn('collapseEnemyBoards()', stacking_js)
+        apply_code = stacking_js[
+            stacking_js.index('    apply() {'):stacking_js.index('    revealEnemyBoards() {')
+        ]
+        self.assertIn('enemyZone.classList.add(BoardViewportFit.COMPACT_CLASS)', apply_code)
+        self.assertLess(
+            apply_code.index('enemyZone.classList.add(BoardViewportFit.COMPACT_CLASS)'),
+            apply_code.index('this.collapseEnemyBoards()'),
+            'compaction must be tried before complete enemy boards are hidden',
+        )
+
+        self.assertIn('min-height: min(1080px, 100vh);', cards_css)
+        self.assertIn(
+            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard .enemyDeckHand ul.hand,',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard ul.cardRow[title="trustedCards"]',
+            cards_css,
+        )
+        self.assertIn(
+            '.playerScreen ul.enemyBoards li.enemyBoard.enemy-board-fit-hidden',
+            cards_css,
+        )
+
+
+class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
+    """End turn across loading phases keeps the deferred bot flow reachable and shipped."""
+
+    def test_board_page_ships_viewport_fit_and_release_shortcut_assets(self):
+        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
+        response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
+        self.assertEqual(response.status_code, 200)
+
+        html = response.content.decode()
+        referenced_assets = set(re.findall(r'/static/([a-zA-Z0-9._-]+)', html))
+        missing = [name for name in sorted(referenced_assets) if finders.find(name) is None]
+        self.assertEqual(missing, [], f"Board references missing static assets: {missing}")
+
+        asset_markers = {
+            'cards.css': [
+                'enemy-board-fit-compact',
+                'enemy-board-fit-hidden',
+                'min-height: min(1080px, 100vh);',
+            ],
+            'laneStacking.js': ['class BoardViewportFit', 'SMALL_VIEWPORT_MAX_HEIGHT = 768'],
+            'loadingAnimations.js': ['class LoadingEndTurnGuard', "phase === 'playerMoves'"],
+            'cardDragDrop.js': ['_isEndTurnReleaseKey', 'ShortcutHoldAction'],
+        }
+        for asset, markers in asset_markers.items():
+            asset_path = finders.find(asset)
+            self.assertIsNotNone(asset_path)
+            with open(asset_path) as asset_file:
+                asset_content = asset_file.read()
+            for marker in markers:
+                self.assertIn(marker, asset_content)
+
+    def test_end_turn_release_flow_keeps_deferred_bot_once_and_reachable_button(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        plain_content = response.content.decode()
+        self.assertNotIn('id="turnPhase"', plain_content)
+        self.assertContains(response, 'class="end-turn"')
+        self.assertRegex(plain_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+        self.assertEqual(response.status_code, 200)
+        moved_content = response.content.decode()
+        self.assertNotContains(response, "Action error")
+        self.assertIn('data-phase="playerMoves"', moved_content)
+        self.assertContains(response, 'class="end-turn"')
+
+        self.game.refresh_from_db()
+        bot_lane_before = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+
+        response = self.client.get(board_url)
+        enemy_content = response.content.decode()
+        self.assertIn('data-phase="enemy"', enemy_content)
+        self.assertNotRegex(
+            enemy_content,
+            r'<button[^>]*class="end-turn"[^>]*autofocus',
+        )
+
+        response = self.client.get(board_url)
+        player_content = response.content.decode()
+        self.assertIn('data-phase="player"', player_content)
+        self.assertRegex(player_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.roundNumber, 2)
+        bot_lane_after = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.bot_participant.id,
+            state__lane__gt=0,
+        ).count()
+        self.assertGreater(bot_lane_after, bot_lane_before)
+
+        settled_content = self.client.get(board_url).content.decode()
+        self.assertNotIn('id="turnPhase"', settled_content)
+        self.assertRegex(settled_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+        self.assertEqual(Game.objects.get(pk=self.game.id).roundNumber, 2)

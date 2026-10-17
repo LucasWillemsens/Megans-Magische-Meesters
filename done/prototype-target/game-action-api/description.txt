@@ -1,0 +1,13 @@
+Provide the demo's game-action API and usable API documentation. Objective: let demo users perform supported actions, including resetgames, through documented JSON endpoints.
+
+Implementation:
+1. Refactor shared operations from `MMM/views.py` into callable services independent of `HttpRequest`, preserving browser cookie-staged plays, turn-phase/animation flow, and result behavior.
+2. Add JSON API routes in `MMM/urls.py` for every current board action (including draw, staged play/flip consumption, and end-turn) and resetgames; specify request/response schemas, validation, and status codes. Keep the existing browser routes operational through the same service layer.
+3. Add OpenAPI schema and Swagger UI usable by anyone in the demo, allowing requests to the API. Do not implement these as Django Admin actions.
+4. Add focused tests for endpoint schemas, success/error/no-mutation behavior, and parity with browser state transitions; include documentation access and action invocation.
+
+Acceptance criteria:
+- [x] API exposes every supported current board action plus resetgames, with JSON schemas and documented success/error responses.
+- [x] Browser and API calls use the same request-independent action services and preserve current staged-action and deferred enemy-phase behavior.
+- [x] Anyone in the demo can open Swagger UI, inspect schemas, and execute documented requests.
+- [x] Invalid requests are rejected without partial game-state mutation.

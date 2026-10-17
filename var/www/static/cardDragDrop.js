@@ -958,10 +958,11 @@ class CardDragDropSystem {
     }
 
     createDropZones() {
-        const handZone = document.querySelector('.basic-mat.table > .deckHand.handContainer .hand-scroll');
-        this.createdDropZones.push(handZone);
-        this.handZone = handZone;
-
+        const handZone = document.querySelector('.playerScreen .deckHand .hand-scroll');
+        if (handZone) {
+            this.createdDropZones.push(handZone);
+            this.handZone = handZone;
+        }
         const allLanes = this.playerBoard?.querySelectorAll(':scope > ul.lanes > li.lane') || [];
         allLanes.forEach((lane, index) => {
             const dropZone = document.createElement('div');
@@ -1009,17 +1010,19 @@ class CardDragDropSystem {
     }
 
     setupDropZoneListeners() {
-        this.handZone.addEventListener('dragover', this.onDropZoneDragOver.bind(this));
-        this.handZone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
-        this.handZone.addEventListener('drop', this.onHandZoneDrop.bind(this));
+        if (this.handZone) {
+            this.handZone.addEventListener('dragover', this.onDropZoneDragOver.bind(this));
+            this.handZone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
+            this.handZone.addEventListener('drop', this.onHandZoneDrop.bind(this));
+        }
         this.dropZones.forEach((zoneData, index) => {
             const zone = zoneData.element;
             zone.addEventListener('dragover', this.onDropZoneDragOver.bind(this));
             zone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
             zone.addEventListener('drop', this.onDropZoneDrop.bind(this));
             zone.addEventListener('click', this.onDropZoneClick.bind(this));
-            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index));
-            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index));
+            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index + 1));
+            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index + 1));
         });
     }
 
@@ -1359,6 +1362,19 @@ class CardDragDropSystem {
         );
     }
 
+    _isEndTurnActivationKey(event) {
+        return (
+            event.key === 'Enter' ||
+            event.key === ' ' ||
+            event.key === 'Space' ||
+            event.key === 'Spacebar'
+        );
+    }
+
+    _isEndTurnReleaseKey(event) {
+        return this._isEndTurnKey(event) || this._isEndTurnActivationKey(event);
+    }
+
     _isKeyboardDrawTarget(event) {
         const navigator = this.control?.navigator;
         if (!navigator) return false;
@@ -1455,7 +1471,7 @@ class CardDragDropSystem {
     }
 
     onKeyboardKeyUp(event) {
-        if (this._isEndTurnKey(event)) {
+        if (this._isEndTurnReleaseKey(event)) {
             if (this.endTurnHold.release()) event.preventDefault();
             return;
         }
@@ -1511,7 +1527,12 @@ class CardDragDropSystem {
 
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
-        if (event.key === '`' || (event.code === 'Backquote')) {
+        if (event.key === '`' || (event.code === 'Backquote' && event.key !== '~')) {
+            const target = event.target || document.activeElement;
+            if (this._isTextControlTarget(target) || this._isTextControlTarget(document.activeElement)) {
+                event.preventDefault();
+                return;
+            }
             event.preventDefault();
             this.toggleDebugParagraphOverlay();
             return;
@@ -1929,14 +1950,6 @@ class CardDragDropSystem {
         return false;
     }
 
-    onHandZoneDragOver(e) {
-        return false;
-    }
-
-    onHandZoneDragLeave(e) {
-        return false;
-    }
-
     onDropZoneClick(e) {
         if (!this.keyboardSelection.selectedCard) return;
         if (!this._keyboardActionAllowed(e)) return;
@@ -1978,11 +1991,9 @@ class CardDragDropSystem {
         return false;
     }
 
-    //TODO add a trick like this for drawing cards as well. Click the top deck card should flip it over somewhat, while not revealing it.
-    //Then releasing it on the deck itself or dragging it to the hand sends a click 
     onHandZoneDrop(e) {
         e.preventDefault();
-        e.stopPropagation();        
+        e.stopPropagation();
         if (this.draggedCard) {
             this.onHandCardClick(e);
         }

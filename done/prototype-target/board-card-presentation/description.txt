@@ -1,0 +1,12 @@
+Finish board card presentation. Objective: hide internal card identifiers, distinguish trusted cards, and provide default-on optional in-page zoom.
+
+Implementation:
+1. Audit `MMM/jinja2/MMM/battle/viewBoard.jinja2`, `MMM/views.py`, and board JS for client-visible `GameCard` IDs; retain server-side identifiers needed for staged actions without exposing them in rendered markup or client metadata.
+2. Render trusted cards sideways for both participants using `var/www/static/cards.css`.
+3. Add a session preference on settings/deck UI, default enabled, to toggle hover enlargement. Enlarge in-page only; no overlay or browser Fullscreen API. Provide accessible exit behavior.
+4. Add markup/style contract tests and one browser test for toggle, hover zoom, and exit.
+
+Acceptance criteria:
+- [x] No `GameCard` database IDs appear in rendered board markup, attributes, or client-visible metadata for either participant or board region.
+- [x] Trusted cards are rotated 90 degrees for both participants without state/rule changes.
+- [x] Zoom is enabled by default, enlarges cards in-page on hover, can be disabled for the session, and can be exited accessibly; it never uses overlay/browser fullscreen.

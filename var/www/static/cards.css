@@ -13,7 +13,7 @@
 :root{
     --card-background: #c7dce0;
     --card-background-highlight: #d1e1ea;
-    --card-font-size: 1.2em; /* @change: adjust this value to make bigger or smaller cards */
+    --trusted-card-border: #a67c00;
 }
 
 .playingCards .card {
@@ -28,7 +28,7 @@
     padding: .25em;
     margin: 0 .5em .5em 0;
     text-align: center;
-    font-size: var(--card-font-size, 1.2em);
+    font-size: 1.2em; /* @change: adjust this value to make bigger or smaller cards */
     font-weight: normal;
     font-family: Arial, sans-serif;
     position: relative;
@@ -552,7 +552,7 @@
 .playingCards ul.deck {
     list-style-type: none;
     padding: 0;
-    /* margin: 0 0 0.5rem 0; */
+    margin: 0 0 1.5em 0;
     position: relative;
     clear: both;
 }
@@ -602,8 +602,566 @@
     overflow: visible;
 }
 
+.playingCards .hand-scroll .hand-fan > li.cardContainer {
+    left: 0;
+}
+
+.playingCards .hand-scroll .hand-fan > li:not(.cardContainer) {
+    left: 0;
+    bottom: 0;
+}
+
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(1)  { left: 0; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(2)  { left: 1.1em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(3)  { left: 2.2em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(4)  { left: 3.3em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(5)  { left: 4.4em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(6)  { left: 5.5em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(7)  { left: 6.6em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(8)  { left: 7.7em; }
+.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(9)  { left: 8.8em; }
+
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(1),
+.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(2) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(3) { --hand-tx: 1.1em; --hand-ty: .3em; --hand-rot: -24deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(4) { --hand-tx: .7em;  --hand-ty: .2em; --hand-rot: -15deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(5) { --hand-tx: .3em;  --hand-ty: .1em; --hand-rot: -6deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(6) { --hand-tx: -.1em; --hand-ty: .1em; --hand-rot: 3deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(7) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(8) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(9) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
+
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer,
+.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) {
+    transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
+}
+
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {
+    transition: transform 0.15s ease-out;
+}
+
+.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
+    transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
+}
+
+.playingCards ul.deck li:nth-child(1)  { left: 0;    bottom: 0; }
+.playingCards ul.deck li:nth-child(2)  { left: 2px;  bottom: 1px; }
+.playingCards ul.deck li:nth-child(3)  { left: 4px;  bottom: 2px; }
+.playingCards ul.deck li:nth-child(4)  { left: 6px;  bottom: 3px; }
+.playingCards ul.deck li:nth-child(5)  { left: 8px;  bottom: 4px; }
+.playingCards ul.deck li:nth-child(6)  { left: 10px; bottom: 5px; }
+.playingCards ul.deck li:nth-child(7)  { left: 12px; bottom: 6px; }
+.playingCards ul.deck li:nth-child(8)  { left: 14px; bottom: 7px; }
+.playingCards ul.deck li:nth-child(9)  { left: 16px; bottom: 8px; }
+.playingCards ul.deck li:nth-child(10) { left: 18px; bottom: 9px; }
+.playingCards ul.deck li:nth-child(11) { left: 20px; bottom: 10px; }
+.playingCards ul.deck li:nth-child(12) { left: 22px; bottom: 11px; }
+.playingCards ul.deck li:nth-child(13) { left: 24px; bottom: 12px; }
+.playingCards ul.deck li:nth-child(14) { left: 26px; bottom: 13px; }
+.playingCards ul.deck li:nth-child(15) { left: 28px; bottom: 14px; }
+.playingCards ul.deck li:nth-child(16) { left: 30px; bottom: 15px; }
+.playingCards ul.deck li:nth-child(17) { left: 32px; bottom: 16px; }
+.playingCards ul.deck li:nth-child(18) { left: 34px; bottom: 17px; }
+.playingCards ul.deck li:nth-child(19) { left: 36px; bottom: 18px; }
+.playingCards ul.deck li:nth-child(20) { left: 38px; bottom: 19px; }
+.playingCards ul.deck li:nth-child(21) { left: 40px; bottom: 20px; }
+.playingCards ul.deck li:nth-child(22) { left: 42px; bottom: 21px; }
+.playingCards ul.deck li:nth-child(23) { left: 44px; bottom: 22px; }
+.playingCards ul.deck li:nth-child(24) { left: 46px; bottom: 23px; }
+.playingCards ul.deck li:nth-child(25) { left: 48px; bottom: 24px; }
+.playingCards ul.deck li:nth-child(26) { left: 50px; bottom: 25px; }
+.playingCards ul.deck li:nth-child(27) { left: 52px; bottom: 26px; }
+.playingCards ul.deck li:nth-child(28) { left: 54px; bottom: 27px; }
+.playingCards ul.deck li:nth-child(29) { left: 56px; bottom: 28px; }
+.playingCards ul.deck li:nth-child(30) { left: 58px; bottom: 29px; }
+.playingCards ul.deck li:nth-child(31) { left: 60px; bottom: 30px; }
+.playingCards ul.deck li:nth-child(32) { left: 62px; bottom: 31px; }
+
+.playingCards ul.deck-indicator {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    position: absolute;
+}
+
+.playingCards ul.deck-indicator li {
+    padding: 0;
+    list-style-type: none;
+    position: absolute;
+}
+
+.playerScreen .deckHand,
+.playerScreen .enemyDeckHand {
+    position: relative;
+}
+
+.playerScreen .deck-stack {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    z-index: 2;
+    width: min(12rem, 100%);
+    height: var(--hand-row-height, 8em);
+}
+
+.playerScreen .deck-stack > ul.deck {
+    position: absolute;
+    left: calc(2rem + var(--deck-indicator-count, 0) * 0.55rem);
+    bottom: 0;
+    width: calc(10rem - var(--deck-indicator-count, 0) * 0.55rem);
+    height: var(--hand-row-height, 8em);
+    margin: 0;
+    overflow: visible;
+    clear: none;
+}
+
+.playerScreen .deck-stack > ul.deck.active-deck {
+    z-index: 10;
+}
+
+.playerScreen .deck-stack > ul.deck-indicator {
+    left: var(--deck-indicator-offset, 0);
+    bottom: 0;
+    z-index: 1;
+    pointer-events: none;
+    user-select: none;
+    cursor: default;
+}
+
+.playerScreen .deck-stack > ul.deck-indicator li {
+    left: 0;
+    bottom: 0;
+    width: 1.7rem;
+    height: 1.15rem;
+}
+
+.deck-indicator-face {
+    display: block;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: 1px solid #666;
+    border-radius: .25em;
+    background: repeating-linear-gradient(135deg, #1f326b 0, #1f326b 3px, #4c7190 3px, #4c7190 6px);
+    box-shadow: .08em .08em .16em rgba(0, 0, 0, .45);
+    opacity: .92;
+}
+
+div.playerScreen{
+    width: 100%;
+    min-height: min(1080px, 100vh);
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+    .playerScreen > ul{
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+    }
+    .playerScreen .playerBoard{
+        width: calc(100% - 2rem);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+    li.playerBoard > ul.basic-mat{
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    li.playerBoard h2, li.enemyBoard h2{
+        height: 10%;
+        margin: 0;
+        z-index: 1;
+        opacity: 0.15;
+        color: #114503;
+        transform: translateX(-25px) translatey(-83px) rotate(-17deg);
+        pointer-events:none;
+    }
+
+    ul.lanes {
+        align-self: center;
+        justify-self: center;
+        display: flex;
+        flex-wrap: nowrap;
+        flex-direction: row;
+        align-items: stretch;
+        padding: 0 5%;
+        width: 90vw;
+        gap: 1.5%;
+        justify-content: center;
+        margin-top: -1.5%;
+    }
+        ul.lanes li.lane {
+            flex: 1;
+            min-width: 8rem;
+            position: relative;
+        }
+        ul.lanes li.lane.Intelligence {
+            background-color: 
+            rgb(213 193 235);
+        }
+        ul.lanes li.lane.Speed {
+            background-color: 
+            rgb(252 247 207);
+        }
+        ul.lanes li.lane.Visciousness {
+            background-color: 
+            rgb(215 155 155);
+        }
+        ul.lanes li.lane.Resolve {
+            background-color: 
+            rgb(178 193 180);
+        }
+
+            ul.lanes li.lane > p {
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 5;
+                pointer-events: none;
+                margin: 0;
+                padding: 0 .5em;
+            }
+            ul.lanes li.lane > p::before{
+                content: "";
+                display: block;
+                width: 100%;
+                height: 2px;
+                background-color: black;
+                margin-bottom: 5px;
+            }
+            ul.lanes li.lane > p::after{
+                content: "";
+                display: block;
+                width: 100%;
+                height: 2px;
+                background-color: black;
+                margin-top: 5px;
+            }
+
+    .playerScreen .deckHand {
+        --hand-row-height: 8em;
+        z-index: 1;
+        position: relative;
+        display: flex;
+        width: 100%;
+        margin-top: auto;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: flex-end;
+        min-height: var(--hand-row-height);
+        height: 25%;
+    }
+
+    .playerScreen .deckHand > .deck,
+    .playerScreen .deckHand > .deck-stack,
+    .playerScreen .deckHand > .hand,
+    .playerScreen .deckHand > .hand-scroll,
+    .playerScreen .deckHand > .hand-fan {
+        align-self: flex-end;
+        height: var(--hand-row-height);
+        margin-bottom: 0;
+    }
+
+    .playerScreen .deckHand > .deck {
+        max-width: 20%;
+        max-height: 100%;
+    }
+    .playerScreen .deckHand > .deck-stack {
+        max-width: none;
+        max-height: 100%;
+    }
+
+    .playerScreen .deckHand > .hand,
+    .playerScreen .deckHand > .hand-scroll,
+    .playerScreen .deckHand > .hand-fan {
+        width: 60%;
+        margin: 0 20%;
+    }
+
+    .playerScreen .deckHand > .hand-scroll {
+        height: calc(var(--hand-row-height, 8em) + 4em);
+        padding-bottom: 4em;
+        overflow: visible;
+    }
+
+    .playerScreen .deckHand{
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+        pointer-events: auto;
+    }
+
+    ul.enemyBoards li.enemyBoard {
+        display: flex;
+        max-width: calc(100% - 2rem);
+        height: 100%;
+        flex-direction: column;
+    }
+
+    ul.enemyBoards li.enemyBoard > p{        
+        margin-top: -1rem;
+        margin-left: -1rem;
+        position: absolute;
+}
+
+.playerScreen ul.enemyBoards {
+    margin-top: 1rem;
+    display: flex;
+    width: 100%;
+    height: fit-content;
+    flex-direction: column;
+    flex-wrap: nowrap;
+}
+
+.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard .enemyDeckHand ul.hand,
+.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard ul.cardRow[title="trustedCards"] {
+    display: none;
+}
+
+.playerScreen ul.enemyBoards li.enemyBoard.enemy-board-fit-hidden {
+    display: none;
+}
+.playerScreen .enemyDeckHand {
+    z-index: 1;
+    position: relative;
+    display: flex;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    min-height: 9em;
+}
+.playerScreen .enemyDeckHand > .deck {
+    max-width: 20%;
+    max-height: 100%;
+}
+.playerScreen .enemyDeckHand > .deck-stack {
+    max-width: none;
+    max-height: 100%;
+}
+.playerScreen .enemyDeckHand > .hand {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    width: 60%;
+    margin: 0 20%;
+    min-width: 0;
+    box-sizing: border-box;
+    height: var(--hand-row-height, 8em);
+    margin-bottom: 0;
+    flex: 1 1 60%;
+}
+
+.playerScreen .enemyDeckHand > .hand > li.cardContainer {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto !important;
+    float: none;
+    flex: 0 0 calc(4.75rem + 6px);
+}
+
+.playerScreen .enemyDeckHand,
+.playerScreen .enemyDeckHand * {
+    pointer-events: none;
+    cursor: default;
+}
+
+.playerScreen .enemyDeckHand .deck-stack > ul.deck {
+    cursor: default;
+}
+
+.playerScreen.enemyTurnFocus > .deckHand,
+.playerScreen.enemyTurnFocus .playerBoard {
+    opacity: 0.3;
+    filter: grayscale(0.9);
+    pointer-events: none;
+    transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
+}
+
+@media (max-width: 700px) {
+    .playerScreen .deckHand > .hand-scroll {
+        width: calc(100% - 6.5rem);
+        max-width: calc(100% - 6.5rem);
+        flex-basis: calc(100% - 6.5rem);
+        margin-right: 0;
+        margin-left: 6.5rem;
+    }
+
+    .playerScreen .deckHand > .deck-stack {
+        width: 6.5rem;
+    }
+
+    .playerScreen .deckHand .deck-stack > ul.deck {
+        left: calc(.75rem + var(--deck-indicator-count, 0) * .45rem);
+        width: calc(5.75rem - var(--deck-indicator-count, 0) * .45rem);
+    }
+
+    .playerScreen .deck-stack > ul.deck-indicator li {
+        width: 1.3rem;
+        height: .95rem;
+    }
+
+    .playerScreen .enemyDeckHand > .hand {
+        width: calc(100% - 6.5rem);
+        max-width: calc(100% - 6.5rem);
+        flex-basis: calc(100% - 6.5rem);
+        margin-right: 0;
+        margin-left: 6.5rem;
+    }
+}
+
+button.end-turn{
+    cursor: pointer;
+    display: inline-block;
+    width: 4.25rem;
+    height: 6rem;
+    border: 1px solid #666;
+    border-radius: .3em;
+    -moz-border-radius: .3em;
+    -webkit-border-radius: .3em;
+    -khtml-border-radius: .3em;
+    padding: .25em;
+    margin: 0 .5em .5em 0;
+    text-align: center;
+    font-size: 1.2em;
+    font-weight: normal;
+    font-family: Arial, sans-serif;
+    position: relative;
+    background-color: #fff;
+    box-shadow: .2em .2em .35em #333;
+}
+
+button.draw{
+    letter-spacing: normal;
+    box-sizing: unset;
+    line-height: unset;
+    text-rendering: unset;
+    text-shadow: unset;
+    unicode-bidi: isolate;
+    cursor: pointer;
+    pointer-events: inherit;
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
+    transition: transform 0.15s ease-out;
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
+    transform: rotate(3deg);
+}
+
+.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled).card-hover {
+    transform: rotate(3deg);
+}
+
+
+.fit-picture{
+    object-fit: cover;
+    vertical-align: middle;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    background: #ddd;
+}
+.playerInfo .fit-picture{
+    margin: 0 1rem;
+    width: 4rem;
+}
+.players .fit-picture, .cards .fit-picture,  .decks .fit-picture{
+    width: 4rem;
+}
+.smallCard .fit-picture{
+    width: 4rem;
+    height: 4rem;
+    align-self: center;
+}
+
+
+.cards{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    height: fit-content;
+    width:100%;
+}
+    .cards h2{
+        margin:0;
+    }
+    .cards p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.decks
+{
+    height: 8rem;
+    align-items: end;
+    display:flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0;
+    margin: 0;
+    height: fit-content;
+    width:100%;
+}
+    .decks h2{
+        margin:0;
+    }
+    .decks p{
+        margin: 0;
+        padding-left: 0.5rem;
+    }
+
+.cardOptions{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: stretch;
+    justify-content: space-evenly;
+}
+    .cardOptions .smallCard{
+        display: flex;
+        flex-direction: column-reverse;
+        height: 9rem;
+        align-items: center;
+        align-content: center;
+        justify-content: space-between;
+        width: 5rem;
+    }
+
+        .cardOptions .smallCard label{
+            display: flex;
+            flex-direction: column;
+        }
+            .cardOptions .smallCard label .fit-picture {
+                margin:0;
+            }
+
+.card.back.emptyDeck, .card.back.emptyHand  {
+    border-style: dashed;
+    border-width: thick;
+    background: transparent;
+    box-shadow: none;
+    top: 4px;
+    left: -4px;
+}
 
 ul.basic-mat{
+
     padding: 0;
 
     & li.cardContainer{
@@ -629,6 +1187,7 @@ ul.cardRow{
     margin: 0;
     min-width: 5rem;
     min-height: 7.5rem;
+    /* overflow: visible; */
 }
 
 .playingCards ul.cardRow li.cardContainer {
@@ -679,75 +1238,30 @@ ul.cardRow{
     margin-top: 0.5rem;
 }
 
-.playingCards .hand-scroll .hand-fan > li.cardContainer {
-    left: 0;
-}
-
-.playingCards .hand-scroll .hand-fan > li:not(.cardContainer) {
-    left: 0;
-    bottom: 0;
-}
-
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(1)  { left: 0; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(2)  { left: 1.1em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(3)  { left: 2.2em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(4)  { left: 3.3em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(5)  { left: 4.4em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(6)  { left: 5.5em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(7)  { left: 6.6em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(8)  { left: 7.7em; }
-.playingCards .hand-scroll .hand-fan > li.cardContainer:nth-child(9)  { left: 8.8em; }
-
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(1),
-.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) { --hand-tx: 1.9em; --hand-ty: .9em; --hand-rot: -42deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(2) { --hand-tx: 1.5em; --hand-ty: .5em; --hand-rot: -33deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(3) { --hand-tx: 1.1em; --hand-ty: .3em; --hand-rot: -24deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(4) { --hand-tx: .7em;  --hand-ty: .2em; --hand-rot: -15deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(5) { --hand-tx: .3em;  --hand-ty: .1em; --hand-rot: -6deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(6) { --hand-tx: -.1em; --hand-ty: .1em; --hand-rot: 3deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(7) { --hand-tx: -.5em; --hand-ty: .2em; --hand-rot: 12deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(8) { --hand-tx: -.9em; --hand-ty: .3em; --hand-rot: 21deg; }
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:nth-child(9) { --hand-tx: -1.3em; --hand-ty: .6em; --hand-rot: 30deg; }
-
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer,
-.playingCards.rotateHand .hand-scroll .hand-fan > li:not(.cardContainer) {
-    transform: translate(var(--hand-tx), calc(var(--hand-ty) + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
-}
-
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {
-    transition: transform 0.15s ease-out;
-}
-
-.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
-    transform: translate(var(--hand-tx), calc(calc(var(--hand-ty) - 20px) * 1.2 + var(--card-hover-lift, 0px))) rotate(var(--hand-rot));
-}
-
- 
-li.cardContainer{
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 1;
-    width: calc(4.75rem + 6px);
-    height: calc(6.5rem + 6px);
-    border-radius: 0.5rem;
-    margin: 0;
-    box-shadow: .1em .1em 0.15em #333;
+ul.lanes li.lane > ul.cardRow,
+ul.lanes li.lane > ul.hologramRow {
     position: relative;
-
-}
-.playerScreen li.cardContainer::after{
-       content:"";
-       top:0;
-       right:0;
-       width:100%;
-       height:100%;
-       position: absolute;
 }
 
-.hand li.cardContainer{
-    box-shadow: 0.2em 0.2em 0.15em #333;
+ul.lanes li.lane > ul.cardRow.overflow-row,
+ul.lanes li.lane > ul.hologramRow.overflow-row {
     position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% - var(--lane-row-height, 7.5rem) * var(--overflow-row-index, 1));
+}
+
+.playingCards ul.cardRow .card {
+    margin:0;
+    border: 3px solid black;
+}
+
+.playingCards li.cardContainer.trusted {
+    --card-rotation: 90deg;
+}
+
+.playingCards li.cardContainer.trusted > .card {
+    border-color: var(--trusted-card-border);
 }
 
 .cardInfo{
@@ -856,16 +1370,59 @@ li.cardContainer{
         outline:0;
     }
 
+.smallCardInfo{
+    font-size: 14px;
+}
+
+.smallCardInfo .cardType{
+    padding: 0;
+    margin-block-start: 0px;
+    margin-bottom: -2.75rem;
+    font-size: 7px;
+    font-weight: 800;
+    text-transform: uppercase;
+    align-self: center;
+    justify-self: flex-end;
+    cursor:inherit;
+}
+
 .cardContainer:focus-within *{
     outline:0;
 }
+ 
+li.cardContainer{
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 1;
+    width: calc(4.75rem + 6px);
+    height: calc(6.5rem + 6px);
+    border-radius: 0.5rem;
+    margin: 0;
+    box-shadow: .1em .1em 0.15em #333;
+    position: relative;
 
+}
+.playerScreen li.cardContainer::after{
+       content:"";
+       top:0;
+       right:0;
+       width:100%;
+       height:100%;
+       position: absolute;
+}
+
+.hand li.cardContainer{
+    box-shadow: 0.2em 0.2em 0.15em #333;
+    position: absolute;
+}
 
 li.cardContainer > .smallCard button {
     border: none;
     padding-block: 0;
     padding-inline: 0;
     width: 100%;
+    /* height: 4rem; */
     justify-self: center;
     background: transparent;
     font-size: inherit;
@@ -912,33 +1469,32 @@ ul.hand li.cardContainer > .card.smallCard::after{
 
 .duplicate {
     pointer-events: none;
-    user-select: none;
     z-index: 999;
     transition: transform var(--move-duration, 0.45s) cubic-bezier(.2, .8, .2, 1);
     will-change: transform;
 }
 
-    .duplicate-deck-flight {
-        overflow: hidden;
-    }
+.duplicate-deck-flight {
+    overflow: hidden;
+}
 
-        .duplicate-deck-flight > .card.back {
-            display: block;
-            box-sizing: border-box;
-            width: 100%;
-            height: 100%;
-            max-width: none;
-            max-height: none;
-            margin: 0;
-        }
+.duplicate-deck-flight > .card.back {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+}
 
-    .duplicate.to-original {
-        transform: translate(var(--move-x, 0px), var(--move-y, 0px)) !important;
-    }
+.duplicate.to-original {
+    transform: translate(var(--move-x, 0px), var(--move-y, 0px)) !important;
+}
 
-    .duplicate.flipFaceUp.to-original {
-        transform: rotateY(90deg) !important;
-    }
+.duplicate.flipFaceUp.to-original {
+    transform: rotateY(90deg) !important;
+}
 
 .playerScreen .cardContainer.loading:not(.duplicate) {
     visibility: hidden;
@@ -955,10 +1511,10 @@ ul.hand li.cardContainer > .card.smallCard::after{
     cursor: not-allowed;
 }
 
-    .playerScreen ul.deck.blocked button.draw:disabled {
-        filter: grayscale(0.85);
-        cursor: not-allowed;
-    }
+.playerScreen ul.deck.blocked button.draw:disabled {
+    filter: grayscale(0.85);
+    cursor: not-allowed;
+}
 
 .playerScreen li.cardContainer.blocked.card-hover {
     z-index: 999;
@@ -969,551 +1525,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
     right: 80%;
     top: 80%;
     filter: drop-shadow(4px 4px 4px #000);
-}
-
-.smallCardInfo{
-    font-size: 14px;
-}
-
-    .smallCardInfo .cardType{
-        padding: 0;
-        margin-block-start: 0px;
-        margin-bottom: -2.75rem;
-        font-size: 7px;
-        font-weight: 800;
-        text-transform: uppercase;
-        align-self: center;
-        justify-self: flex-end;
-        cursor:inherit;
-    }
-
-
-.cards{
-    height: 8rem;
-    align-items: end;
-    display:flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0;
-    margin: 0;
-    height: fit-content;
-    width:100%;
-}
-    .cards h2{
-        margin:0;
-    }
-    .cards p{
-        margin: 0;
-        padding-left: 0.5rem;
-    }
-
-.decks
-{
-    height: 8rem;
-    align-items: end;
-    display:flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0;
-    margin: 0;
-    height: fit-content;
-    width:100%;
-}
-    .decks h2{
-        margin:0;
-    }
-    .decks p{
-        margin: 0;
-        padding-left: 0.5rem;
-    }
-
-.cardOptions{
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    align-content: stretch;
-    justify-content: space-evenly;
-}
-    .cardOptions .smallCard{
-        display: flex;
-        flex-direction: column-reverse;
-        height: 9rem;
-        align-items: center;
-        align-content: center;
-        justify-content: space-between;
-        width: 5rem;
-    }
-
-        .cardOptions .smallCard label{
-            display: flex;
-            flex-direction: column;
-        }
-            .cardOptions .smallCard label .fit-picture {
-                margin:0;
-            }
-
-.card.back.emptyDeck, .card.back.emptyHand  {
-    border-style: dashed;
-    border-width: thick;
-    background: transparent;
-    box-shadow: none;
-    top: 4px;
-    left: -4px;
-}
-
-/* large screen and boards */
-div.playerScreen{
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    align-items: flex-start;
-}
-    .playerScreen > ul{
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-    }
-    .playerScreen > ul:not(.enemyBoards){
-        margin:0;
-        padding:0;
-        position: fixed;
-        bottom: 0;
-        gap: 0;
-    }
-    .playerScreen ul.enemyBoards {
-        display: flex;
-        width: 100%;
-        height: fit-content;
-        flex-direction: column;
-        flex-wrap: nowrap;
-        padding-top: 1rem;
-    }
-        .playerScreen ul.enemyBoards li.enemyBoard {
-            display: flex;
-            max-width: 100%;
-            max-height: 40%;
-            flex-direction: row;
-        }
-        .playerScreen ul.enemyBoards li.enemyBoard > p{        
-            margin-top: -1rem;
-            margin-left: -1rem;
-            position: absolute;
-        }
-
-    .playerScreen .playerBoard{
-        /* --player-board-min-height: 50%;
-        min-height: var(--player-board-min-height); */
-        width: 100%;
-        position: relative;
-        display: flex;
-        flex-direction: row;
-    }
-        .playerScreen li.playerBoard h2, .playerScreen li.enemyBoard h2{
-            position: absolute;
-            left: 9%;
-            height: 0;
-            margin: 0;
-            width: 0;
-            z-index: 1;
-            opacity: 0.15;
-            color: #114503;
-            transform: rotate(-16deg);
-            pointer-events: none;
-            user-select: none;
-            top: 10%;
-        }
-            .playerScreen li.enemyBoard h2{
-                top: unset;
-                bottom: 13%;
-            }
-
-/* deckhands */
-.playerScreen .enemyDeckHand {
-    z-index: 1;
-    position: relative;
-    min-height: 8em;
-    width: 8.5%;
-    display: flex;
-    flex-direction: column-reverse;
-    padding-top: 2%;
-}
-.playerScreen .enemyDeckHand > .hand {
-    display: none;
-}
- .playerScreen .enemyDeckHand > .hand > li.cardContainer {
-    /* position: relative;
-    top: auto;
-    right: auto;
-    bottom: auto;
-    left: auto !important;
-    float: none;
-    flex: 0 0 calc(4.75rem + 6px); */
-}    
-
-.playerScreen .enemyDeckHand,
-.playerScreen .enemyDeckHand * {
-    pointer-events: none;
-    user-select: none;
-    cursor: default;
-}
-    .playerScreen .enemyDeckHand .enemy-deck-stack {
-        position: relative;
-        left: 0;
-        bottom: 0;
-        z-index: 2;
-        width: 100%;
-        height: var(--hand-row-height, 8em);
-    }
-
-    .playerScreen .enemyDeckHand .deck-stack > ul.deck {
-        cursor: default;
-    }
-
-    .playerScreen .enemyDeckHand .enemy-targeting{
-        padding-left: 2rem;
-        padding-right: 1rem;
-        height: 100%;
-        display: none;
-        flex-direction: column;
-        
-        & > p{        
-            margin-block-start: 0;
-            margin-block-end: 0;
-            justify-self: center;
-            align-self: center;
-        }
-        & .small-buttons{        
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        & .small-buttons button{
-            pointer-events: all;
-            user-select: none;
-            cursor: pointer;
-        }
-        & .small-buttons button:last-child{
-            right: 0;
-        }
-        & .small-buttons button:disabled{
-            cursor: not-allowed;
-        }
-    }
-
-li.playerBoard > ul.basic-mat{
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-}
-
-.playerScreen > .deckHand{
-    --hand-row-height: 8em;
-    z-index: 1;
-    display: flex;
-    width: 100%;
-    flex-direction: column;
-    flex-wrap: nowrap;
-    align-items: flex-end;
-    min-height: var(--hand-row-height);
-    height: 25%;
-    position: absolute;
-    bottom: 0;
-}
-.playerScreen .deckHand > .deck {
-    max-width: 20%;
-    max-height: 100%;
-}
-.playerScreen .deckHand > .deck-stack {
-
-}
-
-.playerScreen .deckHand > .hand,
-.playerScreen .deckHand > .hand-scroll,
-.playerScreen .deckHand > .hand-fan {
-    align-self: flex-end;
-    height: var(--hand-row-height);
-    margin-bottom: 0;
-    width: 60%;
-    margin: 0 20%;
-}
-
-.playerScreen .deckHand > .hand-scroll {
-    height: var(--hand-row-height, 8em);
-    overflow: visible;
-}
-    .playerScreen .deckHand > .hand-scroll > .cardActionForm {
-        position: absolute;
-        right: 0;
-        bottom: 0;    
-        margin-bottom: 1em;
-        margin-right: 1em;
-    }
-
-.playerScreen.enemyTurnFocus > .deckHand,
-.playerScreen.enemyTurnFocus .playerBoard {
-    opacity: 0.3;
-    filter: grayscale(0.9);
-    pointer-events: none;
-    user-select: none;
-    transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
-}
-
-@media (max-width: 700px) {
-    .playerScreen .deckHand > .hand-scroll {
-        width: calc(100% - 6.5rem);
-        max-width: calc(100% - 6.5rem);
-        flex-basis: calc(100% - 6.5rem);
-        margin-right: 0;
-        margin-left: 6.5rem;
-    }
-
-    .playerScreen .deckHand > .deck-stack {
-        width: 6.5rem;
-    }
-
-    .playerScreen .deckHand .deck-stack > ul.deck {
-        left: calc(.75rem + var(--deck-indicator-count, 0) * .45rem);
-        width: calc(5.75rem - var(--deck-indicator-count, 0) * .45rem);
-    }
-
-    .playerScreen .deck-stack > ul.deck-indicator li {
-        width: 1.3rem;
-        height: .95rem;
-    }
-}
-.playingCards ul.deck li:nth-child(1)  { left: 0;    bottom: 0; }
-.playingCards ul.deck li:nth-child(2)  { left: 2px;  bottom: 1px; }
-.playingCards ul.deck li:nth-child(3)  { left: 4px;  bottom: 2px; }
-.playingCards ul.deck li:nth-child(4)  { left: 6px;  bottom: 3px; }
-.playingCards ul.deck li:nth-child(5)  { left: 8px;  bottom: 4px; }
-.playingCards ul.deck li:nth-child(6)  { left: 10px; bottom: 5px; }
-.playingCards ul.deck li:nth-child(7)  { left: 12px; bottom: 6px; }
-.playingCards ul.deck li:nth-child(8)  { left: 14px; bottom: 7px; }
-.playingCards ul.deck li:nth-child(9)  { left: 16px; bottom: 8px; }
-.playingCards ul.deck li:nth-child(10) { left: 18px; bottom: 9px; }
-.playingCards ul.deck li:nth-child(11) { left: 20px; bottom: 10px; }
-.playingCards ul.deck li:nth-child(12) { left: 22px; bottom: 11px; }
-.playingCards ul.deck li:nth-child(13) { left: 24px; bottom: 12px; }
-.playingCards ul.deck li:nth-child(14) { left: 26px; bottom: 13px; }
-.playingCards ul.deck li:nth-child(15) { left: 28px; bottom: 14px; }
-.playingCards ul.deck li:nth-child(16) { left: 30px; bottom: 15px; }
-.playingCards ul.deck li:nth-child(17) { left: 32px; bottom: 16px; }
-.playingCards ul.deck li:nth-child(18) { left: 34px; bottom: 17px; }
-.playingCards ul.deck li:nth-child(19) { left: 36px; bottom: 18px; }
-.playingCards ul.deck li:nth-child(20) { left: 38px; bottom: 19px; }
-.playingCards ul.deck li:nth-child(21) { left: 40px; bottom: 20px; }
-.playingCards ul.deck li:nth-child(22) { left: 42px; bottom: 21px; }
-.playingCards ul.deck li:nth-child(23) { left: 44px; bottom: 22px; }
-.playingCards ul.deck li:nth-child(24) { left: 46px; bottom: 23px; }
-.playingCards ul.deck li:nth-child(25) { left: 48px; bottom: 24px; }
-.playingCards ul.deck li:nth-child(26) { left: 50px; bottom: 25px; }
-.playingCards ul.deck li:nth-child(27) { left: 52px; bottom: 26px; }
-.playingCards ul.deck li:nth-child(28) { left: 54px; bottom: 27px; }
-.playingCards ul.deck li:nth-child(29) { left: 56px; bottom: 28px; }
-.playingCards ul.deck li:nth-child(30) { left: 58px; bottom: 29px; }
-.playingCards ul.deck li:nth-child(31) { left: 60px; bottom: 30px; }
-.playingCards ul.deck li:nth-child(32) { left: 62px; bottom: 31px; }
-
-.playingCards ul.deck-indicator {
-    list-style-type: none;
-    padding: 0;
-    margin: 0;
-    position: absolute;
-    height: 8em;
-    width: 8em;
-}
-    .playingCards ul.deck-indicator li {
-        padding: 0;
-        list-style-type: none;
-        position: absolute;
-        height: 8em;
-        width: 8em;
-    }
-
-.playerScreen .deck-stack {
-    position: relative;
-    left: 0;
-    bottom: 0;
-    z-index: 2;
-    width: 8.5%;
-    height: var(--hand-row-height, 8em);
-}
-   .playerScreen .deck-stack > ul.deck {
-    position: relative;
-    left: 2rem;
-   }
-        .playerScreen .deck-stack > ul.deck.active-deck {
-            z-index: 10;
-        }
-
-    .playerScreen .deck-stack > ul.deck-indicator {
-        left: var(--deck-indicator-offset, 0);
-        bottom: 0;
-        z-index: 1;
-        pointer-events: none;
-        user-select: none;
-        cursor: default;
-    }
-
-        .playerScreen .deck-stack > ul.deck-indicator li {
-            left: 0;
-            bottom: 0;
-        }
-            .deck-indicator-face {
-                display: block;
-                width: 100%;
-                height: 100%;
-            }
-
-/* lanes and fieldcards */
-.enemyBoard ul.lanes{
-    padding-top: 2%;
-}
-ul.lanes {    
-    align-self: center;
-    justify-self: center;
-    display: flex;
-    flex-wrap: nowrap;
-    flex-direction: row;
-    align-items: stretch;
-    width: 82vw;
-    gap: 0.5rem;
-}
-    ul.lanes li.lane {
-        flex: 1;
-        min-width: 8rem;
-        position: relative;
-    }
-    ul.lanes li.lane.Intelligence {
-        background-color: 
-        rgb(213 193 235);
-    }
-    ul.lanes li.lane.Speed {
-        background-color: 
-        rgb(252 247 207);
-    }
-    ul.lanes li.lane.Visciousness {
-        background-color: 
-        rgb(215 155 155);
-    }
-    ul.lanes li.lane.Resolve {
-        background-color: 
-        rgb(178 193 180);
-    }
-    ul.lanes li.lane > p {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 5;
-        pointer-events: none;
-        user-select: none;
-        margin: 0;
-        padding: 0 .5em;
-    }
-    ul.lanes li.lane > p::before{
-        content: "";
-        display: block;
-        width: 100%;
-        height: 2px;
-        background-color: black;
-        margin-bottom: 5px;
-    }
-    ul.lanes li.lane > p::after{
-        content: "";
-        display: block;
-        width: 100%;
-        height: 2px;
-        background-color: black;
-        margin-top: 5px;
-    }
-
-    ul.lanes li.lane > ul.cardRow,
-    ul.lanes li.lane > ul.hologramRow {
-        position: relative;
-    }
-
-    ul.lanes li.lane > ul.cardRow.overflow-row,
-    ul.lanes li.lane > ul.hologramRow.overflow-row {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: calc(100% - var(--lane-row-height, 7.5rem) * var(--overflow-row-index, 1));
-    }
-
-    .playingCards ul.cardRow .card {
-        margin:0;
-        border: 3px solid black;
-    }
-
-button.end-turn{
-    cursor: pointer;
-    display: inline-block;
-    width: 4.25rem;
-    height: 6rem;
-    border: 1px solid #666;
-    border-radius: .3em;
-    -moz-border-radius: .3em;
-    -webkit-border-radius: .3em;
-    -khtml-border-radius: .3em;
-    padding: .25em;
-    margin: 0 .5em .5em 0;
-    text-align: center;
-    font-size: 1.2em;
-    font-weight: normal;
-    font-family: Arial, sans-serif;
-    position: relative;
-    background-color: #fff;
-    box-shadow: .2em .2em .35em #333;
-}
-
-button.draw{
-    letter-spacing: normal;
-    box-sizing: unset;
-    line-height: unset;
-    text-rendering: unset;
-    text-shadow: unset;
-    unicode-bidi: isolate;
-    cursor: pointer;
-    pointer-events: inherit;
-}
-
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
-    transition: transform 0.15s ease-out;
-}
-
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
-    transform: rotate(3deg);
-}
-
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled).card-hover {
-    transform: rotate(3deg);
-}
-
-
-.fit-picture{
-    object-fit: cover;
-    vertical-align: middle;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-    background: #ddd;
-}
-.playerInfo .fit-picture{
-    margin: 0 1rem;
-    width: 4rem;
-}
-.players .fit-picture, .cards .fit-picture,  .decks .fit-picture{
-    width: 4rem;
-}
-.smallCard .fit-picture{
-    width: 4rem;
-    height: 4rem;
-    align-self: center;
 }
 
 /* =============================================
@@ -1547,7 +1558,6 @@ button.draw{
     opacity: 0.5;
     filter: grayscale(0.6);
     pointer-events: none;
-    user-select: none;
     transition: all 0.5s ease;
 }
 
@@ -1575,7 +1585,6 @@ button.draw{
 .shuffle-flying {
     z-index: 1000;
     pointer-events: none;
-    user-select: none;
 }
 
 .timeline-banner {
@@ -1596,7 +1605,6 @@ button.draw{
     z-index: 1001;
     font-weight: bold;
     pointer-events: none;
-    user-select: none;
 }
 
 .pauseIndicator.visible {
@@ -1661,20 +1669,14 @@ button.draw{
     content: none !important;
 }
 
-.debug-overlay,
-.debug-overlay,
-.debug-overlay{
-    display:none;
+.playerScreen .deckHand > p.debug-overlay-visible,
+.playerScreen .enemyDeckHand > p.debug-overlay-visible,
+.playerScreen .lanes .lane > p.debug-overlay-visible {
     position: absolute;
     background: white;
     z-index: 3;
     padding: 0.25rem 0.5rem;
     border: 1px solid #000;
-}
-.debug-overlay-visible,
-.debug-overlay-visible,
-.debug-overlay-visible {
-    display:block;
 }
 
 .mouse-preview-cursor {
@@ -1684,6 +1686,5 @@ button.draw{
     width: 1px;
     height: 1px;
     pointer-events: none;
-    user-select: none;
     z-index: 999;
 }
