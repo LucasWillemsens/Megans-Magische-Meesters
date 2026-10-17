@@ -1,21 +1,31 @@
-{% extends 'demo_shell.jinja2' %}
+{% extends 'base.jinja2' %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('title.css') }}">
+{% endblock %}
 
 {% block title %}Magical Masters{% endblock %}
 
-{% block demo_content %}
-<div class="title demoTitle">
-    <h1> Magical Masters </h1>
+{% block content %}
+<div class="titlePage">
+    <div class="title demoTitle">
+        <h1> Magical Masters </h1>
+    </div>
+
+    <div class="createButton demoPlayButton">
+        <form method="post" action="{{ playUrl }}">
+            {{ csrf_input }}
+            <button type="submit" draggable="false">
+                PLAY
+            </button>
+        </form>
+    </div>
     <p class="demoGreeting">
         {{ greeting }}
     </p>
-</div>
-
-<div class="createButton demoPlayButton">
-    <form method="post" action="{{ playUrl }}">
-        {{ csrf_input }}
-        <button type="submit" draggable="false">
-            PLAY
-        </button>
-    </form>
+    <nav class="demoNav">
+        <a href="{{ url('MMM:deckPage') }}">Deck</a>
+        <a href="{{ url('MMM:demoSettings') }}">Settings</a>
+    </nav>
 </div>
 {% endblock %}
