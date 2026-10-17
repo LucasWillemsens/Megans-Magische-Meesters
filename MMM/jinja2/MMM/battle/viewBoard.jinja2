@@ -26,22 +26,24 @@
         {% for enemy in enemyBoards %}
         <li class="enemyBoard" data-participant-id="{{ enemy.participant.id }}">
             <div class="enemyDeckHand">
-                <p class="cardType debug-overlay">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
+            <p class="cardType debug-overlay">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>
                 <div class="deck-stack enemy-deck-stack"{% if enemy.deckIndicators %} style="--deck-indicator-count: {{ enemy.deckIndicators|length }};"{% endif %}>
                     {% for indicator in enemy.deckIndicators %}
                     <ul class="deck-indicator" aria-hidden="true" inert
-                        style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
-                        <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
+                        style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                        <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                            <img class="deck-indicator-face" draggable="false" src="/static/extradeck.jpg" alt="extra pile of cards from deck">
+                        </li>
                     </ul>
                     {% endfor %}
                     <ul class="deck enemyDeck active-deck">
                         {% if enemy.deckStack %}
-                            {% for card in enemy.deckStack %}
+                        {% for card in enemy.deckStack %}
                         <li class="cardContainer faceDown" data-card-id="{{ card.id }}"
                             data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
                             <div class="card back smallCard"></div>
                         </li>
-                            {% endfor %}
+                        {% endfor %}
                         {% else %}
                         <li>
                             <div class="card back emptyDeck">Empty</div>
@@ -77,7 +79,6 @@
                             </p>
                         </button>
                     </div>
-                
                 </div>
             </div>
             <ul class="lanes">
@@ -85,96 +86,96 @@
                 <li class="lane {{lane.name}}">
                     <ul class="cardRow" title="cards">
                         {% for card in lane.cards %}
-                            {% if card.state.faceDown %}
-                            <li class="cardContainer {{ card.cssClass }} faceDown" data-source-lane="{{ card.state.lane }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}">
-                                <div class="card back smallCard">
-                                </div>
-                            </li>
-                            {% else %}
-                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
-                                title="{{ card.card.title }} of {{ enemy.participant.player.name }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}">
+                        {% if card.state.faceDown %}
+                        <li class="cardContainer {{ card.cssClass }} faceDown" data-source-lane="{{ card.state.lane }}"
+                            data-source-ordinal="{{ card.state.laneOrdinal }}">
+                            <div class="card back smallCard">
+                            </div>
+                        </li>
+                        {% else %}
+                        <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                            title="{{ card.card.title }} of {{ enemy.participant.player.name }}"
+                            data-source-ordinal="{{ card.state.laneOrdinal }}">
                                 <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                                    {% if card.card.artSource == "static" %}
-                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                                    {% else %}
-                                    {% if card.card.artSource == "" %}
+                    {% if card.card.artSource == "static" %}
+                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
+                    {% else %}
+                    {% if card.card.artSource == "" %}
                                     <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
                                         alt="no art of {{card.card.title}}" />
-                                    {% else %}
+                    {% else %}
                                     <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
                                         alt="art of {{card.card.title}}" />
-                                    {% endif %}
-                                    {% endif %}
-                            
-                                    <div class="smallCardInfo">
-                                        {% if card.card.artSource != "static" %}
-                                            <p>
-                                                {{ card.card.title }}
-                                            </p>
-                                        {% endif %}
-                                        <p class="cardType">
-                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </li>
-                            {% endif %}
-                        {% endfor %}
+                    {% endif %}
+                    {% endif %}
+                    
+                    <div class="smallCardInfo">
+                        {% if card.card.artSource != "static" %}
+                        <p>
+                            {{ card.card.title }}
+                        </p>
+                        {% endif %}
+                        <p class="cardType">
+                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                        </p>
+                    </div>
+                    </div>
+                    </li>
+                    {% endif %}
+                    {% endfor %}
                     </ul>
                     <p class="debug-overlay"> {{ lane.value }} | {{ lane.name}} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                            <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
-                                title="{{ card.card.title }} of {{ enemy.participant.player.name }}">
+                        <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                            title="{{ card.card.title }} of {{ enemy.participant.player.name }}">
                                 <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                                    {% if card.card.artSource == "static" %}
-                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                                    {% else %}
-                                    {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
-                                    {% else %}
-                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
-                                        alt="art of {{card.card.title}}" />
-                                    {% endif %}
-                                    {% endif %}
-                            
-                                    <div class="smallCardInfo">
-                                        {% if card.card.artSource != "static" %}
-                                            <p>{{ card.card.title }}</p>
-                                        {% endif %}
-                                        <p class="cardType">
-                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </li>
-                        {% endfor %}
+                    {% if card.card.artSource == "static" %}
+                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
+                    {% else %}
+                    {% if card.card.artSource == "" %}
+                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                    {% else %}
+                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                    {% endif %}
+                    {% endif %}
+                    
+                    <div class="smallCardInfo">
+                        {% if card.card.artSource != "static" %}
+                        <p>{{ card.card.title }}</p>
+                        {% endif %}
+                        <p class="cardType">
+                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                        </p>
+                    </div>
+                    </div>
+                    </li>
+                    {% endfor %}
                     </ul>
                 </li>
                 {% endfor %}
-            </ul>
-            <h2>{{ enemy.participant.player.name }} </h2>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p>No enemy participants loaded yet.
-    </p>
-    {% endif %}
+                </ul>
+                <h2>{{ enemy.participant.player.name }} </h2>
+                </li>
+                {% endfor %}
+                </ul>
+                {% else %}
+                <p>No enemy participants loaded yet.
+                </p>
+                {% endif %}
 
-    <ul class="basic-mat table">
-        <li class="playerBoard " data-participant-id="{{ current_participant.id }}">
-            <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
-                style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
-                {% for indicator in ownDeckIndicators %}
-                <ul class="deck-indicator" aria-hidden="true" inert
-                    style="--deck-indicator-offset: {{ (loop.length - loop.index) * 0.5 }}rem;">
-                    <li aria-hidden="true"><span class="deck-indicator-face"></span></li>
+<ul class="basic-mat table">
+    <li class="playerBoard " data-participant-id="{{ current_participant.id }}">
+        <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
+            style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
+            {% for indicator in ownDeckIndicators %}
+            <ul class="deck-indicator" aria-hidden="true" inert
+                style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                    <img class="deck-indicator-face" draggable="false" src="/static/extradeck.jpg" alt="extra pile of cards from deck">
+                </li>
                 </ul>
                 {% endfor %}
                 <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
@@ -192,173 +193,168 @@
                         {% else %}
                         <div class="card back">*</div>
                         {% endif %}
-                    </li>
-                    {% endfor %}
-                    {% else %}
-                    <li>
-                        <div class="card back emptyDeck">
-                            Empty
+                        </li>
+                        {% endfor %}
+                        {% else %}
+                        <li>
+                            <div class="card back emptyDeck">
+                                Empty
+                            </div>
+                        </li>
+                        {% endif %}
+                        </ul>
                         </div>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
-            <h2> {{ player.name }} </h2>
-            <ul class="lanes">
-                {% for lane in ownLaneRows %}
-                <li class="lane {{lane.name}}">
-                    <ul class="hologramRow"></ul>
-                    <ul class="cardRow" title="cards">
-                        {% for card in lane.cards %}
-                            {% set card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
-                            {% if card.state.faceDown %}
+                        <h2> {{ player.name }} </h2>
+                        <ul class="lanes">
+                            {% for lane in ownLaneRows %}
+                            <li class="lane {{lane.name}}">
+                                <ul class="hologramRow"></ul>
+                                <ul class="cardRow" title="cards">
+                                    {% for card in lane.cards %}
+                                    {% set card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
+                                    {% if card.state.faceDown %}
                             <li class="cardContainer faceDown {{ card.cssClass }}{% if turnAllowances.flips_left <= 0 %} blocked{% endif %}" tabindex="0" data-source-lane="{{ card.state.lane }}"
                                 data-source-ordinal="{{ card.state.laneOrdinal }}"{% if turnAllowances.flips_left <= 0 %} title="{{ turnAllowances.blocked_titles.flip }}"{% endif %}
-                                style="--card-rotation: {{ card_rotation }}deg;">
-                                <input type="hidden" name="card_id" value="{{ card.id }}">
+                        style="--card-rotation: {{ card_rotation }}deg;">
+                        <input type="hidden" name="card_id" value="{{ card.id }}">
                                 <div class="card back smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                                    {% if card.card.artSource == "static" %}
-                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                                    {% else %}
-                                    {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
-                                    {% else %}
-                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
-                                        alt="art of {{card.card.title}}" />
-                                    {% endif %}
-                                    {% endif %}
-                            
-                                    <div class="smallCardInfo">
-                                        {% if card.card.artSource != "static" %}
-                                            <p>{{ card.card.title }}</p>
-                                        {% endif %}
-                                        <p class="cardType">
-                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </li>
-                            {% else %}
-                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
-                                title="{{ card.card.title }} of {{ player.name }}"
-                                data-source-ordinal="{{ card.state.laneOrdinal }}"
-                                style="--card-rotation: {{ card_rotation }}deg;">
-                                <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                                    {% if card.card.artSource == "static" %}
-                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                                    {% else %}
-                                    {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
-                                    {% else %}
-                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
-                                    {% endif %}
-                                    {% endif %}
-                            
-                                    <div class="smallCardInfo">
-                                        {% if card.card.artSource != "static" %}
-                                            <p>{{ card.card.title }}</p>
-                                        {% endif %}
-                                        <p class="cardType">
-                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </li>
-                            {% endif %}
-                        {% endfor %}
-                    </ul>
-                    <p class="debug-overlay"> {{ lane.value }} | {{ lane.name }} </p>
-                    <ul class="cardRow" title="trustedCards">
-                        {% for card in lane.trustedCards %}
-                            {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
-                            <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
-                                title="{{ card.card.title }} of {{ player.name }}"
-                                style="--card-rotation: {{ trusted_card_rotation }}deg;">
-                                <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
-                                    {% if card.card.artSource == "static" %}
-                                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
-                                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
-                                    {% else %}
-                                    {% if card.card.artSource == "" %}
-                                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                        alt="no art of {{card.card.title}}" />
-                                    {% else %}
-                                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
-                                        alt="art of {{card.card.title}}" />
-                                    {% endif %}
-                                    {% endif %}
-                            
-                                    <div class="smallCardInfo">
-                                        {% if card.card.artSource != "static" %}
-                                            <p>{{ card.card.title }}</p>
-                                        {% endif %}
-                                        <p class="cardType">
-                                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </li>
-            {% endfor %}
-            </ul>
-        </li>
-        <div class="deckHand handContainer">
-            <p class="debug-overlay">
-                Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
-                <span id="turnCounters">( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn
-                    )</span>
-            </p>
-            <div class="hand-scroll">
-                {% for handFan in handFans %}
-                <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
-                    {% if handFan %}
-                    {% for card in handFan %}
-                    <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if
-                        turnAllowances.plays_left <=0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}" {% else
-                        %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
-                        data-source-ordinal="{{ card.state.laneOrdinal }}">
-                        <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
-                            {{ card.card|playing_card_suit_class }}{% endif %}">
                             {% if card.card.artSource == "static" %}
                             <span class="rank">{{ card.card|playing_card_rank_display }}</span>
                             <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                             {% else %}
                             {% if card.card.artSource == "" %}
-                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
-                                alt="no art of {{card.card.title}}" />
+                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                             {% else %}
-                            <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
-                                alt="art of {{card.card.title}}" />
+                            <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                             {% endif %}
                             {% endif %}
-                        
+                            
                             <div class="smallCardInfo">
                                 {% if card.card.artSource != "static" %}
-                                <p class="cardTitle">{{ card.card.title }}</p>
+                                <p>{{ card.card.title }}</p>
                                 {% endif %}
                                 <p class="cardType">
                                     {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
                                 </p>
-                                </div>
-                                </div>
-                                <input type="hidden" name="card_id" value="{{ card.id }}">
-                                <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
-                                </li>
-                    {% endfor %}
+                            </div>
+                            </div>
+                            </li>
+                            {% else %}
+                            <li class="cardContainer {{ card.cssClass }}" data-source-lane="{{ card.state.lane }}"
+                                title="{{ card.card.title }} of {{ player.name }}"
+                                data-source-ordinal="{{ card.state.laneOrdinal }}"
+                            style="--card-rotation: {{ card_rotation }}deg;">
+                                <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
+                            {% if card.card.artSource == "static" %}
+                            <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                            <span class="suit">{{ card.card|playing_card_suit_display }}</span>
+                            {% else %}
+                            {% if card.card.artSource == "" %}
+                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                            {% else %}
+                            <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                            {% endif %}
+                            {% endif %}
+                            
+                            <div class="smallCardInfo">
+                                {% if card.card.artSource != "static" %}
+                                <p>{{ card.card.title }}</p>
+                                {% endif %}
+                                <p class="cardType">
+                                    {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                                </p>
+                            </div>
+                            </div>
+                            </li>
+                            {% endif %}
+                            {% endfor %}
+                            </ul>
+                            <p class="debug-overlay"> {{ lane.value }} | {{ lane.name }} </p>
+                            <ul class="cardRow" title="trustedCards">
+                                {% for card in lane.trustedCards %}
+                                {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
+                                <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                                title="{{ card.card.title }} of {{ player.name }}"
+                                style="--card-rotation: {{ trusted_card_rotation }}deg;">
+                                <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }} {{ card.card|playing_card_suit_class }}{% endif %}">
+                            {% if card.card.artSource == "static" %}
+                            <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                            <span class="suit">{{ card.card|playing_card_suit_display }}</span>
+                            {% else %}
+                            {% if card.card.artSource == "" %}
+                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                            {% else %}
+                            <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
+                            {% endif %}
+                            {% endif %}
+                            
+                            <div class="smallCardInfo">
+                                {% if card.card.artSource != "static" %}
+                                <p>{{ card.card.title }}</p>
+                                {% endif %}
+                                <p class="cardType">
+                                    {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                                </p>
+                            </div>
+                            </div>
+                            </li>
+                        {% endfor %}
+                        </ul>
+                        </li>
+            {% endfor %}
+        </ul>
+        </li>
+        <div class="deckHand handContainer">
+            <p class="debug-overlay">
+                Deck: {{ ownDeckCount }} | Hand: {{ handCards|length }}
+                <span id="turnCounters">( {{drawnCardsAmount}}d {{playedCardsAmount}}p {{flippedCardsAmount}}f this turn
+            )</span>
+            </p>
+    <div class="hand-scroll">
+        {% for handFan in handFans %}
+        <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
+            {% if handFan %}
+            {% for card in handFan %}
+            <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if
+                turnAllowances.plays_left <=0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}" {% else
+                %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}"
+                data-source-lane="{{ card.state.lane }}" data-source-ordinal="{{ card.state.laneOrdinal }}">
+                <div class="card smallCard{% if card.card.artSource == " static" %} staticCard {{ card.card|playing_card_rank_class }}
+                    {{ card.card|playing_card_suit_class }}{% endif %}">
+                    {% if card.card.artSource == "static" %}
+                    <span class="rank">{{ card.card|playing_card_rank_display }}</span>
+                    <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                     {% else %}
-                    <li>
-                        <div class="card back emptyHand">
-                        </div>
-                    </li>
+                    {% if card.card.artSource == "" %}
+                    <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}"
+                        alt="no art of {{card.card.title}}" />
+                    {% else %}
+                    <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}"
+                        alt="art of {{card.card.title}}" />
                     {% endif %}
-                    </ul>
-                    {% endfor %}
+                    {% endif %}
+                
+                    <div class="smallCardInfo">
+                        {% if card.card.artSource != "static" %}
+                        <p class="cardTitle">{{ card.card.title }}</p>
+                        {% endif %}
+                        <p class="cardType">
+                            {{["Intelligence","Speed","Visciousness","Resolve"][card.card.cardType]}}
+                        </p>
+                    </div>
+                </div>
+                <input type="hidden" name="card_id" value="{{ card.id }}">
+                <input type="hidden" name="lane" value="{{ card.card.cardType + 1 }}">
+                </li>
+                {% endfor %}
+                {% else %}
+                <li>
+                    <div class="card back emptyHand">
+                    </div>
+                </li>
+                {% endif %}
+                </ul>
+                {% endfor %}
                 <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                     {{ csrf_input }}
                     <input type="hidden" name="action" value="end_turn">
@@ -366,8 +362,8 @@
                     <button type="submit" class="end-turn" title="End turn" {% if turnPhase !="enemy" %}autofocus{% endif %}>
                         <span class="suit">End turn</span>
                     </button>
-                    </form>
-                    </div>
+                </form>
+                </div>
             {% if error_message != "" %}
             <div class="cards">
                 <p><b>Action error:</b> {{ error_message }}</p>
