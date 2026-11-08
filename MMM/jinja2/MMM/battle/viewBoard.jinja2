@@ -1,4 +1,4 @@
-{% extends 'base.jinja2' %}
+{% extends 'demo_shell.jinja2' %}
 
 {% block content %}
 <div class="playerScreen playingCards rotateHand">
@@ -6,18 +6,6 @@
         <div class="title">
             <h1>{{ game.title }}</h1>
             <p>Round {{ game.roundNumber }}</p>
-        </div>
-        <div class="playerInfo">
-            <p class="invisible">
-                Playing as
-            </p>
-            <h2>{{ player.name }}</h2>
-            {% if player.profilePictureSource == "" %}
-            <img draggable="false" class="fit-picture" src="{{ static('profile.jpg')}}" alt="{{player.name}}'s profile picture" />
-            {% else %}
-            <img draggable="false" class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
-                alt="{{player.name}}'s profile picture" />
-            {% endif %}
         </div>
     </div>
 
@@ -376,7 +364,7 @@
             </ul>
             </div>
 
-<a href="{{ returnURL }}">back</a>
+<a class="backlink" href="{{ returnURL }}">back</a>
 {% if turnPhase %}
 <div id="turnPhase" data-phase="{{ turnPhase }}" hidden></div>
 {% endif %}

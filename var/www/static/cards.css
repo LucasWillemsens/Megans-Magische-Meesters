@@ -1065,6 +1065,7 @@ ul.hand li.cardContainer > .card.smallCard::after{
 /* large screen and boards */
 div.playerScreen{
     width: 100%;
+    /* width: 100vw; */
     height: 100%;
     display: flex;
     flex-direction: column;
