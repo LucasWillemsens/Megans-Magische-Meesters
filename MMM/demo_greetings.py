@@ -1,18 +1,18 @@
 import random
 
-NEW_VISITOR_GREETING = (
-    "Welcome on your very first visit! I am Megan and I keep the lanes of "
-    "Megans Magische Meesters. Press PLAY and I will start a battle for you."
-)
+NEW_VISITOR_GREETING = "Welcome, new one."
 GENERIC_GREETINGS = [
-    "Welcome back to Megans Magische Meesters!",
-    "Hello again, I am Megan. The decks are shuffled and waiting.",
-    "Megan here, another day, another magical battle in the lanes.",
+    "Hello.",
+    "Whatsup.",
+    "Back again?",
+    "The champion has returned.",
 ]
 LOGGED_IN_NAME_GREETINGS = [
-    "Welcome back, {name}! Megan kept a lane open for you.",
-    "Good to see you again, {name}. The cards are ready.",
-    "{name}, Megan mustered the ramparts for you, press PLAY!",
+    "Welcome back, {name}",
+    "How are you, {name}? Well I hope. Anyways.",
+    "You again, {name}? A real card player.",
+    "Back again, the amazing {name}.",
+    "This is your lucky day, {name}, no doubt.",
 ]
 
 

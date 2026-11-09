@@ -11565,7 +11565,7 @@ class GameActionApiTests(BattleBoardFixture):
 
 
 class TitleGreetingTests(TestCase):
-    """First-visit rule and applicability of the Megan title greetings."""
+    """First-visit rule and applicability of the title greetings."""
 
     def _recording_chooser(self):
         offered_candidate_lists = []
