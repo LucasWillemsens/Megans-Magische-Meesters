@@ -20,19 +20,21 @@
         <a href="{{ url('MMM:index') }}">Admin</a>
     </details>
     
+    {% if player %}
     <div class="playerInfo">
         <p class="invisible">
             Playing as
         </p>
         <h2>{{ player.name }}</h2>
         {% if player.profilePictureSource == "" %}
-        <img draggable="false" class="fit-picture" src="{{ static('profile.jpg')}}"
+        <img draggable="false" class="fit-picture" src="{{ static('MMM/profile.jpg')}}"
             alt="{{player.name}}'s profile picture" />
         {% else %}
-        <img draggable="false" class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+        <img draggable="false" class="fit-picture" src="{{ static('MMM/' ~ player.profilePictureSource)}}"
             alt="{{player.name}}'s profile picture" />
         {% endif %}
     </div>
+    {% endif %}
 </nav>
     <img draggable="false" class="fit-picture fullpage-background" src="{{ static('woodtextureorangedark2.jpg') }}" />
 {% endblock %}

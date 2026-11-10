@@ -11969,6 +11969,35 @@ class DemoNavigationTests(TestCase):
         self.assertContains(response, "Disable hover card zoom")
         self.assertNotIn("cardContainer", content)
 
+    def test_settings_page_toggles_card_zoom_from_the_demo_menu(self):
+        settings_url = reverse("MMM:demoSettings")
+
+        content = self.client.get(settings_url).content.decode()
+        for menu_entry in ("Title", "Deck", "Settings", "Admin"):
+            self.assertIn(menu_entry, content)
+        self.assertNotIn("Playing as", content)
+        self.assertRegex(content, r'data-card-zoom="enabled"')
+        self.assertIn("Disable hover card zoom", content)
+
+        self.client.post(reverse("MMM:toggleCardZoom"), {"enable": "false"})
+        disabled_content = self.client.get(settings_url).content.decode()
+        self.assertRegex(disabled_content, r'data-card-zoom="disabled"')
+        self.assertIn("Enable hover card zoom", disabled_content)
+
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        owlbears = self._created_player("Owlbears")
+        game = self._latest_team_game("Owlbears")
+        known_player_settings = self.client.get(settings_url).content.decode()
+        self.assertIn("Playing as", known_player_settings)
+        self.assertIn("Owlbears", known_player_settings)
+
+        self.client.post(reverse("MMM:confirmChallenge", args=[game.id, owlbears.id]))
+        board_url = reverse("MMM:viewBoard", args=[game.id, owlbears.id])
+        self.assertNotIn("zoomCards", self.client.get(board_url).content.decode())
+
+        self.client.post(reverse("MMM:toggleCardZoom"), {"enable": "true"})
+        self.assertIn("zoomCards", self.client.get(board_url).content.decode())
+
     def test_anonymous_play_opens_the_existing_annabel_vs_lucas_game(self):
         response = self.client.post(reverse("MMM:play"))
         board_url = response["Location"]

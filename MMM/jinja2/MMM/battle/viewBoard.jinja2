@@ -1,7 +1,7 @@
 {% extends 'demo_shell.jinja2' %}
 
 {% block content %}
-<div class="playerScreen playingCards rotateHand">
+<div class="playerScreen playingCards rotateHand{% if cardZoomEnabled %} zoomCards{% endif %}">
     <div class="players">
         <div class="title">
             <h1>{{ game.title }}</h1>
@@ -386,5 +386,7 @@
 <script type="module" src="{{ static('loadingAnimations.js')}}"></script>
 <script type="module" src="{{ static('laneStacking.js')}}"></script>
 <script type="module" src="{{ static('hoverCooldown.js')}}"></script>
+<script type="module" src="{{ static('cardZoom.js')}}"></script>
 <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ static('cardZoom.css') }}">
 {% endblock %}

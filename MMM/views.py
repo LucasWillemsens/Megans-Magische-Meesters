@@ -119,6 +119,7 @@ def card_zoom_enabled(request):
 
 def demoSettings(request):
     context = {
+        "player": current_demo_player(request),
         "cardZoomEnabled": card_zoom_enabled(request),
         "toggleZoomUrl": reverse("MMM:toggleCardZoom"),
     }
