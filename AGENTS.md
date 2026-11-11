@@ -17,4 +17,4 @@
 - `python3 scripts/ci.py` can fetch, update `done/` and the README, stage **all** changes, commit, push, and open a PR; run it only when explicitly requested. `--dry-run` still runs tests and the README updater, which can move `done/` entries.
 
 ## OpenCode
-- Root `opencode.json` selects the `devops` agent; roadmap and CI workflow instructions are in `.opencode/agent/devops.md`.
+- Root `opencode.json` selects the `devops` agent; roadmap and CI workflow instructions are in `.opencode/agents/devops.md`.
