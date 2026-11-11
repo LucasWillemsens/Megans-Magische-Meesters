@@ -1,7 +1,7 @@
 ---
 description: Coordinates roadmap implementation for Megans Magische Meesters by directing subagents to plan a named goal, work out implementation, and personally verifiying their results. Use when the user asks to implement a roadmap goal or explicitly run the CI pipeline.
 mode: primary
-model: opencode-go/gpt-6-luna#low
+model: opencode-go/glm-5.3-flash#low
 request:
   body:
     temperature: 0.1

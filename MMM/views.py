@@ -467,7 +467,6 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "current_participant": current_participant,
         "game": game,
         "assestsDir": "MMM/",
-        "returnURL": BASE_URL,
         "error_message": error_message,
         "actionUrl": f"{BASE_URL}game/{game.id}/board/{player_id}/action/",
         "handCards": own_board["handCards"],
@@ -560,7 +559,6 @@ def viewResult(request, game_id, player_id):
         "lastParticipants": last_participants,
         "result": win and "winners" or "losers",
         "participants": game.history.participants.all(),
-        "returnURL": BASE_URL,
         "playAgainUrl": f"{BASE_URL}player/{player_id}/",
     }
     return _render(request, "MMM/battle/viewResult.jinja2", context)

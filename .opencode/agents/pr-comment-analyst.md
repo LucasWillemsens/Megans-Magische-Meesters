@@ -1,7 +1,7 @@
 ---
 description: Analyzes one code review comment on a pull request without changing code
 mode: all
-model: opencode-go/glm-5.3-flash#max
+model: opencode-go/glm-5.3-flash#high
 permissions:
   - action: edit
     resource: "*"

@@ -11,6 +11,7 @@
 </head>
 <body>
     {% block content %}{% endblock %}
+    {% block back_button %}<a class="backlink" href="{{ returnURL|default(url('MMM:titlePage')) }}">back</a>{% endblock %}
     {% block demo_content %}{% endblock %}
 </body>
 </html>

@@ -1,7 +1,10 @@
 ---
 description: Investigates the current pull request by delegating each review comment to a single-comment analyst
 mode: primary
-model: opencode-go/glm-5.3-flash#max
+model: opencode-go/glm-5.3-flash#low
+request:
+  body:
+    temperature: 0.1
 permissions:
   - action: subagent
     resource: "*"

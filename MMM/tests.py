@@ -11998,6 +11998,52 @@ class DemoNavigationTests(TestCase):
         self.client.post(reverse("MMM:toggleCardZoom"), {"enable": "true"})
         self.assertIn("zoomCards", self.client.get(board_url).content.decode())
 
+    def test_back_button_follows_the_demo_pages_but_never_the_title_page(self):
+        title_content = self.client.get(reverse("MMM:titlePage")).content.decode()
+        self.assertNotIn('class="backlink"', title_content)
+
+        self.client.post(reverse("MMM:play"))
+        game = Game.objects.get(title="Annabel vs Lucas")
+        annabel = self._created_player("Annabel")
+        self.client.get(reverse("MMM:viewGameAsPlayer", args=[game.id, annabel.id]))
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, annabel.id])
+        self.assertRedirects(self.client.post(confirm_url), reverse("MMM:viewBoard", args=[game.id, annabel.id]))
+
+        title_backlink = f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>'
+        for page_url in (
+            reverse("MMM:viewBoard", args=[game.id, annabel.id]),
+            reverse("MMM:deckPage"),
+            reverse("MMM:demoSettings"),
+        ):
+            content = self.client.get(page_url).content.decode()
+            self.assertEqual(content.count('class="backlink"'), 1)
+            self.assertIn(title_backlink, content)
+
+        self.assertNotIn('class="backlink"', self.client.get(reverse("MMM:titlePage")).content.decode())
+
+    def test_back_button_covers_the_admin_pages_too(self):
+        admin_root = self.client.get(reverse("MMM:index")).content.decode()
+        self.assertEqual(admin_root.count('class="backlink"'), 1)
+        self.assertIn(f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>', admin_root)
+
+        entry_backlink = f'<a class="backlink" href="{views.BASE_URL}">back</a>'
+        for page_url in (
+            reverse("MMM:viewPlayer", args=[self.lucas.id]),
+            reverse("MMM:viewCard", args=[self.lucas_card_ids[0]]),
+        ):
+            content = self.client.get(page_url).content.decode()
+            self.assertEqual(content.count('class="backlink"'), 1)
+            self.assertIn(entry_backlink, content)
+
+        started_challenge = self.client.get(reverse("MMM:createGame", args=[self.lucas.id])).content.decode()
+        self.assertEqual(started_challenge.count('class="backlink"'), 1)
+        self.assertIn(f'<a class="backlink" href="{views.BASE_URL}player/{self.lucas.id}/">back</a>', started_challenge)
+
+        fresh_game = Game.objects.latest("id")
+        game_page = self.client.get(reverse("MMM:viewGame", args=[fresh_game.id])).content.decode()
+        self.assertEqual(game_page.count('class="backlink"'), 1)
+        self.assertIn(entry_backlink, game_page)
+
     def test_anonymous_play_opens_the_existing_annabel_vs_lucas_game(self):
         response = self.client.post(reverse("MMM:play"))
         board_url = response["Location"]
