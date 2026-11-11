@@ -1,4 +1,4 @@
-"""Offline checks for check_rules: rule format validation and version log cross-referencing."""
+"""Offline checks for check_rules: rule format validation, version log cross-referencing, and path-specific AGENTS.md requirements."""
 
 import os
 import sys
@@ -134,7 +134,7 @@ class CheckRulesTests(unittest.TestCase):
         rules_dir, manifest_path = self.build_framework(
             {"existing-rule.md": VALID_RULE_TEXT}, [], manifest_lines=["# Rules", "", "No version log here."]
         )
-        self.assert_problem(check_rules.collect_problems(rules_dir, manifest_path), "missing the '## Version log' section")
+        self.assert_problem(check_rules.collect_problems(rules_dir, manifest_path), "missing the '## Rules version log' section")
 
     def test_missing_manifest_is_a_problem(self):
         rules_dir, manifest_path = self.build_framework({"existing-rule.md": VALID_RULE_TEXT}, [EXISTING_ENTRY])
@@ -173,18 +173,39 @@ class CheckRulesTests(unittest.TestCase):
         notes = check_rules.path_verification_notes(rules_dir, self.root)
         self.assertEqual(notes, ["path-rule.md: MMM/AGENTS.md, MMM/sub/AGENTS.md"])
 
-    def test_path_specific_rule_without_agents_md_points_at_the_root_fallback(self):
+    def test_path_specific_rule_without_agents_md_is_a_problem(self):
         text = render_rule_file("1", "path specific: nowhere/*", "Path rule.", ["Some goal"])
         rules_dir, _ = self.build_framework({"path-rule.md": text}, ["- 2026-11-11 — path-rule v1"])
-        notes = check_rules.path_verification_notes(rules_dir, self.root)
-        self.assertEqual(notes, ["path-rule.md: no AGENTS.md inside nowhere/* — verify in the root AGENTS.md"])
+        problems = check_rules.path_agents_md_problems(rules_dir, self.root)
+        self.assert_problem(problems, "path-rule.md: no AGENTS.md inside nowhere/* or a parent below the repo root")
+        self.assertEqual(check_rules.path_verification_notes(rules_dir, self.root), [])
 
-    def test_root_agents_md_is_never_listed_as_a_path_implementation(self):
+    def test_root_agents_md_alone_is_a_problem_for_a_path_rule(self):
         text = render_rule_file("1", "path specific: *", "Path rule.", ["Some goal"])
         rules_dir, _ = self.build_framework({"path-rule.md": text}, ["- 2026-11-11 — path-rule v1"])
         (self.root / "AGENTS.md").write_text("root instructions\n")
+        problems = check_rules.path_agents_md_problems(rules_dir, self.root)
+        self.assert_problem(problems, "no AGENTS.md inside * or a parent below the repo root")
+        self.assertEqual(check_rules.path_verification_notes(rules_dir, self.root), [])
+
+    def test_path_specific_rule_with_agents_md_in_a_parent_is_no_problem(self):
+        text = render_rule_file("1", "path specific: .opencode/agents/*", "Path rule.", ["Some goal"])
+        rules_dir, _ = self.build_framework({"path-rule.md": text}, ["- 2026-11-11 — path-rule v1"])
+        (self.root / ".opencode" / "agents").mkdir(parents=True)
+        (self.root / ".opencode" / "AGENTS.md").write_text("instructions\n")
+        self.assertEqual(check_rules.path_agents_md_problems(rules_dir, self.root), [])
         notes = check_rules.path_verification_notes(rules_dir, self.root)
-        self.assertEqual(notes, ["path-rule.md: no AGENTS.md inside * — verify in the root AGENTS.md"])
+        self.assertEqual(notes, ["path-rule.md: .opencode/AGENTS.md"])
+
+    def test_path_specific_rule_lists_agents_md_inside_the_path_and_its_parents(self):
+        text = render_rule_file("1", "path specific: .opencode/agents/*", "Path rule.", ["Some goal"])
+        rules_dir, _ = self.build_framework({"path-rule.md": text}, ["- 2026-11-11 — path-rule v1"])
+        (self.root / ".opencode" / "agents").mkdir(parents=True)
+        (self.root / ".opencode" / "agents" / "AGENTS.md").write_text("inner\n")
+        (self.root / ".opencode" / "AGENTS.md").write_text("outer\n")
+        self.assertEqual(check_rules.path_agents_md_problems(rules_dir, self.root), [])
+        notes = check_rules.path_verification_notes(rules_dir, self.root)
+        self.assertEqual(notes, ["path-rule.md: .opencode/agents/AGENTS.md, .opencode/AGENTS.md"])
 
     def test_non_path_rules_produce_no_verification_notes(self):
         rule_texts = {"existing-rule.md": VALID_RULE_TEXT, "task-rule.md": TASK_RULE_TEXT}

@@ -44,15 +44,16 @@ You are a planning agent for **Megans Magische Meesters** — a Django card-batt
 ### Step 1: Understand relevant context + the chosen goal
 
 1. Identify the selected goal and read its `description.txt`, parent descriptions, and relevant sibling goals.
-2. Inspect related entries in `done/` and `README.md` to understand status and avoid duplicating completed work.
-3. Read wider roadmap context only when needed to identify scope, related work, or dependencies.
-4. Search the codebase and end-to-end tests to understand what the goal actually involves:
+2. Read the goal's `scratchpad.md` when it exists — brainstorm sessions and earlier attempts record their working context there.
+3. Inspect related entries in `done/` and `README.md` to understand status and avoid duplicating completed work.
+4. Read wider roadmap context only when needed to identify scope, related work, or dependencies.
+5. Search the codebase and end-to-end tests to understand what the goal actually involves:
    - Use `grep` to find relevant code patterns
    - Use `glob` to find related files
    - Read only the relevant parts of `MMM/models.py`, `MMM/views.py`, `MMM/urls.py`, and other implementation files
    - Check templates in `MMM/jinja2/`, static files in `var/www/static/`, ignore related unit tests that will likely be rewritten.
-3. Identify what is already implemented, what remains, and which existing patterns or helpers should be reused.
-4. Keep the user's original goal and any brainstormed requirements intact. Do not silently make product or design decisions that the goal leaves open; report material questions for the user to resolve.
+6. Identify what is already implemented, what remains, and which existing patterns or helpers should be reused.
+7. Keep the user's original goal and any brainstormed requirements intact. Do not silently make product or design decisions that the goal leaves open; report material questions for the user to resolve.
 
 ### Step 2: Break down into manageable steps
 
@@ -88,6 +89,7 @@ Use the available filesystem tools to:
 1. Create subdirectories only when decomposition is justified.
 2. Write or update the relevant `description.txt` files, preserving existing user-authored requirements and useful discussion.
 3. Ensure parent descriptions list their subgoals and any ordering constraints.
+4. Append a dated session section to the goal's `scratchpad.md` with what planning discovered for the build agent — code patterns to reuse, risks, why an approach was chosen. Keep it out of `description.txt` unless it is an implementation step or acceptance criterion.
 
 **Do not duplicate general requirements** that the build agent will already apply as part of standard verification (e.g. "tests pass", "`python3 manage.py test` is green", "no regressions", "no migrations break"). These are implied by the project's verification flow and only pollute the description. Reserve the acceptance criteria for goal-specific, measurable outcomes.
 

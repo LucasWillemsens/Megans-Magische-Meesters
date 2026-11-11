@@ -27,9 +27,10 @@ that pickup failed and do not claim a thread was picked up. If it returns
 `{"status":"no_comment"}`, do not investigate or resolve anything; report
 explicitly that no eligible code comments remain.
 
-Investigate the mentioned file, starting with the specific line first and try to find anything that could be improved. Do so without including the context of the entire file first and be very critical of the line and other lines nearby on its own. Then investigate further by including more and more context. Check the surrounding diff and rest of the file, and relevant PR context. Inspect the repository as needed to understand the code and assess the comment. Do not change repository files or post a reply to the PR.
+Investigate the mentioned file, starting with the specific line first and try to find anything that could be improved. Do so without including the context of the entire file first and be very critical of the line and other lines nearby on its own. Then investigate further by including more and more context. Check the surrounding diff and rest of the file, and relevant PR context. Inspect the repository as needed to understand the code and assess the comment. When the commented file maps to a roadmap goal — grep the `roadmap/` descriptions for the file path — read that goal's `scratchpad.md` and its goal directory's `lessons.md` when they exist; they may explain the intent behind the commented code. Do not change repository files or post a reply to the PR.
 
 report concisely:
 1. **Reason:** Why would anyone write this pr comment?
 2. **Problem:** What could be improved in this code?
 3. **Fix:** Describe a concrete fix or state what needs clarification.
+4. **PR:** The number of the PR you picked the comment from (`gh pr view --json number`).

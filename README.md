@@ -16,6 +16,19 @@
   
 ---
 
+## 🧠 Agent Memory and Rules
+
+Agents remember across sessions through a ladder of memory files that bubble insights upward, each level widening in scope:
+
+- **Scratchpad** — `roadmap/<area>/<goal>/scratchpad.md`, the short-term working journal of one goal, kept by brainstorming, planning, build, and PR-review sessions.
+- **Lesson log** — `roadmap/<area>/lessons.md`, durable lessons across the goals of a goal directory, appended when goals complete or PRs are reviewed.
+- **Rule candidates** — `roadmap/<area>/<goal>/candidates.md`, recurring patterns observed across one or more PRs against that goal, proposed as future rules.
+- **Rules** — `rules/` with the `rules.md` version log, the repo-wide release-versioned value system: promoted from candidates with user approval, implemented in agent instructions, and monitored.
+
+The ladder and its protocols live in `.opencode/skills/memory/`; rule mechanics in `.opencode/skills/rules-management/`; code standards in `.opencode/skills/coding/`.
+
+---
+
 ## Roadmap
 
 ### Current state

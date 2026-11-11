@@ -16,5 +16,13 @@
 - `README.md`'s `## Roadmap` section is generated from `roadmap/` and `done/` by `python3 scripts/update_roadmap.py`; edit those source descriptions instead. The updater also moves flat `done/` entries into the roadmap's nested structure.
 - `python3 scripts/ci.py` can fetch, update `done/` and the README, stage **all** changes, commit, push, and open a PR; run it only when explicitly requested. `--dry-run` still runs tests and the README updater, which can move `done/` entries.
 
+## Memory
+- Insights bubble up between sessions through memory files co-located with the roadmap goals that produced them. Every agent reads the memory covering its scope before working and distills durable insights upward:
+  - `roadmap/<goal-path>/scratchpad.md` — short-term working journal of one goal; sessions append one dated section (`## YYYY-MM-DD — what this session did`) with short bullets: state, discoveries, decisions, next.
+  - `roadmap/<area>/lessons.md` — lesson log covering the multiple goals of a goal directory, appended when a goal completes or a PR is reviewed.
+  - `roadmap/<goal-path>/candidates.md` — rule candidates observed across one or more PRs against that goal, citing PR evidence.
+  - `rules/` with the `rules.md` version log — repo-wide, release-versioned rules: the longest memory, promoted from candidates with user approval and implemented where their scopes imply.
+- The consolidation, PR-recording, and promotion protocols live in the `memory` skill. The README generator and CI matcher ignore these files — only `description.txt` counts.
+
 ## OpenCode
-- Root `opencode.json` selects the `devops` agent; roadmap and CI workflow instructions are in `.opencode/agents/devops.md`.
+- Root `opencode.json` selects the `devops` agent; its roadmap workflow instructions are in `.opencode/agents/devops.md`, the CI pipeline workflow in the `ci` skill. Code standards live in the `coding` skill.

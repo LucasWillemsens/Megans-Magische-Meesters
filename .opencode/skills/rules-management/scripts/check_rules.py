@@ -4,10 +4,12 @@
 Checks that every rule file follows the rule format, that every version log
 entry is well-formed and oldest first, that the log and rules/ agree, that
 every rule's latest logged version is dated the same day the file was last
-edited, and that every task-specific rule's skill exists. Implementations
-never follow a strict structure, so their content is verified manually: for
-every path-specific rule the script prints the AGENTS.md files found inside
-the rule's path, or the root AGENTS.md fallback.
+edited, and that every task-specific rule's skill exists. Path-specific rules
+are implemented in the AGENTS.md inside their path or a parent directory below
+the repo root — the root AGENTS.md is reserved for repo-wide rules — so the
+script fails when a path-specific rule has none. The files it finds are
+printed for manual verification, since implementations never follow a strict
+structure.
 
 Usage:
     python3 .opencode/skills/rules-management/scripts/check_rules.py
@@ -109,8 +111,12 @@ def task_skill_problems(rules_dir, skills_dir):
     return problems
 
 
-def path_verification_notes(rules_dir, repo_root):
-    notes = []
+def path_agents_md_locations(rules_dir, repo_root):
+    """Map each path-specific rule to its scope and the AGENTS.md files that
+    may implement it: inside the rule's path directory or a parent directory
+    below the repo root. The root AGENTS.md never counts, so a path-specific
+    rule whose only AGENTS.md is the root's is reported as a problem."""
+    locations = {}
     for rule_name, scope in rule_scopes(rules_dir).items():
         prefix = "path specific: "
         if not scope.startswith(prefix):
@@ -122,11 +128,32 @@ def path_verification_notes(rules_dir, repo_root):
             agents_files = sorted(
                 path for path in directory.rglob("AGENTS.md") if path != repo_root / "AGENTS.md"
             )
+        for ancestor in directory.parents:
+            if ancestor == repo_root or repo_root not in ancestor.parents:
+                break
+            if (ancestor / "AGENTS.md").is_file():
+                agents_files.append(ancestor / "AGENTS.md")
+        locations[rule_name] = (path_scope, agents_files)
+    return locations
+
+
+def path_agents_md_problems(rules_dir, repo_root):
+    problems = []
+    for rule_name, (path_scope, agents_files) in sorted(path_agents_md_locations(rules_dir, repo_root).items()):
+        if not agents_files:
+            problems.append(
+                f"{rule_name}: no AGENTS.md inside {path_scope} or a parent below the repo root — "
+                "create one there; the root AGENTS.md is reserved for repo-wide rules"
+            )
+    return problems
+
+
+def path_verification_notes(rules_dir, repo_root):
+    notes = []
+    for rule_name, (_path_scope, agents_files) in sorted(path_agents_md_locations(rules_dir, repo_root).items()):
         if agents_files:
             locations = ", ".join(str(path.relative_to(repo_root)) for path in agents_files)
             notes.append(f"{rule_name}: {locations}")
-        else:
-            notes.append(f"{rule_name}: no AGENTS.md inside {path_scope} — verify in the root AGENTS.md")
     return notes
 
 
@@ -152,7 +179,11 @@ def collect_problems(rules_dir, manifest_path):
 
 
 def main():
-    problems = collect_problems(RULES_DIR, MANIFEST_PATH) + task_skill_problems(RULES_DIR, SKILLS_DIR)
+    problems = (
+        collect_problems(RULES_DIR, MANIFEST_PATH)
+        + task_skill_problems(RULES_DIR, SKILLS_DIR)
+        + path_agents_md_problems(RULES_DIR, REPO_ROOT)
+    )
     notes = path_verification_notes(RULES_DIR, REPO_ROOT)
     if problems:
         print(f"{len(problems)} problem(s) found:")

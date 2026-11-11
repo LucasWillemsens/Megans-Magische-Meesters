@@ -103,7 +103,7 @@ class AddRuleTests(unittest.TestCase):
         self.manifest_path.write_text("# Rules\n\nNo log section here.\n")
         with self.assertRaises(ValueError) as raised:
             self.create_rule()
-        self.assertIn("## Version log", str(raised.exception))
+        self.assertIn("## Rules version log", str(raised.exception))
         self.assertEqual(list(self.rules_dir.glob("*.md")), [])
 
 
