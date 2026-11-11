@@ -1,0 +1,25 @@
+.serviceDocs {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 1.5rem 1rem 0.5rem;
+    color: #2f3447;
+}
+
+.serviceDocsTitle {
+    font-size: 1.6rem;
+    margin: 0 0 0.5rem;
+}
+
+.serviceDocsIntro {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 0 0 1rem;
+}
+
+.serviceDocsSchemaLink {
+    word-break: break-all;
+}
+
+.swaggerDocs {
+    padding: 0 1rem 2rem;
+}

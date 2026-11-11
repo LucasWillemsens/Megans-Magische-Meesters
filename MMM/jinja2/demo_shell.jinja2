@@ -1,0 +1,40 @@
+{% extends 'base.jinja2' %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('demoNavigation.css') }}">
+{% endblock %}
+
+{% block content %}{% endblock %}
+
+{% block demo_content %}
+<nav class="demoNav">
+    <details>
+        <summary>
+            <p class="invisible">
+                open menu
+            </p>
+        </summary>
+        <a href="{{ url('MMM:titlePage') }}">Title</a>
+        <a href="{{ url('MMM:deckPage') }}">Deck</a>
+        <a href="{{ url('MMM:demoSettings') }}">Settings</a>
+        <a href="{{ url('MMM:index') }}">Admin</a>
+    </details>
+    
+    {% if player %}
+    <div class="playerInfo">
+        <p class="invisible">
+            Playing as
+        </p>
+        <h2>{{ player.name }}</h2>
+        {% if player.profilePictureSource == "" %}
+        <img draggable="false" class="fit-picture" src="{{ static('MMM/profile.jpg')}}"
+            alt="{{player.name}}'s profile picture" />
+        {% else %}
+        <img draggable="false" class="fit-picture" src="{{ static('MMM/' ~ player.profilePictureSource)}}"
+            alt="{{player.name}}'s profile picture" />
+        {% endif %}
+    </div>
+    {% endif %}
+</nav>
+    <img draggable="false" class="fit-picture fullpage-background" src="{{ static('woodtextureorangedark2.jpg') }}" />
+{% endblock %}

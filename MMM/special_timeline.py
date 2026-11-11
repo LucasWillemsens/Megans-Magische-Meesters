@@ -187,8 +187,8 @@ def build_vis_timeline(participant, viciousness, opponent, timeline, outcome=Non
     if outcome is None:
         # Backward-compatible derivation: only valid before the resolve card
         # has been trusted.
-        from MMM.views import getTrustableCards
-        newTrustedResCards = getTrustableCards(participant, [4])
+        from MMM.battle_services import get_trustable_cards
+        newTrustedResCards = get_trustable_cards(participant, [4])
         trusted_res_card = newTrustedResCards[0] if newTrustedResCards else None
         if trusted_res_card is None:
             outcome = "drain"
@@ -254,8 +254,8 @@ def build_res_timeline(participant, count, timeline, card_ids=None):
     if card_ids:
         newCards = list(GameCard.objects.filter(pk__in=card_ids).select_related("state"))
     else:
-        from MMM.views import getTrustableCards
-        newCards = getTrustableCards(participant)
+        from MMM.battle_services import get_trustable_cards
+        newCards = get_trustable_cards(participant)
     import random
     random.shuffle(newCards)
     chosen = newCards[:min(count, len(newCards))]

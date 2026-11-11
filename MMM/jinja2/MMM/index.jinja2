@@ -26,11 +26,11 @@
         {% for player in players %}
             <li>
                 {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static('profile.jpg')}}"
+                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}"
                 alt="{{player}}'s profile picture" />
                 
                 {% else %}
-                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
                 alt="{{player}}'s profile picture" />
                 
                 {% endif %}
@@ -61,7 +61,7 @@
                     <span class="suit">{{ card|playing_card_suit_display }}</span>
                     {% else %}
                     {% if card.artSource == "" %}
-                    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                    <img class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                     {% else %}
                     <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                     {% endif %}

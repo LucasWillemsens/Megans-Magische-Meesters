@@ -1,0 +1,26 @@
+{% macro small_card(card, href, assetsDir="") %}
+<li class="cardContainer">
+    <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
+        href="{{ href }}">
+        {% if card.artSource == "static" %}
+        <span class="rank">{{ card|playing_card_rank_display }}</span>
+        <span class="suit">{{ card|playing_card_suit_display }}</span>
+        {% else %}
+        {% if card.artSource == "" %}
+        <img class="fit-picture" src="{{ static(assetsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+        {% else %}
+        <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+        {% endif %}
+        {% endif %}
+
+        <div class="smallCardInfo">
+            {% if card.artSource != "static" %}
+            <p class="cardTitle">{{ card.title }}</p>
+            {% endif %}
+            <p class="cardType">
+                {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+            </p>
+        </div>
+    </a>
+</li>
+{% endmacro %}

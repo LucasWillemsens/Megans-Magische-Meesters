@@ -1,0 +1,14 @@
+Implement the demo's title, team, deck, and scenario flow (tutorial deferred). Objective: navigate from the title into the correct named game and allow the selected team identity and deck to persist, with the specified greeting variants.
+
+Implementation:
+1. Make `/` the title page and move the current index/collection page to a second URL, without access restriction. Title has a first-time-only Megan greeting; on later visits randomly select from applicable generic Megan greetings and logged-in name-specific Megan greetings. Include working PLAY, settings, and deck navigation.
+2. Anonymous/no-team PLAY opens the existing Annabel-vs-Lucas game, explicitly with Annabel and Lucas as its participants. Team members first pass through the draft screen and enter their scenario. Owlbears selects Lucasbot; Hunters selects Annabelbot. Do not build a tutorial.
+3. Add deck/team/name navigation. Selecting a team logs the user in as the corresponding existing `Player`; every team selection chooses a random 10-card deck from Lucas's collection. Changing team leaves any tutorial state and enters that team's scenario directly. Team changes and names persist as specified by the existing Player model; no settings controls/content beyond shared shell.
+4. Add end-to-end tests for root/title/admin routing, anonymous and each team flow, resulting participants/deck size/source, team/name changes, and empty settings.
+
+Acceptance criteria:
+- [x] `/` renders the title; first-time visitors receive the first-time-only Megan greeting, and subsequent visits randomly select among applicable generic greetings or logged-in name-specific greetings.
+- [x] Current index is reachable at its second route without admin restriction.
+- [x] Anonymous/no-team PLAY opens the Annabel-vs-Lucas game with Annabel and Lucas explicitly mapped to its participants; Owlbears reaches draft then Lucasbot; Hunters reaches draft then Annabelbot.
+- [x] Team selection logs in as that Player and uses exactly 10 randomly selected cards from Lucas's collection; a subsequent team selection selects a new random deck.
+- [x] Deck page team/name changes persist; changing team enters its scenario without tutorial; settings is empty apart from shared shell.

@@ -1,0 +1,45 @@
+implement the backtick debug overlay
+**Keydown listener — NOT IMPLEMENTED.** `var/www/static/cardDragDrop.js` binds a keydown listener at line 376 (`document.addEventListener('keydown', this.keyboardKeydownHandler, true)`), and the handler `onKeyboardKeyDown(event)` runs from line 775 through line 894. It branches on `'0' / Backspace` (line 795), `'Escape'` (line 801), `'Enter' / ' '` (lines 807, 812), arrow keys (line 834), `+ / = / - / _` (line 849), and `^[1-9]$` digits (line 872). It does **not** match `` '`' `` or `'~'`.
+- **No separate `debugOverlay.js`.** The static directory only contains `cardDragDrop.js`, `cardDragDrop.css`, `cards.css`, `hoverCooldown.js`, `laneStacking.js`, `loadingAnimations.js`, `style.css`, `favicon.svg`. The overlay logic should be folded into `cardDragDrop.js` rather than a new file (it is the only place that already owns keydown handling and the `_isTextControlTarget` guard).
+- **CSS rule — NOT IMPLEMENTED.** `var/www/static/cards.css` and `var/www/static/cardDragDrop.css` contain no `.debug-overlay-visible` rule. The only `z-index: 3` declarations in those files are nth-child card-layout rules at `cards.css:1201` and `cardDragDrop.css:127`.
+- **Template selector for the enemy counter is BROKEN.** In `MMM/jinja2/MMM/battle/viewBoard.jinja2` the enemy deck/hand counter is rendered at line 47 as `<p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>` — a **sibling** of the `<div class="enemyDeckHand">` opened on line 48, not a child. The documented selector `.playerScreen .enemyDeckHand > p` therefore returns zero elements on the rendered board. The two other selectors are correct: `.playerScreen .deckHand > p` (line 278) and `.playerScreen .lanes .lane > p` (lines 124 and 239).
+- **No existing test covers the overlay.** `MMM/tests.py` has no `debug-overlay`, `backtick`, or `Backquote` references.
+
+
+The enemy counter needs to match the documented selector. **Move the `<p class="cardType">…</p>` inside `<div class="enemyDeckHand">…</div>`** in `viewBoard.jinja2` (line 47 → after the opening `<div class="enemyDeckHand">` on line 48). Preserves the documented selector and matches the symmetry with the player `.deckHand > p`.
+
+
+## Implementation 
+
+1. **JS — backtick branch in `var/www/static/cardDragDrop.js`.** Inside `onKeyboardKeyDown(event)` (line 775), add a backtick branch as the **first** short-circuit before the existing `_isEndTurnKey` / `_isDrawKey` checks (so the toggle works even with no active selection or end-turn/draw state). The branch must:
+   - Match only `event.key === '`'`. Do **not** match `'~'` / shifted backtick.
+   - Guard with `this._isTextControlTarget(event.target)` (and/or `document.activeElement`) and `return` when true. Reuse the existing helper at `cardDragDrop.js:423` instead of duplicating the `input, textarea, select, [contenteditable]` predicate.
+   - Toggle the class `debug-overlay-visible` on:
+       - `document.querySelector('.playerScreen .deckHand > p')`,
+       - `document.querySelectorAll('.playerScreen .enemyDeckHand > p')` — switch to `.playerScreen .enemyBoard > p.cardType` if option (B) was chosen,
+       - `document.querySelectorAll('.playerScreen .lanes .lane > p')`.
+   - Call `event.preventDefault()` so the backtick never reaches a focused text control or other default behavior.
+2. **CSS — `.debug-overlay-visible` rule in `var/www/static/cards.css`.** Add a single rule scoped to all three target selectors. The rule body must contain exactly the trio `position: absolute; background: white; z-index: 3;` and any minimal extra declarations needed for a readable floating panel (e.g. `padding: 0.25rem 0.5rem; border: 1px solid #000;`). Do **not** set `top` / `left` / `width` / `height` — the class is purely additive so the paragraph returns to its normal-flow position when removed.
+3. **Template — `viewBoard.jinja2`.** If option (A) was chosen, move the `<p class="cardType">Deck: {{ enemy.deckCount }} | Hand: {{ enemy.handCount }}</p>` from line 47 to immediately after the opening `<div class="enemyDeckHand">` on line 48. No change under option (B).
+
+## Tests to add in `MMM/tests.py`
+
+Add all five as one `BattlePagePolishBacktickOverlayTests(StaticAssetContractTestCase)` group, modeled on the existing string-based + `viewBoard`-render patterns (`test_keyboard_selection_contract_uses_playable_fans_and_preview_hooks`, `test_lane_overflow_splits_rows_without_merging_back`):
+
+1. **`test_backtick_overlay_keydown_branch_toggles_three_targets`** — read `cardDragDrop.js`. Slice `onKeyboardKeyDown` (from `    onKeyboardKeyDown(event)` to the next method), assert the slice contains `event.key === '`'`, contains `classList.toggle('debug-overlay-visible'` calls against `.playerScreen .deckHand > p`, the chosen enemy selector, and `.playerScreen .lanes .lane > p`, contains `event.preventDefault()`, and does **not** contain `event.key === '~'` or `=== '~'`.
+2. **`test_backtick_overlay_skips_text_controls`** — same slice, assert it calls `_isTextControlTarget` (or inlines a `target.closest('input, textarea, select, [contenteditable]')` check) and that this guard sits **before** the `classList.toggle` call. Locks in the input-guard requirement.
+3. **`test_backtick_overlay_css_rule_uses_absolute_white_z3`** — read `cards.css`, regex-extract the `.debug-overlay-visible` block, assert the body contains `position: absolute`, `background: white`, and `z-index: 3`. Use a pattern like `re.search(r'\.debug-overlay-visible[^{]*\{[^}]*\}', cards_css)`.
+4. **`test_backtick_overlay_targets_exist_in_rendered_board`** — `self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))` and assert:
+   - the player counter `<p>...Deck: ... | Hand: ...</p>` is a direct child of `<div class="deckHand">`,
+   - the enemy counter `<p class="cardType">Deck: ... | Hand: ...</p>` matches the chosen option (A: inside `<div class="enemyDeckHand">`, B: inside `<li class="enemyBoard">` and not inside `<div class="enemyDeckHand">`),
+   - each lane `<p> {{ lane.value }} | {{ lane.name }} </p>` is a direct child of `<li class="lane …">` for `Intelligence`, `Speed`, `Visciousness`, `Resolve`.
+   This locks in that the toggled elements are real on-screen paragraphs.
+5. **`test_backtick_overlay_targets_are_visible_not_dev_only`** — same rendered HTML, assert the three selector targets are **not** inside any `<script>`, `<template>`, or `<div hidden>` block (regex out the script/template/hidden regions, then assert each target `<p>` lies outside). Catches the "hidden dev-only DOM" regression.
+
+## Acceptance criteria
+
+- [ ] `var/www/static/cardDragDrop.js` `onKeyboardKeyDown` (line 775) contains a branch that matches only `event.key === '`' and toggles `debug-overlay-visible` on `.playerScreen .deckHand > p`, the chosen enemy selector, and `.playerScreen .lanes .lane > p`.
+- [ ] That branch calls `event.preventDefault()` and returns early when `_isTextControlTarget` is true for the event target (or `document.activeElement`).
+- [ ] `var/www/static/cards.css` contains a `.debug-overlay-visible` rule whose body includes the literal trio `position: absolute; background: white; z-index: 3;` and no fixed `top` / `left` / `width` / `height`.
+- [ ]`viewBoard.jinja2` puts the enemy counter `<p class="cardType">` inside the `<div class="enemyDeckHand">` block; if (B) was chosen, the JS uses `.playerScreen .enemyBoard > p.cardType` instead.
+

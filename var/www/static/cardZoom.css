@@ -1,0 +1,16 @@
+:root{
+    --card-zoom-scale: 1.45;
+}
+
+.playerScreen.zoomCards li.cardContainer:not(.duplicate) > .card {
+    transition: transform 0.12s ease-out;
+}
+
+.playerScreen.zoomCards li.cardContainer.card-zoomed:not(.faceDown) {
+    z-index: 300;
+}
+
+.playerScreen.zoomCards li.cardContainer.card-zoomed:not(.faceDown) > .card {
+    transform: scale(var(--card-zoom-scale));
+    z-index: 6;
+}

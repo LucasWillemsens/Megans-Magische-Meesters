@@ -1,0 +1,23 @@
+Remember the player's last selected hand-card ordinal across turns and reloads; Escape cancels selection and restores focus to that card, and Left/Right cycle through selectable hand cards again.
+
+Objective + end-to-end test: retain a 1-based hand slot through the board-action round trip; verify keyboard cancellation returns focus to that slot and horizontal arrows cycle available hand cards without changing the existing selected-card lane controls.
+
+Implementation:
+1. Add `BattleParticipant.focusedHandCard = models.IntegerField(default=1)` in `MMM/models.py`, include it as `focused_hand_card` in `getTurnAllowances()`, and leave it unchanged in `resetTurn()`. Generate the migration with `makemigrations MMM` (currently latest migration is `0014_battleparticipant_drawncardsamount_and_more.py`).
+2. In `MMM/views.py` `boardAction`, parse POST field `focused_hand_card`; persist only integer values `1..6561` and silently ignore invalid values. In `MMM/jinja2/MMM/battle/viewBoard.jinja2`, expose the value as `#turnLimits[data-focused-hand-card]` and add a same-valued hidden input to the end-turn form.
+3. In `var/www/static/cardDragDrop.js`, have `KeyboardSelectionControl` initialize the remembered ordinal from `#turnLimits.dataset.focusedHandCard` (fallback `1`), and update it and the end-turn hidden input whenever `selectKeyboardCard` selects a hand card.
+4. On Escape cancellation, preserve the selected hand card reference/ordinal before clearing preview state, then restore focus to that card if it remains in the current selectable hand; safely do nothing if it no longer exists. Ensure the focus restoration does not recreate a play preview or keep a keyboard selection active.
+5. When no card is selected, route ArrowLeft/ArrowRight pressed from a hand card to the previous/next card in `orderableKeyboardCards()`, wrapping at either end; focus and select the destination through `selectKeyboardCard` so remembered ordinal and hidden input stay synchronized. Preserve existing left/right lane cycling when a card is selected and existing no-op behavior outside the hand when no card is selected.
+6. Add one DOM-backed keyboard behavior test in `MMM/tests.py`, extending the existing `test_focus_arrow_lifecycle_via_dom` harness or an adjacent focused-card test, to verify Escape focus restoration and left/right hand cycling, including wraparound and no stale selection/preview after Escape. Retain the existing server round-trip test `test_focused_hand_card_persists_across_turns_and_round_trips` and arrow-navigation contract test.
+
+Acceptance criteria:
+- [ ] Fresh participants render persisted slot `1`; valid POSTed slot `4` survives a subsequent board GET and is rendered in both data attribute and end-turn hidden input. Invalid/non-positive/over-cap values do not overwrite the saved slot.
+- [ ] Each successful hand-card selection updates the persisted in-memory slot and hidden input to that card's 1-based `orderableKeyboardCards()` ordinal.
+- [ ] Escape with an active hand selection removes selection styling and preview, clears keyboard selection, and returns `document.activeElement` to the same hand card when it remains available; Escape without selection does not change focus.
+- [ ] With no selection, ArrowLeft/ArrowRight from a selectable hand card select/focus the adjacent card, wrapping first-to-last and last-to-first, and sync its ordinal. If the current card is unavailable, no exception occurs and focus remains unchanged.
+- [ ] Left/Right selected-card lane cycling and left/right no-op outside the hand with no active selection remain unchanged.
+- [ ] `MMM/tests.py` contains a DOM-backed regression covering Escape restoration and both horizontal directions/wraparound.
+
+Verified paths: `MMM/models.py` (`BattleParticipant`, `getTurnAllowances()`, `resetTurn()`); `MMM/views.py` (`boardAction`); `MMM/jinja2/MMM/battle/viewBoard.jinja2` (`#turnLimits`, end-turn form); `var/www/static/cardDragDrop.js` (`KeyboardSelectionControl.selectKeyboardCard`, `clearKeyboardSelection`, `onKeyboardKeyDown`, `_cancelKeyboardSelectionFromEvent`); `MMM/tests.py` (`BattleFlowTests` persistence/navigation tests and DOM harness).
+
+Ambiguity to resolve before implementation: the desired horizontal-arrow behavior is specified here as cycling the selectable/orderable hand, wrapping at both ends, and selecting each destination (so it stages the same preview as other keyboard card selection). Confirm if arrows should instead only move DOM focus without creating a selection/preview.

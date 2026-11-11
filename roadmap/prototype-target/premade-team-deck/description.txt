@@ -1,0 +1,10 @@
+Replace the team's current random 10-card selection from Lucas's collection with a premade deck.
+
+Objective + intent of end-to-end test: Verify team selection uses a premade deck instead of selecting 10 random cards from Lucas's collection.
+
+Implementation:
+1. Replace the current team-selection deck source with a premade deck.
+2. Decide the premade deck's contents and selection/configuration mechanics before implementation; these are unspecified.
+
+Acceptance criteria:
+- [ ] Team selection no longer chooses 10 random cards from Lucas's collection and instead uses a premade deck.
