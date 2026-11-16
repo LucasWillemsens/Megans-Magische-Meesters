@@ -1,0 +1,80 @@
+Agent loops that apply the rules, PR-analysis and goal frameworks so the user is not bothered with small issues and can focus on playing the latest version of the game, giving feedback and writing PR comments.
+
+It should include first and foremost a deployed test environment for each PR. On the test environment, a dashboard gives insights in the latest decisions, problems and everything else above. The dashboard also links and fetches relevant info from the opencode go console and GitHub, so agents know when the user has time to work on decisions. The user can drag and drop priorities on the dashboard and gets quick insight into how the agents are doing.
+
+Agents always decide on their own without needing approval: every decision is at propose level. An agent managing the agent that proposes something must be critical of the proposal, and takes responsibility when it agrees with it but it does not work out. In that case the agent-engineer agent improves both agents, and the whole scenario is noted so agents can learn from it. No extra text files explaining the user's taste: existing artefacts must be enough for agents to study precedent.
+
+The loop runs continuously and keeps delivering PRs that are themselves tested. A PR waits for the user's approval to merge; in the meantime agents work on other things, or create another branch and pick up improvements and related goals.
+
+Ideas:
+
+Per-PR test environment (first)
+- Every PR branch is deployed to its own URL on the test host and rebuilt on each push. It stays up until capacity is needed (see Capacity).
+- Each environment has its own SQLite database, seeded fresh, so playing one PR never touches another.
+- The PR links to its environment. The agent posts a short "what to play and look at" note, derived from the diff.
+- Deploy counts as part of "done": a PR is only handed over once its environment is up and its tests pass.
+- Hosting (decided): runs on the user's Windows machine, where the workspace runs under WSL, in parallel with production. The loop builds and deploys PR branches itself; there is no GitHub runner.
+- Production (decided): https://www.paintedpillars.com/. It does not exist yet.
+- Primordial production (decided): the repo copy on the Windows machine, with the one production SQLite database. Production backups are stored on the Windows machine. The user updates this copy by hand for now.
+- PR environments (decided): https://pr-<number>.paintedpillars.com/, one level below the domain.
+- Subdomains, not paths: session and game cookies are scoped to the host, so path-based environments would share cookies with production. One-level subdomains are covered by Cloudflare's free certificate.
+- The band site takes the apex (paintedpillars.com) when it returns. The game does not sit on the apex.
+- Reaching the PC (decided): Cloudflare Tunnel. Outbound only, free, works behind CGNAT. The domain's DNS moves to Cloudflare.
+- Routing (decided): the tunnel forwards *.paintedpillars.com to one local reverse proxy (e.g. Caddy), which routes by hostname to each environment's port. The loop maintains the port map, so no router or tunnel change is needed per PR.
+- Capacity (decided): at most 3 running PR environments plus production. Teardown is only for capacity: when all 3 slots are full and a new PR needs one, the environment with the least recent activity is stopped and rebuilt on demand. Nothing is torn down on merge or close.
+- Constraints:
+  - The repo is public. Without a runner, no PR code executes outside the loop, so fork PRs never run on this PC.
+  - The Windows machine is a single point of failure: power, uptime, the residential connection, and CPU and RAM shared with agents running builds and tests. Production goes down with it.
+
+Continuous loop
+- No human trigger. The loop takes the highest-priority unblocked goal, works it in its own git worktree on its own branch, opens a PR, and moves on.
+- While a PR waits for merge, agents start the next goal or a related improvement on a new branch. Dependent work stacks on the pending branch.
+- The loop runs 24/7 and does not stop on merge or any other event. It schedules its own sleeps.
+- Parallel branches collide on generated and shared artefacts: README.md is generated from roadmap/ and done/, and done/ entries move. Work must be isolated in worktrees, generated files regenerated after rebase, and nothing staged repo-wide in parallel.
+- Throughput is bounded by the opencode go quota. Sleep rule (decided): the loop sleeps when the limit is near, and in an emergency when agents are stuck going in circles. Agents decide what counts as stuck, at propose level, reviewed by the critic.
+
+Decisions at propose level
+- An agent decides and executes, then states the decision and the alternatives it rejected in the PR description or commit message.
+- The only approval gate is merging the PR. User overrides arrive as PR comments, closes, or reverts, and those are the feedback signal.
+
+Proposal critic and accountability
+- A proposed decision is reviewed by a critic. The critic is a new agent (decided). If the critic agrees, it co-owns the outcome.
+- "Did not work out" is measured from objective signals, not self-reported: failing CI or environment, PR closed unmerged, revert, reopened review comments, user override.
+- On failure, agent-engineer improves both the proposing agent and the critic, and records the scenario in the existing memory ladder (scratchpad, lessons, candidates, rules).
+- Idea: critic runs on a different model than the proposer, so they do not share blind spots.
+
+Precedent from existing artefacts
+- Agents study lessons.md, candidates.md, rules.md, done/, merged and closed PRs with their review comments, and the decision notes in PR descriptions.
+- The dashboard reads the same artefacts. No separate insights or preferences file.
+
+Dashboard on the test environment
+- Latest decisions (from PR descriptions and commits), open problems (candidates with PR evidence, failing environments, reopened comments), open PRs with their environment links.
+- Agent health at a glance: merge rate, rework count per PR, failing-test rate, time per goal, quota used. A few numbers and a trend, not reports.
+- Drag-and-drop priorities write to the root STEERING.md of the working folder. Agents pick up a new order before their next request, so a reorder steers running agents live.
+- STEERING.md works like AGENTS.md, used dynamically. The more specific the folder, the more priority its STEERING.md has; the repo root applies to everything. The priority order belongs in the root STEERING.md, since it applies repo-wide.
+- STEERING.md steers agents working in the WSL workspace folder. It has nothing to do with deployment.
+- STEERING.md is untracked and gitignored.
+
+Integrations (read-only)
+- GitHub: PRs, reviews, comments, CI, merge state. The primary source of outcome signals.
+- opencode go console: usage and quota per model, to pace the loop.
+- Google Calendar: free/busy only, to find when the user can review and merge. No event details stored. Deferred until later.
+- Tokens and secrets stay out of the repo.
+
+Play feedback
+- The user plays the environment and writes feedback in plain words. An agent turns it into anchored PR review comments, which the review loop then picks up.
+
+Known issues to fix along the way
+- devops says to ask the user when a decision is open. This conflicts with propose-level decisions and must change.
+- scripts/ci.py must stop staging all changes, so it works when worktrees run in parallel (decided).
+- scripts/pick_pr_comment.py stays as it is. Resolving the thread as soon as it is picked up is intended.
+
+Subgoals (independent deliverables; build one at a time):
+- [ ] per-pr-test-environment — first; deployment and capacity requirements are in its description.
+- [ ] continuous-loop
+- [ ] decisions-and-critic
+- [ ] dashboard
+- [ ] priority-ordering
+- [ ] integrations
+
+Calendar free/busy scopes remain deferred; do not block other subgoals on them.

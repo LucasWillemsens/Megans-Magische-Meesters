@@ -1,0 +1,12 @@
+Provide the agent-loop dashboard on the test environment, surfacing PR status, decisions, problems, and concise agent-health signals from existing artefacts and integrations.
+
+Implementation:
+1. Add a dashboard route/view/template to the Django app, reusing `mysite/settings.py` and existing Jinja2 conventions; restrict access to the intended user and do not expose credentials.
+2. Read latest decisions from PR descriptions/commits; list open PRs and their environment links; surface open problems from evidenced rule candidates, failing environments, and reopened review comments.
+3. Show concise current/trend measures: merge rate, rework per PR, failing-test rate, time per goal, and quota used. Use the read-only integration data produced by `integrations`.
+4. Link to the opencode go console and GitHub; show when review availability can be derived once Calendar integration exists. Do not create a separate preference/insights file.
+
+Acceptance criteria:
+- [ ] Dashboard displays latest decisions, evidenced open problems, open PRs and environment links, plus the five specified health measures and trends.
+- [ ] Dashboard links to GitHub and the opencode go console and uses existing PR/memory artefacts rather than a new user-preferences file.
+- [ ] Unauthenticated or unauthorized requests cannot access dashboard data; secrets are not rendered.

@@ -1,0 +1,19 @@
+Deploy each eligible same-repository PR branch to an isolated playable test environment at https://pr-<number>.paintedpillars.com/. Objective and end-to-end test: open a PR, push a commit, and verify its isolated database, tests, play URL, and status update; a fork PR must never execute on the host.
+
+Implementation:
+1. Inspect the current deployable Django setup in `mysite/settings.py`, `mysite/urls.py`, `mysite/wsgi.py`, `requirements.txt`, and `scripts/`; add deployment configuration/scripts without changing game behavior. Keep secrets outside the repository.
+2. Implement loop-owned PR discovery and deployment (no GitHub runner): process only PRs whose head repository is this repository; never checkout, build, test, or run fork code. Serialize builds to one at a time. Rebuild the PR's environment on every new push.
+3. Give each PR an isolated checkout/runtime and SQLite database, run migrations and deterministic fresh seed data, then run Django checks/tests before marking deployment ready. A failed check/test does not hand the PR over as playable.
+4. Serve each environment under its own one-level hostname, with host-scoped session/game cookies. Maintain the hostname-to-local-port map consumed by one local reverse proxy. Configure Cloudflare Tunnel to forward `*.paintedpillars.com` to that proxy; do not require per-PR tunnel/router changes. Production is separate at `www.paintedpillars.com`, using the Windows-hosted primordial copy/database; do not deploy PR code or modify production state.
+5. Enforce capacity of at most three running PR environments alongside production. When a fourth needs a slot, stop the least recently active environment and retain enough PR metadata to rebuild it on demand. Do not stop environments merely because a PR merged or closed. Keep PR data/databases isolated and never use the production database for seeding or tests.
+6. Publish the ready environment URL on its PR and post a concise diff-derived “what to play and look at” note. Record lifecycle/readiness/activity needed by the dashboard and loop without exposing secrets.
+7. Add focused automated tests for PR eligibility, environment/database isolation, serialized rebuild and readiness gating, capacity eviction/on-demand rebuild, and merge/close retention; document a local end-to-end deployment smoke test for the Windows/WSL, proxy, and tunnel boundary.
+
+Acceptance criteria:
+- [ ] Same-repository PRs are rebuilt on pushes and are handed over only after isolated migrations, seed, Django checks, and tests succeed; readiness failure is visible and no playable-ready status is published.
+- [ ] Fork PR code is never checked out, built, tested, or executed on the Windows/WSL host.
+- [ ] Two PRs have distinct hostnames, runtime ports, and SQLite files; playing or reseeding one cannot affect the other or production.
+- [ ] The routing configuration maps `pr-<number>.paintedpillars.com` through the single local proxy and tunnel without per-PR tunnel changes; PR hostname cookies are host-scoped.
+- [ ] No more than three PR environments run concurrently. A capacity eviction chooses the least recently active, and merged/closed environments otherwise remain running.
+- [ ] The PR receives its environment link and play note; stopped environments can be rebuilt on demand.
+- [ ] No credentials or secrets are committed or included in published status/log output.

@@ -1,0 +1,13 @@
+Run the agent workflow continuously without a human trigger, choosing the highest-priority unblocked goal and continuing while PRs await merge.
+
+Implementation:
+1. Reuse the PR environment lifecycle from `roadmap/agent-loops/per-pr-test-environment/description.txt`; coordinate polling, worktree/branch creation, build/test, PR creation, and deployment as a resumable loop.
+2. Isolate every goal in its own git worktree/branch; rebase before regenerating `README.md` from `roadmap/` and `done/`. Never stage repository-wide changes in parallel worktrees.
+3. Update `scripts/ci.py` so commits stage only the intended worktree changes, not `git add -A` across unrelated/generated local state; preserve its explicit matching and test behavior.
+4. Sleep and resume when opencode go quota is near; in a stuck-loop emergency, propose a sleep and have the critic review it. Continue scheduling after merges and other events.
+
+Acceptance criteria:
+- [ ] A running loop selects and starts the highest-priority unblocked goal without a user trigger and resumes after merge or other PR events.
+- [ ] Concurrent goal work uses separate worktrees and branches; README generation follows rebase and no parallel process stages another worktree's changes.
+- [ ] `scripts/ci.py` cannot stage unrelated untracked or modified files outside the intended goal changes.
+- [ ] Quota-near and critic-reviewed stuck-loop decisions schedule a pause and later resume.

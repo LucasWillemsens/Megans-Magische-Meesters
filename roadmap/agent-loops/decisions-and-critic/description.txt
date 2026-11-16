@@ -1,0 +1,13 @@
+Agents execute decisions at propose level; a new critic independently challenges each proposal and co-owns outcomes it approves.
+
+Implementation:
+1. Update `.opencode/agents/devops.md` to stop asking the user to resolve open decisions; require the agent to decide, state alternatives rejected, and record the decision in the PR description or commit message.
+2. Add a critic agent in `.opencode/agents/` with an independent review workflow/model from the proposer, evidence-based challenge criteria, and explicit co-ownership when approving.
+3. Connect proposal review to the continuous loop. Define objective failure signals from CI/environment failures, closed-unmerged PRs, reverts, reopened comments, and user overrides.
+4. On a failed outcome, invoke agent-engineer to improve both agents and record the scenario in existing scratchpad/lessons/candidates/rules memory files; do not introduce a preferences/taste file.
+
+Acceptance criteria:
+- [ ] Agent workflow proceeds on a proposal without user approval; only PR merge gates delivery.
+- [ ] Each proposal includes the decision and rejected alternatives, and receives a critic disposition before execution proceeds.
+- [ ] Critic approval explicitly records co-ownership; a failed outcome triggers updates to both agents and a scenario entry in the existing memory ladder.
+- [ ] No separate user-preferences or taste artefact is created.
