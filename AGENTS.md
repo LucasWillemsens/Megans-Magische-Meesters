@@ -18,11 +18,11 @@
 
 ## Memory
 - Insights bubble up between sessions through memory files co-located with the roadmap goals that produced them. Every agent reads the memory covering its scope before working and distills durable insights upward:
-  - `roadmap/<goal-path>/scratchpad.md` — short-term working journal of one goal; sessions append one dated section (`## YYYY-MM-DD — what this session did`) with short bullets: state, discoveries, decisions, next.
+  - `roadmap/<goal-path>/scratchpad.md` — short-term working journal of one goal; sessions append one dated section (`## YYYY-MM-DD — what this session did`) with short bullets: state, discoveries, decisions, next. It holds live state only: when a work thread completes, the session that completed it distills durable insights into the lessons and deletes the thread's sections — the record of finished work is its materialized result, and git history preserves the rest.
   - `roadmap/<area>/lessons.md` — lesson log covering the multiple goals of a goal directory, appended when a goal completes or a PR is reviewed.
-  - `roadmap/<goal-path>/candidates.md` — rule candidates observed across one or more PRs against that goal, citing PR evidence.
+  - `roadmap/<goal-path>/candidates.md` — rule candidates observed across one or more PRs against that goal, citing PR evidence. A resolved candidate — promoted, absorbed into a covering rule, or withdrawn — is removed; the rule version log records the outcome.
   - `rules/` with the `rules.md` version log — repo-wide, release-versioned rules: the longest memory, promoted from candidates with user approval and implemented where their scopes imply.
-- The consolidation, PR-recording, and promotion protocols live in the `memory` skill. The README generator and CI matcher ignore these files — only `description.txt` counts.
+- The consolidation, thread-cleanup, PR-recording, and candidate-resolution protocols live in the `memory` skill; the mechanics of promoting or absorbing into rules live in the `rules-management` skill. The README generator and CI matcher ignore these files — only `description.txt` counts.
 
 ## OpenCode
 - Root `opencode.json` selects the `devops` agent; its roadmap workflow instructions are in `.opencode/agents/devops.md`, the CI pipeline workflow in the `ci` skill. Code standards live in the `coding` skill.

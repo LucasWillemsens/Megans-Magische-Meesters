@@ -1,75 +1,45 @@
 ---
 name: Memory
-description: Maintain the repo's memory ladder — goal scratchpads, goal-directory lesson logs, and rule candidates co-located with roadmap goals — so insights bubble up between sessions and distill into rules. Use when consolidating a finished goal's scratchpad into lessons, recording PR-review insights into memory files, or promoting rule candidates into rules.
+description: Maintain the repo's memory ladder — scratchpads, lesson logs, and rule candidates co-located with roadmap goals. Use when consolidating finished work (a completed goal or thread) into lessons, recording PR-review insights into memory files, or resolving rule candidates into rules.
 ---
 
 # Memory
 
-Insights bubble up between sessions through a ladder of memory files co-located with the roadmap goals that produced them. Each level widens in scope and outlives the one below; each distills into the next:
+Insights bubble up between sessions through a ladder of memory files co-located with the roadmap goals that produced them; each level widens in scope, outlives the one below, and distills into the next:
 
-| Level | File | Scope | Lifetime |
-|---|---|---|---|
-| Scratchpad | `roadmap/<goal-path>/scratchpad.md` | one goal | current work on the goal |
-| Lesson log | `roadmap/<area>/lessons.md` | the goal directory's multiple goals | until promoted |
-| Rule candidates | `roadmap/<goal-path>/candidates.md` | one or more PRs against that goal | until promoted or withdrawn |
-| Rules | `rules/` + `rules.md` version log | repo / project wide | release versions — the longest memory |
+- `roadmap/<goal-path>/scratchpad.md` — one goal's current work; live state only
+- `roadmap/<area>/lessons.md` — the goal directory's multiple goals; until its substance lives in a rule
+- `roadmap/<goal-path>/candidates.md` — recurring patterns across PRs against the goal; until resolved: promoted, absorbed, or withdrawn
+- `rules/` + `rules.md` version log — repo-wide, release-versioned: the longest memory
 
-The README generator and CI matcher ignore these files; only `description.txt` counts. Rules are added and versioned through the `rules-management` skill — this ladder only feeds it.
-
-Anyone starting work reads the memory covering their scope: the goal's scratchpad first (where the last session left off), then the goal directory's lesson log. Nothing recorded here overrides the user's direction; memory informs sessions, it does not decide for them.
+Read the memory covering your scope before working — the goal's scratchpad first (where the last session left off), then the goal directory's lessons; memory informs sessions, it never overrides the user's direction. Only `description.txt` counts for the README generator and CI matcher. Rules are added and versioned through the `rules-management` skill — this ladder only feeds it.
 
 ## Scratchpad format
 
-Newest session first, one dated section per session, short bullets, no narrative:
+Newest session first; one dated section per session — `## YYYY-MM-DD — what this session did` under a `# <goal-name> scratchpad` header in a new file. Four short bullets, no narrative: State (what exists now), Discovered (code facts, patterns, gotchas), Decided (choices and why), Next (what the following session picks up). Anything that would matter beyond this goal's current work is distilled upward instead of lingering here.
 
-```markdown
-# <goal-name> scratchpad
+## Cleaning up finished work
 
-## YYYY-MM-DD — what this session did
-- State: what exists now, what is half-done
-- Discovered: code facts, patterns, gotchas
-- Decided: choices made and why
-- Next: what the following session should pick up
-```
+A scratchpad holds live working state, not an archive of finished work; the record of finished work is its materialized result — code, files, rules, lessons — and git history preserves the rest. When work finishes — a thread completed (fix list implemented, decision enacted, review actions done) or the goal itself implemented and verified — distill the durable insights into `roadmap/<area>/lessons.md` first: one dated section (`## YYYY-MM-DD — <title>`), one lesson per bullet, skipping what only mattered mid-work, never duplicating an existing lesson or an implemented rule. Then:
 
-Anything that would matter beyond this goal's current work is distilled upward instead of lingering here.
+- Completed thread: delete its dated sections, keeping the newest live state and the next step.
+- Finished goal: delete the whole `scratchpad.md`.
 
-## Consolidating a finished goal
-
-When a delegated goal is implemented and verified:
-
-1. Read the goal's `scratchpad.md` and distill its durable, actionable insights — patterns, pitfalls, conventions discovered — into `roadmap/<area>/lessons.md` as a new dated section `## YYYY-MM-DD — <goal-name>` with one lesson per bullet. Skip what only mattered mid-work.
-2. Delete the goal's `scratchpad.md` — short-term memory stays short; git history preserves it.
-3. Do not duplicate a lesson already covered by an existing lesson or an implemented rule.
+Orchestrators delegate either cleanup to the memory agent.
 
 ## Recording PR-review insights
 
 After collecting the review analyses for the PR:
 
-1. Determine which roadmap goals the PR worked on — grep the roadmap descriptions for the touched files, or read the README roadmap section.
-2. Scratchpad notes: for each touched goal, append a dated session section to its `scratchpad.md` (create it with the format above when absent) listing the concrete fixes the reviewers found, so the next build session starts from them.
-3. Lessons: append durable review insights to the touched goals' directories' `lessons.md`, one dated section per goal directory.
-4. Rule candidates: when the same problem or pattern recurs across one or more PRs, add it to the `candidates.md` of the deepest goal directory that covers all the evidence — typically `roadmap/<area>/<goal>/candidates.md`, since a PR maps to the goals it touched:
+1. Find the touched goals — grep the roadmap descriptions for the touched files, or read the README roadmap section.
+2. Scratchpad: for each touched goal, append a dated section listing the concrete fixes the reviewers found (create the file with the format above when absent); the cleanup removes them once the fixes are implemented.
+3. Lessons: append the durable insights to each touched goal directory's `lessons.md`, one dated section per directory.
+4. Rule candidates: for a pattern recurring across one or more PRs, add an entry to the `candidates.md` of the deepest goal directory covering the evidence — `## <pattern-name>` with Pattern, Evidence, and Proposed-rule bullets, citing the PR numbers. First check `rules/`: substance a rule already covers is recorded as a lesson citing that rule — evidence it may need extending — not proposed as a near-duplicate.
 
-```markdown
-# <goal-name> rule candidates
-
-## <pattern-name>
-- Pattern: the recurring observation
-- Evidence: PR #12, PR #15
-- Proposed rule: one sentence
-- Status: candidate
-```
-
-Cite the PR numbers from the analysts' reports.
-
-## Promoting candidates into rules
+## Resolving candidates
 
 1. Glob `roadmap/**/candidates.md` and review candidates with evidence from multiple PRs or clear user endorsement.
-2. Propose the promotion to the user — promotion requires their approval.
-3. On approval, add the rule through the `rules-management` skill, implement its substance where its scope implies, and set the candidate's Status to `promoted (rule <rule-title> vN)` — or `withdrawn (<reason>)` when rejected.
-4. When a lesson log entry becomes a rule, append `→ rule <rule-title> vN` to that lesson so readers know where its substance now lives.
-
-## Monitoring rules
-
-Rules keep shaping work through their implementations in `AGENTS.md` files and skills. The mechanical framework is checked by the `rules-management` check script. Practical adherence is watched where the work happens: PR review records rule violations as lesson entries and candidate evidence, and whoever manages the rules verifies the implementations when agents or instructions change.
+2. Check the rule set first: a candidate is ripe for promotion only when no existing rule covers its substance; otherwise propose absorbing it into the covering rule instead of adding a near-duplicate.
+3. Propose the resolution to the user — promotion and absorption both require their approval.
+4. On approval, run the chosen path through the `rules-management` skill — it adds or extends the rule, implements the substance where the scope implies, and appends the version log entry — then remove the candidate entry: its outcome is recorded by the rule's version log and Context, or as a lesson when withdrawn.
+5. Append `→ rule <rule-title> vN` to a lesson whose substance became part of the rule.

@@ -7,3 +7,6 @@
 - Skills should demand one named style exemplar, not a wholesale read of a whole directory; a distilled bullet list plus "copy the closest role" beats "read every file" (agent skill, PR #28).
 - Broad `resource: "*"` permissions on a narrowly scoped orchestrator let it wander off-protocol; scope subagent launches and edit/read targets to exactly what the workflow touches (pr-investigator.md, PR #28).
 - Converting a per-run delegation worker into a skill breaks its isolation and model routing; only extract stable know-how needed "sometimes", not the agent's core job (pr-comment-analyst.md, PR #28).
+
+## 2026-11-17 — PR #28 candidates absorbed into the evolving-agent rule
+- A candidate is ripe for promotion only when no existing rule already covers its substance — check the rule set first and extend the covering rule instead of proposing a near-duplicate. All three PR #28 candidates (point-don't-duplicate, scoped-agent-permissions, delegate-substantive-work) were substance of the agents-evolve-cleverly rule and were absorbed into its v2 description and the .opencode/AGENTS.md implementation (candidates and the PR #28 scratchpad thread cleaned 2026-11-17).

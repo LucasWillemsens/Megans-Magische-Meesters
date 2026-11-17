@@ -37,6 +37,8 @@ repo wide | path specific: {PATH} | task specific: {TASK}
 
 ## Adding a rule
 
+First check `rules/` for an existing rule whose substance already covers the proposal — extend that rule instead of adding a near-duplicate.
+
 ```
 python3 .opencode/skills/rules-management/scripts/add_rule.py \
     --title <kebab-case-title> --strictness <number> \
@@ -49,9 +51,14 @@ This validates the input, writes `rules/<title>.md`, and appends the v1 entry to
 
 Edit the rule file, then append the next version entry to the `## Rules version log` section of `rules.md`, dated the same day as the edit. Entries look like `- YYYY-MM-DD — <rule-filename-without-.md> vN`, with ` — <very short explanation>` added for updates; the log runs oldest first, so new entries go at the end. Keep the implementation at the rule's implied location in sync.
 
-## Promoting rule candidates
+## Resolving rule candidates
 
-Rule candidates observed across PRs accumulate in `roadmap/**/candidates.md` files — the `memory` skill documents that ladder. Promote a candidate once its evidence and the user agree: add the rule with `add_rule.py` using the candidate's proposed rule, implement the substance where the scope implies, then set the candidate's Status to `promoted (rule <rule-title> vN)` — or `withdrawn (<reason>)` when rejected.
+Rule candidates observed across PRs accumulate in `roadmap/**/candidates.md` files — the `memory` skill documents that ladder. Resolve a candidate once its evidence and the user agree, checking the rule set first:
+
+- Absorption — an existing rule already covers the candidate's substance: extend that rule's Description with the substance, add the goal to its Context, sync the implementation at its implied location, and append the version log entry.
+- Promotion — no existing rule covers the substance: add the rule with `add_rule.py` using the candidate's proposed rule and implement the substance where its scope implies.
+
+Either way, remove the resolved entry from its `candidates.md` — the rule's version log records the outcome. A withdrawn candidate is removed with its reason recorded as a lesson.
 
 ## Checking the framework
 
