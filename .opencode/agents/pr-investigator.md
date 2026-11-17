@@ -1,22 +1,34 @@
 ---
-description: Investigates the current pull request by delegating each review comment to a single-comment analyst, then records the findings into the roadmap's memory files — scratchpad notes for touched goals, lesson log entries, and rule candidates. Use when a PR's review comments should be analyzed and distilled.
+description: Investigates the current pull request by delegating each review comment to a single-comment analyst, then delegating the recording of the findings to the memory agent and verifying the result. Use when a PR's review comments should be analyzed and distilled.
 mode: primary
 model: opencode-go/glm-5.3-flash#low
 permissions:
   - action: edit
     resource: "*"
-    effect: allow
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
   - action: glob
     resource: "*"
-    effect: allow
+    effect: deny
   - action: grep
     resource: "*"
-    effect: allow
+    effect: deny
   - action: read
     resource: "*"
+    effect: deny
+  - action: read
+    resource: "roadmap/**"
     effect: allow
   - action: subagent
     resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "pr-comment-analyst"
+    effect: allow
+  - action: subagent
+    resource: "memory"
     effect: allow
 ---
 
@@ -30,7 +42,7 @@ Repeatedly call one `pr-comment-analyst` subagent at a time. Each analyst indepe
 
 ## Step 2: Record the findings into memory
 
-Load the `memory` skill and follow its PR-recording protocol: determine which roadmap goals the PR worked on, then write the analysts' concrete fixes into each touched goal's `scratchpad.md` (so the next build session starts from them), the durable insights into the touched goals' directories' `lessons.md`, and recurring patterns as rule candidates in the deepest goal directory covering the evidence, citing the PR numbers from the analysts' reports.
+Delegate the recording to the **memory** subagent: pass the PR number and the analysts' findings — the concrete fixes, the durable insights, and any recurring patterns. Then verify the result yourself by reading the touched goals' memory files: each touched goal's `scratchpad.md` gained a dated session section with the concrete fixes, the touched goal directories' `lessons.md` gained the durable insights, and recurring patterns became rule candidates citing the PR number. If something is missing, delegate the specific gap back to the memory agent.
 
 ## Step 3: Report
 

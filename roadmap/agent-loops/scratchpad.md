@@ -1,3 +1,5 @@
+# agent-loops scratchpad
+
 ## 2026-11-12 — brainstorm: agent-loops goal created
 
 - State: new top-level goal `roadmap/agent-loops/` with `description.txt` holding the user's spec and captured ideas. No subgoals yet, no code touched.
@@ -118,3 +120,9 @@
 - State: coder.md created (`mode: subagent`, build's model/permissions, body driven only by the coding skill); build.md slimmed (73→58 lines, generic guidance out, planner workflow intact, description hands unplanned coding to the coder); coding skill absorbed the verification flow (sanity-check references → `manage.py check` → `manage.py test`) and lost its roadmap-only phrasing ("roadmap goal at hand" → "task at hand"); devops.md gained a third workflow routing direct code changes to the coder, bypassing the planner.
 - Decision: devops routing added so the decoupling is real at the orchestration level; coder permissions copy build (broad worker, wildcards match its remit — revisit only if the scoped-agent-permissions candidate is promoted).
 - Next: fixes 2–6 of the PR #28 list remain (devops CI bullet trim, memory.md subagent, pr-comment-analyst pointer, pr-investigator permission scoping, agent-skill exemplar).
+
+## 2026-11-17 — fixes 2–5 of the six implemented (user-amended)
+- State: devops CI bullet is a bare `ci`-skill pointer and the duplicate CI section is gone; new `memory.md` subagent (`mode: subagent`, planner's model) runs both `memory`-skill protocols; devops Step 3 and pr-investigator Step 2 delegate to it and verify the result; pr-investigator wildcards replaced (subagent only `pr-comment-analyst` + `memory`, read only `roadmap/**`, edit/shell/glob/grep denied); memory agent scoped (edit only `roadmap/**` scratchpad/lessons/candidates, read `roadmap/**` + `README.md`, glob `roadmap/**`, shell only `rm roadmap/**`); pr-comment-analyst's pickup contract extracted into the `pr-comment-pickup` skill, its shell scoped to the pickup script, `gh pr *`, and read-only `git diff/log/show`.
+- Decided (user amendments vs the PR #28 notes): fix 4 as a skill instead of a docstring pointer — the analyst stays an agent, so delegation/isolation is preserved; analyst keeps `mode: all` (the "optionally" was not taken); fix 5 became delegation to the memory agent, so the review's edit/read scope moved onto the memory agent.
+- Discovered: OpenCode permissions — last matching rule wins, so broad denies must precede narrow allows; the `edit` action covers `write` too; `grep`'s resource is the regex, not the path, so grep cannot be path-scoped and the memory agent's grep stays confined by instruction only. The old inline analyst text also misstated the pickup output — the script really prints `{path} ( ln: {line}): {comment}` and errors go to stderr.
+- Next: fix 6 of the six remains — agent/SKILL.md ln 12, replace "read every file" with one named exemplar (`devops.md`), drop the wholesale skills/opencode.json read.
