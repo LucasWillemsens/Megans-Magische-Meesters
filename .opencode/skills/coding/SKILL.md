@@ -35,6 +35,7 @@ How code is written in this repo. These standards apply to every change; followi
 ## Styling
 
 - Minimize inline styling — prefer css usage over styling in html. CSS files are logically structured with files scoped to features that require styling. Styling cascades down from generality and importance, with static variables on top for easy customization; the further down in the file, the more specific the styling. Styling is maximally re-used. Refactor styling if css files can be shrunk down without losing maintainability, even if website appearance is impacted. Templates and JS use css classes whenever possible.
+- Styling is effective without side effects, just like code. Updating styling in a generic setting — a shared or global class like `.players`, `.title`, or `.backlink` — logically changes more than one page: enumerate every template using the class before changing its global styling. When styling one page changes and unexpectedly breaks another, refactor with the goal to make everything more compact, structured, and readable — scope page-specific looks with explicit classes carried in that page's template (like `.demoTitle`), not structural exception lists such as `body:has(> .fullpage-background)`, and keep shared components consistent across every page using them.
 
 ## Errors
 

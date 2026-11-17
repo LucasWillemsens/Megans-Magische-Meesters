@@ -9598,9 +9598,9 @@ class ChallengePageTests(TestCase):
 
 
 class GamePageStylingTests(TestCase):
-    """Game page heading stays readable, the back link follows the page
-    content instead of floating over it, and the confirm button contains
-    its label."""
+    """The back link is one in-flow rule shared by every page, the demo
+    watermark title rides on the template-carried demoTitle class, game
+    page marks stay readable, and the confirm button contains its label."""
 
     def _game_page_content(self):
         challenger = Player.objects.create(name="Challenger")
@@ -9636,13 +9636,13 @@ class GamePageStylingTests(TestCase):
             content.index('class="backlink"'),
         )
 
-    def test_watermark_title_styling_is_scoped_to_demo_art_pages(self):
+    def test_watermark_title_styling_is_carried_by_the_demo_title_class(self):
         style_css = self._style_css()
         title_block = style_css[
             style_css.index(".title{"):style_css.index(".title h1{")
         ]
         watermark_block = style_css[
-            style_css.index(".title.demoTitle,"):style_css.index("h2 {")
+            style_css.index(".title.demoTitle{"):style_css.index("h2 {")
         ]
 
         for watermark_property in (
@@ -9653,24 +9653,31 @@ class GamePageStylingTests(TestCase):
         ):
             self.assertNotIn(watermark_property, title_block)
             self.assertIn(watermark_property, watermark_block)
-        self.assertIn("body:has(> .fullpage-background) .title", watermark_block)
+        self.assertIn("height:50%", watermark_block)
+        self.assertNotIn("body:has(", style_css)
 
-    def test_back_link_overlay_is_scoped_to_demo_art_pages(self):
+        deck_page = self.client.get(reverse("MMM:deckPage")).content.decode()
+        self.assertIn('<div class="title demoTitle">', deck_page)
+
+    def test_back_link_is_one_in_flow_rule_on_every_page(self):
         style_css = self._style_css()
         backlink_block = style_css[
-            style_css.index("a.backlink{"):style_css.index(
-                "body:has(> .fullpage-background) .backlink"
-            )
-        ]
-        overlay_block = style_css[
-            style_css.index("body:has(> .fullpage-background) .backlink"):
-            style_css.index(".invisible{")
+            style_css.index("a.backlink{"):style_css.index(".invisible{")
         ]
 
-        self.assertNotIn("position: absolute", backlink_block)
-        self.assertNotIn("bottom: 1rem", backlink_block)
-        self.assertIn("position: absolute", overlay_block)
-        self.assertIn("bottom: 1rem", overlay_block)
+        self.assertEqual(style_css.count("backlink"), 1)
+        for floating_property in (
+            "position: absolute",
+            "position: fixed",
+            "bottom: 1rem",
+        ):
+            self.assertNotIn(floating_property, backlink_block)
+
+        deck_page = self.client.get(reverse("MMM:deckPage")).content.decode()
+        self.assertLess(
+            deck_page.index("demoDeck"),
+            deck_page.index('class="backlink"'),
+        )
 
     def test_confirm_button_box_grows_to_contain_its_label(self):
         style_css = self._style_css()
@@ -12108,6 +12115,35 @@ class DemoNavigationTests(TestCase):
             self.assertIn(title_backlink, content)
 
         self.assertNotIn('class="backlink"', self.client.get(reverse("MMM:titlePage")).content.decode())
+
+    def test_demo_art_pages_carry_the_demo_title_class_for_the_watermark(self):
+        self.client.post(reverse("MMM:play"))
+        game = Game.objects.get(title="Annabel vs Lucas")
+        annabel = self._created_player("Annabel")
+        confirm_url = reverse("MMM:confirmChallenge", args=[game.id, annabel.id])
+        board_url = reverse("MMM:viewBoard", args=[game.id, annabel.id])
+        self.assertRedirects(self.client.post(confirm_url), board_url)
+
+        page_contents = [
+            self.client.get(page_url).content.decode()
+            for page_url in (
+                reverse("MMM:deckPage"),
+                reverse("MMM:demoSettings"),
+                board_url,
+            )
+        ]
+
+        annabel_participant = game.history.participants.get(player_id=annabel.id)
+        annabel_participant.defeated = True
+        annabel_participant.save()
+        page_contents.append(
+            self.client.get(
+                reverse("MMM:viewResult", args=[game.id, annabel.id])
+            ).content.decode()
+        )
+
+        for content in page_contents:
+            self.assertIn('<div class="title demoTitle">', content)
 
     def test_back_button_covers_the_admin_pages_too(self):
         admin_root = self.client.get(reverse("MMM:index")).content.decode()
