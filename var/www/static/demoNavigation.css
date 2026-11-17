@@ -94,6 +94,7 @@
 
 .demoTeams .demoTeamPick{
     align-self: flex-start;
+    max-width: 12rem;
 }
 
 .demoNameForm{
@@ -124,7 +125,7 @@
     color: #7a3a2a;
 }
 
-.demoSettingsPanel .demoNameForm button{
+.demoNameForm button{
     padding: 0.4rem 0.75rem;
     border: 1px solid #777;
     border-radius: 0.3rem;
@@ -132,7 +133,7 @@
     cursor: pointer;
 }
 
-.demoSettingsPanel .demoNameForm button:focus-visible{
+.demoNameForm button:focus-visible{
     outline: 3px solid var(--demo-nav-border);
     outline-offset: 1px;
 }

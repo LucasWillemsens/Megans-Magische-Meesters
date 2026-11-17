@@ -800,10 +800,11 @@ li.cardContainer{
     }
 
     .cardsText{
-        height: 5rem;
+        height: fit-content;
         display: flex;
         flex-direction: column;
-        flex-wrap: wrap;
+        max-width: 100%;
+        gap: 0.35rem;
         justify-content: flex-start;
         align-items: flex-start;
         padding-top: 1rem;
@@ -988,8 +989,8 @@ ul.hand li.cardContainer > .card.smallCard::after{
     }
 
 
-.cards{
-    height: 8rem;
+.cards,
+.decks{
     align-items: end;
     display:flex;
     flex-wrap: wrap;
@@ -999,29 +1000,11 @@ ul.hand li.cardContainer > .card.smallCard::after{
     height: fit-content;
     width:100%;
 }
-    .cards h2{
-        margin:0;
-    }
-    .cards p{
-        margin: 0;
-        padding-left: 0.5rem;
-    }
-
-.decks
-{
-    height: 8rem;
-    align-items: end;
-    display:flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0;
-    margin: 0;
-    height: fit-content;
-    width:100%;
-}
+    .cards h2,
     .decks h2{
         margin:0;
     }
+    .cards p,
     .decks p{
         margin: 0;
         padding-left: 0.5rem;
@@ -1073,6 +1056,11 @@ div.playerScreen{
     justify-content: flex-start;
     align-items: flex-start;
 }
+    .playerScreen .players{
+        z-index: 3;
+        position: absolute;
+        height: 0;
+    }
     .playerScreen > ul{
         display: flex;
         flex-direction: column;
