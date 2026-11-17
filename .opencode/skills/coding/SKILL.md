@@ -1,6 +1,6 @@
 ---
 name: Coding
-description: Write and refactor code for Megans Magische Meesters — function structure that keeps sequential logic and rule execution state evident in one function body, factoring out only pure functions, plus naming, duplication, views, Django/Jinja2, styling, errors, and testing standards. Use when implementing or changing application code.
+description: Write and refactor code for Megans Magische Meesters — function structure that keeps sequential logic and rule execution state evident in one function body, factoring out only pure functions, plus naming, duplication, views, Django/Jinja2, styling, errors, and testing and verification standards. Use when implementing or changing application code.
 ---
 
 # Coding
@@ -13,7 +13,7 @@ How code is written in this repo. These standards apply to every change; followi
 - Rule execution state is evident from the function body. When code executes a rule — a game rule, turn limit, validation, or any enforced policy — a reader sees what is being applied and what it currently allows or blocks without chasing helpers.
 - Pure functions can be greatly factored out of large functions; do so freely when it keeps the whole readable.
 - A function with side effects is factored out only when it is duplicated multiple times and handles program state very intuitively, like opening or closing a file.
-- A function does what its name says and only that. The names used in the function, its parameters, and its code make the purpose obvious without comments. The goal of a function should always intuitively fit into a solution for the roadmap goal at hand — if it is not obvious that the goal requires the function, look for a better-focussed approach.
+- A function does what its name says and only that. The names used in the function, its parameters, and its code make the purpose obvious without comments. The goal of a function should always intuitively fit into a solution for the task at hand — if it is not obvious that the task requires the function, look for a better-focussed approach.
 
 ## Duplication and simplicity
 
@@ -46,4 +46,8 @@ How code is written in this repo. These standards apply to every change; followi
 
 ## Testing
 
-- Write unit tests for new logic to ensure functionality. It is never a problem to refactor code for your purpose and break old unit tests; the broken unit tests should be logical with the changes made. Always make end-to-end tests for new features based on a clear understandable user story that belongs to the roadmap item you are implementing. End-to-end tests maximize implementation-independent solutions so they don't require updates constantly; they are larger and tackle complex behavior of the program after multiple user interactions; they do not test small snippets of code.
+- Write unit tests for new logic to ensure functionality. It is never a problem to refactor code for your purpose and break old unit tests; the broken unit tests should be logical with the changes made. Always make end-to-end tests for new features based on a clear understandable user story for the change you are implementing. End-to-end tests maximize implementation-independent solutions so they don't require updates constantly; they are larger and tackle complex behavior of the program after multiple user interactions; they do not test small snippets of code.
+
+## Verification
+
+- Before reporting any change, verify it: if it touches templates/JS/CSS, sanity-check that every file, class, and id you reference actually exists; then run `python3 manage.py check` followed by `python3 manage.py test` — all tests must pass.

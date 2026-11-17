@@ -101,3 +101,20 @@
 - Decided: deployment plan treats fork exclusion as a hard security boundary; no GitHub runner; sequential builds; per-PR checkout/runtime/database; proxy and tunnel routing; at most three running PR environments; no teardown on PR close/merge. Capacity uses least-recent activity (the final user decision supersedes the earlier scratchpad note about least-recent push).
 - Risk: host/proxy/tunnel and Windows/WSL specifics cannot be fully exercised by normal repository tests; require a documented local smoke test. The primordial production copy/database must not be modified by PR deployments.
 - Next: build only `per-pr-test-environment` first; later leaves depend on its lifecycle interface where relevant. Calendar scopes remain deferred.
+
+## 2026-11-16 — PR #28 review: all six code comments analyzed
+- State: PR #28 (`fixbugs`, agent/skill framework refactor) reviewed; 6 unresolved code comments analyzed, all valid; none remain.
+- Fixes reviewers found, for the next build session to start from:
+  1. New on-demand coding subagent (`coder.md`, `mode: subagent`, coding-skill-driven), and move generic code-quality guidance out of `build.md` into the `coding` skill (comment on build.md ln 2).
+  2. Trim devops.md ln 37 overview bullet to a bare pointer: "Run CI — when the user asks, follow the `ci` skill."
+  3. New `memory.md` subagent (`mode: subagent`) to run the consolidation protocol; devops delegates Step 3 to it and verifies the result.
+  4. pr-comment-analyst.md: do NOT convert to a skill (breaks delegation/isolation); replace inline `pick_pr_comment.py` contract duplication with a pointer to its docstring; optionally set `mode: subagent`.
+  5. pr-investigator.md frontmatter: scope permissions — `subagent` only `pr-comment-analyst`, `skill` only `memory`, `edit` only roadmap scratchpad/lessons/candidates, read/grep only `roadmap/**` and `README.md`; drop wildcard grants.
+  6. agent/SKILL.md ln 12: replace "read every file" with one named exemplar (`devops.md`), drop the wholesale skills/opencode.json read.
+- Recorded: lessons in `roadmap/agent-loops/lessons.md`; 3 rule candidates in `roadmap/agent-loops/candidates.md` (citing PR #28).
+- Next: implement the six fixes, likely via `agent-engineer`.
+
+## 2026-11-17 — fix 1 of the six implemented: on-demand coder decoupled from the planner
+- State: coder.md created (`mode: subagent`, build's model/permissions, body driven only by the coding skill); build.md slimmed (73→58 lines, generic guidance out, planner workflow intact, description hands unplanned coding to the coder); coding skill absorbed the verification flow (sanity-check references → `manage.py check` → `manage.py test`) and lost its roadmap-only phrasing ("roadmap goal at hand" → "task at hand"); devops.md gained a third workflow routing direct code changes to the coder, bypassing the planner.
+- Decision: devops routing added so the decoupling is real at the orchestration level; coder permissions copy build (broad worker, wildcards match its remit — revisit only if the scoped-agent-permissions candidate is promoted).
+- Next: fixes 2–6 of the PR #28 list remain (devops CI bullet trim, memory.md subagent, pr-comment-analyst pointer, pr-investigator permission scoping, agent-skill exemplar).
