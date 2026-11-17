@@ -14,7 +14,11 @@ from django.contrib.staticfiles import finders
 from . import views
 from . import battle_services
 from .card_tokens import card_token
-from .demo_flow import DEMO_DECK_CARD_COUNT
+from .demo_flow import (
+    DEMO_DECK_CARD_COUNT,
+    create_demo_scenario,
+    demo_player,
+)
 from .demo_greetings import (
     GENERIC_GREETINGS,
     LOGGED_IN_NAME_GREETINGS,
@@ -9593,6 +9597,90 @@ class ChallengePageTests(TestCase):
         )
 
 
+class GamePageStylingTests(TestCase):
+    """Game page heading stays readable, the back link follows the page
+    content instead of floating over it, and the confirm button contains
+    its label."""
+
+    def _game_page_content(self):
+        challenger = Player.objects.create(name="Challenger")
+        owner_history = CardOwnerHistory.objects.create(cardOwner=challenger)
+        card = Card.objects.create(title="Starting card", artSource="", cardType=0)
+        card.ownerHistory.add(owner_history)
+        deck = Deck.create(challenger.id, newDeckCards=[card])
+        history = BattleHistory.objects.create(challenger=challenger)
+        game = Game.objects.create(title="Test game", history=history, roundNumber=0)
+        history.addHumanChallenger(
+            challengerPlayer_id=challenger.id,
+            startingCard_id=card.id,
+            deck_id=deck.id,
+        )
+        response = self.client.get(
+            reverse("MMM:viewGameAsPlayer", args=[game.id, challenger.id])
+        )
+        return response.content.decode()
+
+    def _style_css(self):
+        with open(os.path.join(STATIC_TEST_DIR, "style.css")) as css_file:
+            return css_file.read()
+
+    def test_game_page_marks_stay_readable_and_the_back_link_flows_last(self):
+        content = self._game_page_content()
+
+        self.assertIn('<div class="title">', content)
+        self.assertNotIn("demoTitle", content)
+        self.assertNotIn("fullpage-background", content)
+        self.assertEqual(content.count('class="backlink"'), 1)
+        self.assertLess(
+            content.index("Yes! Shuffle the deck and load board"),
+            content.index('class="backlink"'),
+        )
+
+    def test_watermark_title_styling_is_scoped_to_demo_art_pages(self):
+        style_css = self._style_css()
+        title_block = style_css[
+            style_css.index(".title{"):style_css.index(".title h1{")
+        ]
+        watermark_block = style_css[
+            style_css.index(".title.demoTitle,"):style_css.index("h2 {")
+        ]
+
+        for watermark_property in (
+            "color:lightgray",
+            "pointer-events: none",
+            "user-select: none",
+            "top:-0.7rem",
+        ):
+            self.assertNotIn(watermark_property, title_block)
+            self.assertIn(watermark_property, watermark_block)
+        self.assertIn("body:has(> .fullpage-background) .title", watermark_block)
+
+    def test_back_link_overlay_is_scoped_to_demo_art_pages(self):
+        style_css = self._style_css()
+        backlink_block = style_css[
+            style_css.index("a.backlink{"):style_css.index(
+                "body:has(> .fullpage-background) .backlink"
+            )
+        ]
+        overlay_block = style_css[
+            style_css.index("body:has(> .fullpage-background) .backlink"):
+            style_css.index(".invisible{")
+        ]
+
+        self.assertNotIn("position: absolute", backlink_block)
+        self.assertNotIn("bottom: 1rem", backlink_block)
+        self.assertIn("position: absolute", overlay_block)
+        self.assertIn("bottom: 1rem", overlay_block)
+
+    def test_confirm_button_box_grows_to_contain_its_label(self):
+        style_css = self._style_css()
+        create_button_block = style_css[
+            style_css.index(".createButton {"):style_css.index(".createButton::before")
+        ]
+
+        self.assertNotIn("max-height", create_button_block)
+
+
 class PlayerPageTests(TestCase):
     def _create_owned_card(self, player, title, card_type=0, art_source="", acquired_at=None):
         owner_history = CardOwnerHistory.objects.create(
@@ -12131,7 +12219,49 @@ class DemoNavigationTests(TestCase):
         )
 
         replay = self.client.post(reverse("MMM:play"))
-        self.assertEqual(replay["Location"], draft_url)
+        self.assertEqual(replay["Location"], board_url)
+
+    def test_team_play_returns_to_the_board_of_the_single_in_progress_game(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        owlbears = self._created_player("Owlbears")
+        game = self._latest_team_game("Owlbears")
+
+        self.client.post(reverse("MMM:confirmChallenge", args=[game.id, owlbears.id]))
+        board_url = reverse("MMM:viewBoard", args=[game.id, owlbears.id])
+        self.assertEqual(self.client.get(board_url).status_code, 200)
+
+        response = self.client.post(reverse("MMM:play"))
+
+        self.assertRedirects(response, board_url, fetch_redirect_response=False)
+        self.assertIn("Deck: 9 | Hand: 0", self.client.get(board_url).content.decode())
+
+    def test_team_play_without_a_begun_game_opens_the_draft_game_page(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})
+        hunters = self._created_player("Hunters")
+        game = self._latest_team_game("Hunters")
+
+        response = self.client.post(reverse("MMM:play"))
+
+        draft_url = reverse("MMM:viewGameAsPlayer", args=[game.id, hunters.id])
+        self.assertRedirects(response, draft_url, fetch_redirect_response=False)
+        self.assertContains(self.client.get(draft_url), "Shuffle the deck and load board")
+
+    def test_team_play_with_two_in_progress_games_falls_back_to_the_draft(self):
+        self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Owlbears"})
+        owlbears = self._created_player("Owlbears")
+        first_game = self._latest_team_game("Owlbears")
+        self.client.post(reverse("MMM:confirmChallenge", args=[first_game.id, owlbears.id]))
+
+        second_game = create_demo_scenario(
+            owlbears, demo_player("Lucasbot"), "Owlbears second begun game"
+        )
+        battle_services.ensure_game_initialized(second_game)
+
+        response = self.client.post(reverse("MMM:play"))
+
+        draft_url = reverse("MMM:viewGameAsPlayer", args=[second_game.id, owlbears.id])
+        self.assertRedirects(response, draft_url, fetch_redirect_response=False)
+        self.assertContains(self.client.get(draft_url), "Shuffle the deck and load board")
 
     def test_hunters_play_passes_the_draft_and_reaches_annabelbot(self):
         response = self.client.post(reverse("MMM:pickDeckTeam"), {"team": "Hunters"})

@@ -1,7 +1,7 @@
 import random
 
 from .battle_services import game_outcome
-from .models import BattleHistory, Deck, Game, Player
+from .models import BattleHistory, Deck, Game, GameCard, Player
 
 DEMO_DECK_CARD_COUNT = 10
 ANNABEL_NAME = "Annabel"
@@ -64,6 +64,18 @@ def latest_unfinished_participant_game(player):
         if not game_outcome(game)[0]:
             return game
     return None
+
+
+def resumable_begun_game(player):
+    """The player's only unfinished game with a dealt board, or None when
+    no such game exists or several compete."""
+    begun_games = [
+        game
+        for game in Game.objects.filter(history__participants__player=player).distinct()
+        if not game_outcome(game)[0]
+        and GameCard.objects.filter(game_id=game.id).exists()
+    ]
+    return begun_games[0] if len(begun_games) == 1 else None
 
 
 def create_demo_scenario(human_player, bot_player, title):

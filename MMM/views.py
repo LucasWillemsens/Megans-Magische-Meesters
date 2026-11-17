@@ -21,6 +21,7 @@ from .demo_flow import (
     anonymous_scenario,
     fresh_demo_deck,
     latest_demo_deck,
+    resumable_begun_game,
     team_scenario,
     team_player,
 )
@@ -74,6 +75,9 @@ def play(request):
     if demo_identity is None:
         annabel, game = anonymous_scenario()
         return redirect(reverse("MMM:viewBoard", args=(game.id, annabel.id)))
+    resumed_game = resumable_begun_game(demo_identity)
+    if resumed_game is not None:
+        return redirect(reverse("MMM:viewBoard", args=(resumed_game.id, demo_identity.id)))
     game = team_scenario(demo_identity)
     return redirect(reverse("MMM:viewGameAsPlayer", args=(game.id, demo_identity.id)))
 
