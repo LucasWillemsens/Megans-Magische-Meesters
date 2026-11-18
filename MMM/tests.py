@@ -12646,10 +12646,16 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
-const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+const basicMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(basicMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+basicMat.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+basicMat.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
 const endTurnForm = new FakeElement('form', 'cardActionForm');
-playerScreen.appendChild(endTurnForm);
+handScroll.appendChild(endTurnForm);
 const endTurnButton = new FakeElement('button', 'end-turn');
 endTurnForm.appendChild(endTurnButton);
 
@@ -12816,12 +12822,16 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
-const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const basicMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(basicMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+basicMat.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+basicMat.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
 const endTurnForm = new FakeElement('form', 'cardActionForm');
-playerScreen.appendChild(endTurnForm);
+handScroll.appendChild(endTurnForm);
 const endTurnButton = new FakeElement('button', 'end-turn');
 endTurnForm.appendChild(endTurnButton);
 
@@ -13299,9 +13309,9 @@ console.log('board viewport fit ok');
 
     def test_viewport_and_release_shortcut_source_contract(self):
         drag_js = _read_static_asset('cardDragDrop.js')
+        drag_css = _read_static_asset('cardDragDrop.css')
         loading_js = _read_static_asset('loadingAnimations.js')
         stacking_js = _read_static_asset('laneStacking.js')
-        cards_css = _read_static_asset('cards.css')
 
         self.assertIn('_isEndTurnActivationKey(event) {', drag_js)
         self.assertIn("event.key === ' ' ||", drag_js)
@@ -13351,19 +13361,8 @@ console.log('board viewport fit ok');
             'compaction must be tried before complete enemy boards are hidden',
         )
 
-        self.assertIn('min-height: min(1080px, 100vh);', cards_css)
-        self.assertIn(
-            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard .enemyDeckHand ul.hand,',
-            cards_css,
-        )
-        self.assertIn(
-            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard ul.cardRow[title="trustedCards"]',
-            cards_css,
-        )
-        self.assertIn(
-            '.playerScreen ul.enemyBoards li.enemyBoard.enemy-board-fit-hidden',
-            cards_css,
-        )
+        self.assertIn('.shortcut-hold-loading {', drag_css)
+        self.assertIn('@keyframes shortcutHoldProgress', drag_css)
 
 
 class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
@@ -13375,21 +13374,20 @@ class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
         self.assertEqual(response.status_code, 200)
 
         html = response.content.decode()
-        referenced_assets = set(re.findall(r'/static/([a-zA-Z0-9._-]+)', html))
-        missing = [name for name in sorted(referenced_assets) if finders.find(name) is None]
+        scripts = re.findall(r'<script[^>]*src="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        links = re.findall(r'<link[^>]*href="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        referenced_assets = sorted(set(scripts + links))
+        missing = [name for name in referenced_assets if finders.find(name) is None]
         self.assertEqual(missing, [], f"Board references missing static assets: {missing}")
 
         asset_markers = {
-            'cards.css': [
-                'enemy-board-fit-compact',
-                'enemy-board-fit-hidden',
-                'min-height: min(1080px, 100vh);',
-            ],
+            'cardDragDrop.css': ['shortcut-hold-loading', 'shortcutHoldProgress'],
             'laneStacking.js': ['class BoardViewportFit', 'SMALL_VIEWPORT_MAX_HEIGHT = 768'],
             'loadingAnimations.js': ['class LoadingEndTurnGuard', "phase === 'playerMoves'"],
             'cardDragDrop.js': ['_isEndTurnReleaseKey', 'ShortcutHoldAction'],
         }
         for asset, markers in asset_markers.items():
+            self.assertIn(asset, referenced_assets)
             asset_path = finders.find(asset)
             self.assertIsNotNone(asset_path)
             with open(asset_path) as asset_file:
