@@ -12012,8 +12012,9 @@ class TitleGreetingTests(TestCase):
 
 
 class BoardCardPresentationTests(BattleBoardFixture):
-    """Board markup conceals GameCard ids, trusted cards read sideways and
-    hover zoom ships enabled by default with a session toggle."""
+    """Board presentation: trusted cards render on both boards in their own
+    rows, hover zoom ships enabled by default with a session toggle, and
+    staged plays and flips move real board cards."""
 
     def _confirm_and_get_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -12021,51 +12022,41 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.client.post(confirm_url)
         return self.client.get(board_url).content.decode()
 
-    def test_trusted_cards_render_sideways_for_both_participants(self):
+    def test_trusted_cards_render_for_both_participants(self):
         content = self._confirm_and_get_board()
-
-        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as css_file:
-            cards_css = css_file.read()
-        self.assertIn(".playingCards li.cardContainer.trusted {\n    --card-rotation: 90deg;\n}", cards_css)
 
         enemy_section = re.search(
             r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
             content, re.DOTALL,
         ).group(1)
         own_section = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="[^"]*deckHand)',
             content, re.DOTALL,
         ).group(0)
 
-        for section in (enemy_section, own_section):
-            trusted_rows = re.findall(
-                r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
-                section,
-                re.DOTALL,
-            )
-            trusted_containers = [
-                attributes
-                for row in trusted_rows
-                for attributes in re.findall(r'<li class="cardContainer([^>]*)"', row)
+        for section, participant in (
+            (enemy_section, self.bot_participant),
+            (own_section, self.human_participant),
+        ):
+            trusted_titles = [
+                game_card.card.title
+                for game_card in GameCard.objects.filter(
+                    game_id=self.game.id,
+                    user_id=participant.id,
+                    state__trusted=True,
+                )
             ]
-            self.assertTrue(trusted_containers)
-            for attributes in trusted_containers:
-                classes = attributes.split('"')[0].split()
-                self.assertIn("trusted", classes)
-                self.assertNotIn("--card-rotation", attributes)
+            self.assertTrue(trusted_titles)
 
-        for section in (enemy_section, own_section):
-            lane_rows = re.findall(
-                r'<ul class="cardRow" title="cards">(.*?)</ul>',
-                section,
-                re.DOTALL,
+            trusted_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="trustedCards">(.*?)</ul>', section, re.DOTALL)
             )
-            for attributes in (
-                container
-                for row in lane_rows
-                for container in re.findall(r'<li class="cardContainer([^>]*)"', row)
-            ):
-                self.assertNotIn("trusted", attributes.split('"')[0].split())
+            lane_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="cards">(.*?)</ul>', section, re.DOTALL)
+            )
+            for card_title in trusted_titles:
+                self.assertIn(f'title="{card_title} of ', trusted_rows)
+                self.assertNotIn(f'title="{card_title} of ', lane_rows)
 
     def test_board_zoom_is_on_by_default_and_togglable_per_session(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
