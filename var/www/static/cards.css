@@ -1218,9 +1218,6 @@ li.playerBoard > ul.basic-mat{
     max-width: 20%;
     max-height: 100%;
 }
-.playerScreen .deckHand > .deck-stack {
-
-}
 
 .playerScreen .deckHand > .hand,
 .playerScreen .deckHand > .hand-scroll,
@@ -1538,15 +1535,6 @@ button.draw{
     pointer-events: none;
     user-select: none;
     transition: all 0.5s ease;
-}
-
-.board-flash {
-    animation: attackFlash 0.5s ease-out;
-}
-
-@keyframes attackFlash {
-    0% { background-color: rgba(255, 255, 255, 0.6); }
-    100% { background-color: transparent; }
 }
 
 .deck-shuffle {

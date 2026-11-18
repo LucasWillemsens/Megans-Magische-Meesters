@@ -92,29 +92,6 @@ ul.basic-mat>li {
     margin: 0;
 }
 
-ul.basic-mat.smallvertical {
-    flex-direction: column;
-    align-items: center;
-    border: solid;
-    margin: 0.5rem;
-    position: relative;
-    gap:0;
-}
-
-ul.basic-mat.smallvertical>li{
-    padding:0.5rem;
-}
-
-ul.basic-mat.smallvertical :nth-child(2) {
-    margin: 0.25rem 0;
-    align-self: center;
-    border-top: solid;
-    border-bottom: solid;
-    padding: 0;
-    width: 100%;
-    text-align: center;
-}
-
 a {
     color: inherit;
     text-decoration: none;
@@ -389,7 +366,6 @@ a:hover {
     border-radius: 0.5rem;
     border: 3px solid black;
     box-shadow: 1px 1px 1px 1px black;
-    /* box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15); */
     max-height: 6rem;
     max-width: 10rem;
 }

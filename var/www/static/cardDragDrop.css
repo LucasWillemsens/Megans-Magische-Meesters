@@ -201,12 +201,6 @@ li.cardContainer.ghost > .card.smallCard {
     border: none;
 }
 
-.drop-zone-landed{
-}
-div.drop-zone-active {
-}
-
-
 .dragging{
     opacity: 0.15;
 }
