@@ -1,0 +1,36 @@
+Comprehensive keyboard navigation on the battle board. This parent groups the JS keyboard machinery rewrite, the last-focused hand card persistence, the focus-driven hover-arrow bindings, and the backtick debug overlay.
+
+## Subgoals
+
+1. `last-focused-hand-card-persistence-20261012/` — backend field + template wiring + JS read-side so the hand region recalls the player's previous focus position across turns and page reloads.
+2. `keyboard-selection-control-refactor-20261012/` — refactor scattered keyboard predicates into one cohesive `KeyboardSelectionControl` class; rewrite the four tests that pinned the old shape.
+3. `arrow-key-routing-20261012/` — wire Up/Down/Left/Right to move focus between hand, field, end-turn and draw; integrate the persisted last-focused hand card.
+4. `focus-arrow-bindings-20261012/` — wire `_addHoverArrow` to fire on `focusin` for played hand cards, selected ghosts, and flipped face-down lane cards.
+5. `backtick-debug-overlay-20261012/` — verify the existing backtick overlay; add tests to lock the player-facing behavior in.
+
+## Execution order (preferred)
+
+1. last-focused-hand-card-persistence (backend)
+2. keyboard-selection-control-refactor (JS refactor)
+3. arrow-key-routing (JS routing)
+4. focus-arrow-bindings (JS focus)
+5. backtick-debug-overlay (verification)
+
+The refactor (2) and persistence (1) are independent and can run in parallel. Arrow routing (3) depends on both. Focus-arrow (4) depends on the refactor. Debug overlay (5) is standalone.
+
+## Cross-references
+
+- Sibling `end-turn-focus-in-view-20261012` fixes a related focus issue (end-turn button focused but not in view on first paint). That fix lives in `loadingAnimations.js`; this parent lives in `cardDragDrop.js` and does not touch the end-turn focus call.
+- Sibling `hologram-flip-click-fix-20261012` is a soft dependency for `focus-arrow-bindings`: the flipped-face-down focus case relies on the new `dataset.stagedFlipped` guard.
+
+## Acceptance criteria (parent)
+
+- Arrow keys move focus between hand, field, end-turn, draw in the documented directions.
+- The last-focused hand card slot is remembered across page reloads and across turns.
+- `_addHoverArrow` fires on `focusin` for played hand cards, selected ghosts, and flipped face-down lane cards; the arrow points to the correct target.
+- Pressing the backtick key toggles the three debug `<p>` elements (player deckHand counter, enemy deckHand counter, lane indicator) with the documented CSS class.
+- The unit tests pinning the old scattered predicate shape are rewritten to pin the new control's API.
+
+## Notes
+
+- ArrowLeft/Right inside the hand with no current selection stay a no-op (matches today's behavior — the existing lane-cycle path requires `keyboardSelection.selectedCard`).

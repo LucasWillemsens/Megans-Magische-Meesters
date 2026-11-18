@@ -137,6 +137,16 @@ ul.hologramRow .hologram:nth-child(12) { left: 17.2em; z-index: 12; }
 ul.hologramRow .hologram:nth-child(13) { left: 18.6em; z-index: 13; }
 ul.hologramRow .hologram:nth-child(14) { left: 20.0em; z-index: 14; }
 ul.hologramRow .hologram:nth-child(15) { left: 21.4em; z-index: 15; }
+ul.hologramRow .hologram:nth-child(16) { left: 22.8em; z-index: 16; }
+ul.hologramRow .hologram:nth-child(17) { left: 24.2em; z-index: 17; }
+ul.hologramRow .hologram:nth-child(18) { left: 25.6em; z-index: 18; }
+ul.hologramRow .hologram:nth-child(19) { left: 27.0em; z-index: 19; }
+ul.hologramRow .hologram:nth-child(20) { left: 28.4em; z-index: 20; }
+ul.hologramRow .hologram:nth-child(21) { left: 29.8em; z-index: 21; }
+ul.hologramRow .hologram:nth-child(22) { left: 31.2em; z-index: 22; }
+ul.hologramRow .hologram:nth-child(23) { left: 32.6em; z-index: 23; }
+ul.hologramRow .hologram:nth-child(24) { left: 34.0em; z-index: 24; }
+ul.hologramRow .hologram:nth-child(25) { left: 35.4em; z-index: 25; }
 
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));

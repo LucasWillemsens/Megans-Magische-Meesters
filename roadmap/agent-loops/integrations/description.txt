@@ -1,0 +1,13 @@
+Provide read-only outcome and pacing integrations for GitHub, the opencode go console, and Google Calendar free/busy; Calendar scopes remain deferred and are not a prerequisite for other integrations.
+
+Implementation:
+1. Add read-only GitHub data access for PRs, reviews, comments, CI, and merge state; use these as primary objective outcome signals.
+2. Add opencode go console usage/quota retrieval per model for loop pacing and dashboard health.
+3. Add Calendar free/busy integration only after scopes are decided; store no event details. Keep tokens and secrets outside the repository.
+4. Expose normalized integration data to the loop/dashboard without introducing write operations or a separate preferences file.
+
+Acceptance criteria:
+- [ ] GitHub integration reads PR/review/comment/CI/merge state and supports outcome-signal consumers.
+- [ ] Quota integration reports usage per model and near-limit status to loop/dashboard consumers.
+- [ ] Calendar integration is explicitly blocked on scope selection and, when enabled, exposes only free/busy with no event details stored.
+- [ ] All integrations are read-only and credentials remain outside tracked files.

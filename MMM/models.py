@@ -126,9 +126,10 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
     defeated = models.BooleanField()
     computerControlled = models.BooleanField(default=True)
     #the following fields reset each round when end turn is pressed.
-    drawnCardsAmount = models.IntegerField(default=0) 
+    drawnCardsAmount = models.IntegerField(default=0)
     playedCardsAmount = models.IntegerField(default=0)
     flippedCardsAmount = models.IntegerField(default=0)
+    focusedHandCard = models.IntegerField(default=1)
 
     @classmethod
     def createRandomDeck(cls, player_id, starting_card_id=-1, deck_label="random deck"):
@@ -363,6 +364,7 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             "drawn": self.drawnCardsAmount,
             "played": self.playedCardsAmount,
             "flipped": self.flippedCardsAmount,
+            "focused_hand_card": self.focusedHandCard,
             "blocked_titles": {
                 "draw": "Draw limit reached (Intelligence + 1 per turn)",
                 "play": "Play limit reached (2 + tactics − cards already played)",

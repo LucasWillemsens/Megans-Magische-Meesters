@@ -1,0 +1,10 @@
+Restore existing pages before adding prototype flow. Objective: verify current landing/player/game/board/result paths render and retain existing match interactions.
+
+Implementation:
+1. Reproduce and minimally repair confirmed failures in `MMM/jinja2/MMM/`, `MMM/views.py`, and referenced assets in `var/www/static/`; preserve existing URL and action behavior.
+2. Add one browser end-to-end regression check opening a player page, starting/resuming a game, and verifying the board loads its required assets and interaction.
+
+Acceptance criteria:
+- [x] Existing index, player, game-detail, board, and result routes render without server errors under Jinja `StrictUndefined`.
+- [x] Referenced assets load, and a player can stage a board action and complete the existing end-turn/reload flow.
+- [x] The browser test detects page-navigation failures and missing required assets in the player-to-board flow.

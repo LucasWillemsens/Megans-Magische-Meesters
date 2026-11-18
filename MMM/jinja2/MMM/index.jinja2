@@ -26,15 +26,15 @@
         {% for player in players %}
             <li>
                 {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static('profile.jpg')}}"
+                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}"
                 alt="{{player}}'s profile picture" />
                 
                 {% else %}
-                <img class="fit-picture" src="{{ static('{{assetsDir}}+{{player.profilePictureSource}}')}}"
+                <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
                 alt="{{player}}'s profile picture" />
                 
                 {% endif %}
-                <a href="player/{{ player.id }}">{{ player.name }}</a>
+                <a href="{{ url('MMM:viewPlayer', args=[player.id]) }}">{{ player.name }}</a>
             </li>
         {% endfor %}
         </ul>
@@ -55,13 +55,13 @@
             {% for card in latest_cards_list %}
             <li class="cardContainer">
                 <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
-                    href="card/{{ card.id }}/">
+                    href="{{ url('MMM:viewCard', args=[card.id]) }}">
                     {% if card.artSource == "static" %}
                     <span class="rank">{{ card|playing_card_rank_display }}</span>
                     <span class="suit">{{ card|playing_card_suit_display }}</span>
                     {% else %}
                     {% if card.artSource == "" %}
-                    <img class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                    <img class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
                     {% else %}
                     <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
                     {% endif %}
@@ -86,8 +86,14 @@
     </div>
     
     <div class="createButton">
-        <a href="game/reset/" draggable="false">
+        <a href="{{ url('MMM:resetGames') }}" draggable="false">
             ResetGames
+        </a>
+    </div>
+
+    <div class="createButton">
+        <a href="{{ url('MMM:apiSwaggerUI') }}" draggable="false">
+            API docs
         </a>
     </div>
 {% endblock %}

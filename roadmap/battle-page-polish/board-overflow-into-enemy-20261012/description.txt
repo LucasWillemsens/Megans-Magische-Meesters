@@ -1,0 +1,71 @@
+Player lanes cannot overflow into the enemy board: overflow cards are clipped because `.playerScreen` and `ul.lanes` are hard-capped at fixed heights and the player board can never grow vertically.
+
+## Behavior
+
+- The player board grows when its lanes grow, pushing the enemy boards up (the enemy board may scroll off-screen on long games).
+- The deckHand (deck stack + hand fan + end-turn button) stays at the viewport bottom, fixed size.
+- The lane indicator `<p>` and the trustedCards row stay anchored inside the lane regardless of overflow rows.
+- Mobile (`@media (max-width: 700px)`, lines 984–1014) is untouched.
+
+## Code locations
+
+- `var/www/static/cards.css`
+  - Lines 750–758: `div.playerScreen` — flex column with `min-height: 1080px`; no height cap on the screen, leave as is.
+  - Lines 759–763: `.playerScreen > ul` — caps the basic-mat wrapping the playerBoard at `height: 60%`. Must be removed.
+  - Lines 764–770: `.playerScreen .playerBoard` — caps `height: 100%` of the (60%-capped) parent. Must be removed.
+  - Lines 771–775: `li.playerBoard > ul.basic-mat` — `display: block; height: 50%`. Selector currently matches nothing (the live child of `li.playerBoard` is `ul.lanes`, not `ul.basic-mat`) but is still in the chain — must be removed and switched to a flex column.
+  - Lines 787–800: `ul.lanes` — caps at `height: 85%`. Must be removed.
+  - Lines 801–805: `ul.lanes li.lane` — already has no fixed height; stretch already comes from the parent. Leave as is.
+  - Lines 823–832: `ul.lanes li.lane > p` — `position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%)`. Anchor stays as is.
+  - Lines 850–862: `.playerScreen .deckHand` — `margin-top: auto; height: 25%; min-height: var(--hand-row-height)`. The `margin-top: auto` is what pins the deckHand to the column bottom; leave as is.
+  - Lines 864–872: `.playerScreen .deckHand > .deck* / .hand*` — `height: var(--hand-row-height)`. This is what keeps the visible deckHand size constant regardless of how much the playerBoard grows. Leave as is.
+  - Lines 1220–1239: `ul.cardRow + ul.cardRow.overflow-row` margin and `ul.lanes li.lane > ul.cardRow.overflow-row` absolute positioning with `bottom: calc(100% - var(--lane-row-height, 7.5rem) * var(--overflow-row-index, 1))`. Leave as is — once the lane has room (because `ul.lanes` no longer caps at 85%), the rows simply have room.
+- `var/www/static/laneStacking.js`
+  - Line 3: `MAX_CARDS_PER_ROW = 15`. Leave as is.
+  - Lines 70–93: `splitIntoRows` emits overflow rows with `--overflow-row-index`. Leave as is.
+- `var/www/static/loadingAnimations.js` — `animationsElements` lookup (line 218) is referenced by sibling goals only. Do not touch.
+
+## Implementation
+
+1. `var/www/static/cards.css`, line 762 — drop `height: 60%;` from the `.playerScreen > ul` block. The `.playerScreen ul.enemyBoards` rule (lines 916–923) already overrides the enemyBoards ul with its own `height: fit-content`, so removing it here only affects the playerBoard-wrapping ul.
+2. `var/www/static/cards.css`, line 766 — drop `height: 100%;` from the `.playerScreen .playerBoard` block. Keep `display: flex; flex-direction: column;` so the playerBoard can stretch with its `ul.lanes` content.
+3. `var/www/static/cards.css`, lines 771–775 — replace the `li.playerBoard > ul.basic-mat` block:
+   - Drop `height: 50%;`.
+   - Change `display: block;` to `display: flex; flex-direction: column;` so the playerBoard's child column (where `ul.lanes` actually lives) grows with content.
+   - Note: this selector currently matches no live element (`li.playerBoard > ul.basic-mat`); the live child is `ul.lanes`. Keep the rule present and updated so the constraint does not silently re-appear if the structure changes.
+4. `var/www/static/cards.css`, line 790 — drop `height: 85%;` from the `ul.lanes` block. Keep `display: flex; flex-wrap: nowrap; flex-direction: row; align-items: stretch;` so the four lanes equalize via stretch.
+5. `var/www/static/cards.css`, lines 823–832 — no change to `ul.lanes li.lane > p`. The absolute centering keeps the indicator anchored inside the lane regardless of overflow rows.
+6. `var/www/static/cards.css`, lines 850–862 — no change to `.playerScreen .deckHand`. `margin-top: auto` already pins it to the column bottom; the visible deckHand content height is governed by `--hand-row-height` (8em) on its children, so it stays the same regardless of how tall the playerBoard grows.
+7. `var/www/static/cards.css`, lines 1220–1239 — no change to the overflow-row rules. The absolute positioning with `bottom: calc(100% - var(--lane-row-height) * var(--overflow-row-index))` already stacks overflow rows upward; once the lane has room (because `ul.lanes` no longer caps at 85%), the rows simply have room.
+
+## Test updates (`MMM/tests.py`)
+
+Tighten `test_lane_heights_stretch_equal_across_board` (lines 2316–2337) by adding four assertions that walk the height-cap chain above:
+
+- After the existing `ul.lanes` assertion (line 2330), add an assertion that the `ul.lanes` rule body does NOT contain `height:` (use the same `r'(^|[^-\w])height\s*:'` pattern already in use at line 2335). Today it fails because of `height: 85%;` at line 790.
+- Add a regex match for the `.playerScreen > ul` rule and assert its body does NOT contain `height:`. Today it fails because of `height: 60%;` at line 762.
+- Add a regex match for the `.playerScreen .playerBoard` rule and assert its body does NOT contain `height:`. Today it fails because of `height: 100%;` at line 766.
+- Add a regex match for the `li.playerBoard > ul.basic-mat` rule and assert its body does NOT contain `height:`. Today it fails because of `height: 50%;` at line 774.
+
+Add a new test, `test_player_board_grows_with_lanes_deckhand_pinned`, that asserts the runtime pin behavior of the deckHand against the playerBoard growth:
+
+- `.playerScreen` rule body contains `display: flex` and `flex-direction: column` (already so at lines 753–754).
+- `.playerScreen .deckHand` rule body contains `margin-top: auto` (line 856). This is the mechanism that pins the deckHand to the bottom of the column regardless of how tall the playerBoard above becomes.
+- The deckHand visible-size rule for `.playerScreen .deckHand > .deck, .playerScreen .deckHand > .deck-stack, .playerScreen .deckHand > .hand, .playerScreen .deckHand > .hand-scroll, .playerScreen .deckHand > .hand-fan` (lines 864–872) contains `height: var(--hand-row-height)`. This is what keeps the deck stack / hand fan / end-turn button at the same visible size as the playerBoard grows above them.
+
+The existing `test_lane_overflow_splits_rows_without_merging_back` (lines 2250–2314) and `test_lane_indicator_keeps_position_when_rows_split` (lines 2662–2671) already cover the overflow-row splitting and the lane indicator anchor. Leave them alone; the new CSS keeps both contracts intact.
+
+## Acceptance criteria
+
+- A player lane with 16 cards renders 2 visible rows; with 32 cards, 3 visible rows (the overflow-row rules still stack upward; `ul.lanes` no longer caps at 85%, so the rows now fit).
+- The four lanes stay equal-height when one lane is much taller than the others (`align-items: stretch` on `ul.lanes` and no fixed height on `li.lane`).
+- The deckHand visible height is identical at empty state vs 16 cards in lanes + 12 cards in hand (`height: var(--hand-row-height)` on `.deckHand > *`).
+- The enemy board is pushed up by the player board growing (the screen-level flex column + `margin-top: auto` on the deckHand keeps the layout rigid; the page scrolls if the enemy board no longer fits).
+- The lane indicator `<p>` and the trustedCards row stay anchored inside the lane regardless of overflow rows (the `<p>` is `position: absolute; transform: translate(-50%, -50%)` and trustedCards is `position: relative` inside `li.lane`, neither affected by removing the caps).
+- Mobile (`@media (max-width: 700px)`) is untouched — none of the changed selectors appear in that block.
+- `test_lane_heights_stretch_equal_across_board` passes with the new `height:`-absence assertions on all four rules; the new `test_player_board_grows_with_lanes_deckhand_pinned` passes.
+
+## Dependencies
+
+- Prefers landing together with `horizontal-lane-spread-20261012` (both touch `cards.css`).
+- Independent of `keyboard-navigation-20261012`, `end-turn-focus-in-view-20261012`, `hologram-flip-click-fix-20261012`.

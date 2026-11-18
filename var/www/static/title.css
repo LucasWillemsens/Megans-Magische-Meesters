@@ -1,0 +1,168 @@
+:root{
+    --demo-nav-background: #dde7f5;
+    --demo-nav-border: #174c8c;
+    --button-rotation: 5deg;
+}
+.titlePage {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.demoTitle {
+    height: unset;
+    margin-top: 34vh;    
+    margin-left: min(5vw,2rem);
+    position: absolute;
+    max-width: min(35vw, 20rem);
+    justify-self: center;
+    text-align: center;
+    font-size: 2.2rem !important;
+    color: rgb(194 59 196);
+    margin-top: 34.55vh;
+    margin-left: min(5.5vw,2.75rem);
+    max-width: min(35vw, 20rem);
+    font-size: 2.07rem !important;
+
+    &::before {
+        content: 'Megan\'s';
+        transform: translatex(min(16vw,7.75rem)) translatey(-2.25vh) rotate(calc(var(--button-rotation)*-1));
+        font-size: 1.4rem;
+        font-weight: 500;
+        position: absolute;
+        user-select: text;
+    }
+    & h1{
+        font-size:inherit;
+    }
+}
+
+.demoOnTable{
+    margin-top: 45vh;
+    max-width: 900px;
+    width: 80vw;
+    height: 33vh;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.demoNav{
+    position: absolute;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    align-items: center;
+    padding: 0;
+    border-radius: 0;
+    background: var(--demo-nav-background);
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    justify-content: space-around;
+    & a{
+        padding: 1.75rem 0;
+        border: 1px solid #777;
+        border-radius: 0.3rem;
+        width: 10%;
+        height: 17%;
+        background-color:white;
+        text-align: center;
+
+        
+        &:nth-child(odd) {
+            transform: rotate(calc(var(--button-rotation)*-1));
+        } 
+        &:nth-child(even) {
+            transform: rotate(var(--button-rotation));
+        }
+    }
+}
+.titlePage .demoNav{
+    background: unset;
+}
+
+.demoNav a:hover{
+    background: #f0f6f6;
+}
+
+.demoNav a:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 2px;
+}
+
+.title-background{
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    user-select: none;
+    pointer-events: none;
+}
+
+.demoGreeting {
+    font-size: 1.1rem;
+    position: absolute;
+    margin-top: 3vh;
+}
+
+.demoPlayButton {
+    width: 6rem;
+    position: absolute;
+    margin-top: 20vh;
+    z-index:2;
+}
+
+.demoTeams .demoTeamPick{
+    align-self: flex-start;
+}
+
+.demoNameForm{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+}
+
+.demoNameForm input[type="text"]{
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    font-size: 1rem;
+}
+
+.demoNameForm input[type="text"]:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 1px;
+}
+
+.demoSettingsPanel .demoSettingState{
+    font-weight: 600;
+}
+
+.demoSettingsPanel .demoSettingState[data-card-zoom="disabled"]{
+    color: #7a3a2a;
+}
+
+.demoSettingsPanel .demoNameForm button{
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    background: #fff;
+    cursor: pointer;
+}
+
+.demoSettingsPanel .demoNameForm button:focus-visible{
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 1px;
+}
+
+.demoDeck{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+}

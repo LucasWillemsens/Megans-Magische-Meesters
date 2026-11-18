@@ -1,0 +1,11 @@
+Allow the user to drag and drop goal priorities on the dashboard and dynamically steer agents through the root `STEERING.md`.
+
+Implementation:
+1. Add the root `STEERING.md` priority format and add it to `.gitignore`; it is local, untracked workspace steering, not deployment configuration.
+2. Render the active priority order on the dashboard with drag-and-drop; persist ordering atomically to root `STEERING.md`.
+3. Ensure agents are instructed to pick up changes dynamically before their next request, with folder-specific `STEERING.md` taking precedence over root instructions.
+
+Acceptance criteria:
+- [ ] Dragging dashboard goals into a new order updates root `STEERING.md` with that exact order.
+- [ ] `STEERING.md` is ignored by Git and is never deployed or committed.
+- [ ] A running agent sees the updated root order before its next request; more-specific steering remains higher precedence.

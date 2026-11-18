@@ -1,0 +1,62 @@
+The end-turn button is focused when the player phase starts, but the focused button can end up off-screen because the deckHand `scrollIntoView` race-conditions with the focus call.
+
+## Behavior
+
+- After end turn → enemy phase → reload → player phase, the end-turn button is focused and visible in the viewport on a 1920×1080 monitor.
+- On the first paint of a fresh game, the browser's `autofocus` brings the button into view once; the JS does not double-scroll.
+- When leftover `.loading` animations are still playing (e.g. just after a draw flight), the deckHand `scrollIntoView` still runs so the deck→hand flight is measured while the deck is on screen.
+
+## Code locations
+
+- `var/www/static/loadingAnimations.js` — the `if (phase === 'player')` branch inside `loadingAnimationsSystem.Animate()`, currently lines 312–328.
+- `MMM/jinja2/MMM/battle/viewBoard.jinja2` — end-turn button at line 364 already has `autofocus` whenever `turnPhase != "enemy"` (unchanged).
+
+## Implementation
+
+Three small edits inside the `if (phase === 'player')` branch in `loadingAnimations.js`. `animationsElements` is the array defined at line 218 (`Array.from(document.getElementsByClassName('loading'))`); it acts as the proxy for "a prior animation step ran on this page" — on a fresh game there are no `.loading` elements, so the Jinja `autofocus` lands first and JS stays out of the way.
+
+1. Drop `behavior: 'smooth'` from the deckHand `scrollIntoView` so the scroll completes synchronously.
+   Change line 317:
+   ```js
+   deckHand.scrollIntoView({ behavior: 'smooth', block: 'end' });
+   ```
+   to:
+   ```js
+   deckHand.scrollIntoView({ block: 'end' });
+   ```
+
+2. Gate the deckHand `scrollIntoView` AND the `endTurnBtn.focus(...)` block on `animationsElements.length > 0`. Wrap both with:
+   ```js
+   if (animationsElements.length > 0) {
+       const deckHand = document.querySelector('.playerScreen .deckHand');
+       if (deckHand) {
+           deckHand.scrollIntoView({ block: 'end' });
+       }
+       const endTurnBtn = document.querySelector('.playerScreen .deckHand .end-turn');
+       if (endTurnBtn && typeof endTurnBtn.focus === 'function') {
+           requestAnimationFrame(() => {
+               endTurnBtn.focus({ preventScroll: true });
+           });
+       }
+   }
+   ```
+   Keep `turnMarker(delay, 'Your turn', this._scheduler);` and `animationsElements.forEach((element) => element.classList.remove('loading'));` OUTSIDE the gate (the `forEach` is a no-op when empty, and the turn banner is always wanted). Keep the trailing `return;` at the same indent level.
+
+3. Switch the focus call to `preventScroll: true`. Change line 324:
+   ```js
+   endTurnBtn.focus({ preventScroll: false });
+   ```
+   to:
+   ```js
+   endTurnBtn.focus({ preventScroll: true });
+   ```
+
+Do not touch the `autofocus` attribute in `viewBoard.jinja2`. Do not touch `startFlights()` (lines 243–260) — it already uses the non-smooth `scrollIntoView` and serves other phases (`playerMoves`, fallback flight block) where the gate does not apply.
+
+## Acceptance criteria
+
+- [ ] After enemy phase reload (`phase === 'player'`, prior `.loading` elements present): button focused and inside the 1920×1080 viewport.
+- [ ] First paint of a fresh game (`animationsElements.length === 0`): button focused via Jinja `autofocus`, visible, and `loadingAnimations.js` does not call `scrollIntoView` or `focus` on the end-turn button.
+- [ ] After a draw (`phase === 'playerMoves'`): the deckHand `scrollIntoView` inside `startFlights()` still runs so the deck→hand flight is measured on screen.
+- [ ] No `behavior: 'smooth'` remains on any `scrollIntoView` call inside the `phase === 'player'` branch.
+- [ ] The `if (phase === 'player')` branch still ends with `return;` and the `turnMarker` call still runs unconditionally.

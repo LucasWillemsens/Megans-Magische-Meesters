@@ -1,0 +1,37 @@
+{% extends 'base.jinja2' %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('title.css') }}">
+{% endblock %}
+
+{% block title %}Magical Masters{% endblock %}
+
+{% block back_button %}{% endblock %}
+
+{% block content %}
+<div class="titlePage">
+    <img draggable="false" class="fit-picture title-background" src="{{static('titlepageartWIP.png')}}">
+    <div class="title demoTitle">
+        <h1> Magical Masters </h1>
+    </div>
+    <p class="demoGreeting">
+        {{ greeting }}
+    </p>
+    <div class="demoPlayButton">
+        <div class="createButton">
+            <form method="post" action="{{ playUrl }}">
+                {{ csrf_input }}
+                <button type="submit" draggable="false">
+                    PLAY
+                </button>
+            </form>
+        </div>
+    </div>
+    <div class="demoOnTable">
+        <nav class="demoNav">
+            <a href="{{ url('MMM:deckPage') }}">Deck</a>
+            <a href="{{ url('MMM:demoSettings') }}">Settings</a>
+        </nav>
+    </div>
+</div>
+{% endblock %}
