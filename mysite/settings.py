@@ -32,7 +32,6 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     "MMM.apps.MMMConfig",
-    # 'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -50,7 +49,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_HTTPONLY = False  # Set to True to prevent JavaScript access to cookies
 SESSION_COOKIE_SAMESITE = 'Lax'  # Adjust as needed (None, Lax, Strict)
@@ -122,8 +120,6 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-#does not work
-# STATIC_URL = f'/{BASE_DIR}/assets/downloaded/'
 STATIC_URL = 'static/'
 
 STATICFILES_DIRS = [

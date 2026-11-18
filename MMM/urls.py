@@ -1,5 +1,4 @@
 """
-copied from basic urls.py in mysite dir
 URL configuration for mysite project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -23,8 +22,6 @@ from . import views
 app_name = "MMM"
 urlpatterns = [
     path("admin/", views.index, name="index"),
-    path("admin/", views.index, name="cards"),
-    path("admin/", views.index, name="players"),
 
     path("", views.home, name="home"),
     path("title/", views.titlePage, name="titlePage"),
@@ -36,12 +33,8 @@ urlpatterns = [
     path("settings/zoom/", views.toggleCardZoom, name="toggleCardZoom"),
 
     path("player/<int:player_id>/", views.viewPlayer, name="viewPlayer"),
-    # path("<int:player_id>/history/", views.viewPlayerHistory, name="viewPlayerHistory"),
-    # path("<int:player_id>/login/", views.loginPlayer, name="loginPlayer"),
 
     path("card/<int:card_id>/", views.viewCard, name="viewCard"),
-    # path("<int:symbol_id>/", views.viewSymbol, name="viewSymbol"),
-    # path("<int:card_id>/history/", views.viewCardHistory, name="viewCardHistory"),
 
     path("game/reset/", views.resetGames, name="resetGames"),
 
