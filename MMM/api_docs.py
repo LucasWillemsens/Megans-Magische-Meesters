@@ -63,6 +63,25 @@ def _phase_parameter():
     }
 
 
+def _path_parameters():
+    return [
+        {
+            "name": "gameId",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "integer"},
+            "description": "Game to read or act on.",
+        },
+        {
+            "name": "playerId",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "integer"},
+            "description": "Player whose board in that game is read or acted on; the browser board URL uses the same id.",
+        },
+    ]
+
+
 def openapi_schema():
     return {
         "openapi": "3.0.3",
@@ -136,7 +155,7 @@ def openapi_schema():
                         "records and current turn allowances. With phase=enemy the deferred enemy "
                         "turn resolves before the read, mirroring the browser board reload."
                     ),
-                    "parameters": [_phase_parameter()],
+                    "parameters": [*_path_parameters(), _phase_parameter()],
                     "responses": {
                         "200": _json_response("BoardState", "Current board with participant, lanes and allowances."),
                         "400": _error_response("Unsupported phase value."),
@@ -156,6 +175,7 @@ def openapi_schema():
                         "the browser; a refused play raises HTTP 400 and rolls the request back."
                     ),
                     "requestBody": _staged_plays_body(True),
+                    "parameters": _path_parameters(),
                     "responses": {
                         "200": _json_response("BoardActionResult", "All plays consumed; plays lists the executed records."),
                         "400": _error_response("Refused payload, unknown card for this participant, or play/flip limit reached; nothing mutated."),
@@ -173,6 +193,7 @@ def openapi_schema():
                         "timelineSteps. Optional plays are consumed first, mirroring the browser POST."
                     ),
                     "requestBody": _staged_plays_body(False),
+                    "parameters": _path_parameters(),
                     "responses": {
                         "200": _json_response("BoardActionResult", "Card drawn: plays records the deck-to-hand move, allowances are refreshed."),
                         "400": _error_response("Draw limit reached, deck empty, refused payload or limit-breaking plays; nothing mutated."),
@@ -190,6 +211,7 @@ def openapi_schema():
                         "from the next board-state GET with phase=enemy."
                     ),
                     "requestBody": _staged_plays_body(False),
+                    "parameters": _path_parameters(),
                     "responses": {
                         "200": _json_response("BoardActionResult", "Turn ended; enemyPhasePending=true until the enemy phase view runs."),
                         "400": _error_response("Refused payload or limit-breaking plays; nothing mutated."),

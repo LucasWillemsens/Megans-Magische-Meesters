@@ -11299,8 +11299,24 @@ class GameActionApiTests(BattleBoardFixture):
             self.assertIn(status, end_turn_operation["responses"])
 
         board_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/"]["get"]
+        draw_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/draw/"]["post"]
+        for operation in (board_operation, play_operation, draw_operation, end_turn_operation):
+            path_parameters = {
+                parameter["name"]: parameter
+                for parameter in operation["parameters"]
+                if parameter["in"] == "path"
+            }
+            self.assertEqual(set(path_parameters), {"gameId", "playerId"}, operation["summary"])
+            for name in ("gameId", "playerId"):
+                self.assertTrue(path_parameters[name]["required"], name)
+                self.assertEqual(path_parameters[name]["schema"]["type"], "integer", name)
+
+        phase_parameter = next(
+            parameter for parameter in board_operation["parameters"] if parameter["name"] == "phase"
+        )
+        self.assertEqual(phase_parameter["in"], "query")
         self.assertEqual(
-            board_operation["parameters"][0]["schema"]["enum"],
+            phase_parameter["schema"]["enum"],
             ["player", "playerMoves", "enemy"],
         )
         for status in ("200", "400", "404", "409"):
