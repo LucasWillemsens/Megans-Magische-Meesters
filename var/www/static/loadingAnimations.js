@@ -1070,7 +1070,7 @@ function duplicateCard(element, lane, ordinal)
         duplicate.style.top = `${stackRect.top}px`;
         duplicate.style.width = `${stackRect.width}px`;
         duplicate.style.height = `${stackRect.height}px`;
-        document.body.appendChild(duplicate);
+        (element.closest('.playingCards') ?? document.body).appendChild(duplicate);
         const originalRect = element.getBoundingClientRect();
         const duplicateRect = duplicate.getBoundingClientRect();
         duplicate.style.setProperty('--move-x', `${originalRect.left - duplicateRect.left}px`);

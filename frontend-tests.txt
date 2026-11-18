@@ -1,0 +1,209 @@
+frontend-tests.txt — working notes on frontend (board HTML/JS/CSS) testing in this repo
+Last updated: 2026-11-18 (from the bot deck->lane play styling fix). Update this file
+when you add or change a frontend testing method; it exists so the next agent
+iterates on working patterns instead of rediscovering them.
+
+There is NO real browser in this repo. "Frontend tests" are three layers, all in
+MMM/tests.py (no separate frontend runner, per AGENTS.md):
+  A. Rendered-HTML end-to-end through the Django test client (real view render)
+  B. Executing the real static JS files in node against a hand-rolled fake DOM
+  C. JS/CSS source-text contract assertions (wiring only, no execution)
+For real automated front-end E2E later (clicks, animation, layout), see the
+"Future direction" section at the bottom.
+
+
+0. Commands
+---------------------------------------------------------------------------
+python3 manage.py check                          # run before tests (W004 warning is known)
+python3 manage.py test                          # full suite
+python3 manage.py test MMM.tests.BattleFlowTests.test_enemy_phase_get_runs_bots_and_marks_moves_loading
+node --check var/www/static/loadingAnimations.js  # syntax-check a static JS file
+NOTE (2026-11-18): the fixbugs branch carries 32 pre-existing failures/errors
+(backtick overlay, focus arrows, keyboard DOM harnesses, viewport shortcuts).
+Before assuming you broke something, diff the failure sets:
+  python3 manage.py test 2>&1 | grep -E "^(FAIL|ERROR):" | sort
+before vs. after your change (git stash helps).
+
+
+A. Rendered-HTML end-to-end (Django test client)
+---------------------------------------------------------------------------
+Fixture: BattleBoardFixture (MMM/tests.py, ~line 461). Two players, 4 cards each
+(Card.artSource=""), a deck per player, BattleHistory + Game(roundNumber=0),
+one human and one robot participant. BattleFlowTests / BoardCardPresentationTests
+/ GameActionApiTests / BoardViewportShortcutEndToEndTests subclass it.
+
+The turn/phase flow you must drive (this is THE board interaction contract):
+  1. POST confirmChallenge   -> initializes deck order (startWithDeckInRandomOrder)
+  2. POST boardAction action=draw / end_turn / play
+  3. POST end_turn does NOT run the bot: it sets the turn_phase=enemy cookie
+     (path-scoped to /game/<id>/board/<player_id>/)
+  4. the NEXT board GET runs run_bot_turn and renders data-phase="enemy" with
+     the bot's moves marked class="loading"; that same render sets
+     turn_phase=player, and the following GET shows the plain player board
+  Cookies persist on self.client across requests; reset with
+  self.client.cookies = SimpleCookie().
+  Reference tests: test_end_turn_defers_bot_turn_to_enemy_phase_get,
+  test_enemy_phase_get_runs_bots_and_marks_moves_loading,
+  test_end_turn_turn_phase_sequence_across_reloads.
+
+Staging player plays (drag/drop writes these cookies in the browser):
+  self.client.cookies[str(game_card.id)] =
+      '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
+  then POST any board action; consume_staged_plays plays them. Only cards owned
+  by the acting participant are consumed (foreign cookies are ignored — see
+  test_foreign_play_cookies_not_consumed_as_player_actions). Legacy cookie
+  format "<lane>f" (e.g. "2f") is still parsed by parse_play_cookie_payload.
+
+Markup assertions:
+  - assertContains / assertNotContains for stable attributes and classes
+  - re.search(r'<li class="cardContainer loading".*?</li>', content, re.DOTALL)
+    to grab one whole card element, then assert on data-* attributes and inner
+    markup (this is how the bot-play markup was inspected)
+  - static card faces: set Card.artSource = "static" and save(update_fields)
+    to get CSS-playing-card markup (<span class="rank">, suit symbol, no <img>)
+    — mysite/jinja2.py provides the playing_card_* jinja2 filters
+  - the bot's turn merges its draw+play of the same card into ONE deck->lane
+    move (sourceLane -N, sourceOrdinal 0) via plays_by_card in viewBoard
+
+Debugging aid — dump a rendered page outside the test suite:
+  one-off python script: os.environ DJANGO_SETTINGS_MODULE, django.setup(),
+  setup_test_environment(), DiscoverRunner().setup_databases(), build the
+  fixture objects, use django.test.Client exactly like a test, print
+  response.content.decode(), then runner.teardown_databases() +
+  teardown_test_environment(). Cheap way to eyeball real markup for a phase
+  that is hard to reach interactively.
+
+
+B. Executing the real static JS in node (fake DOM)
+---------------------------------------------------------------------------
+This is the closest thing to frontend behavior testing today: the ACTUAL files
+from var/www/static are eval'd inside node against a FakeElement DOM.
+
+Shared harness cores (module-level string constants in MMM/tests.py):
+  - FAKE_ELEMENT_NAVIGATION_CORE (line 42): FakeElement with classList,
+    dataset, attribute map, appendChild/insertBefore/remove/replaceChildren/
+    cloneNode(deep)/contains/firstChild, matches/closest, querySelector(All),
+    getBoundingClientRect -> constant {0,0,10,10}; plus a mini selector engine
+    supporting tag, #id, .class (multiple), [attr], [attr="value"],
+    :not(.class), child (>) and descendant combinators, and :scope handling;
+    plus descendantsInOrder() for document-order traversal.
+  - FAKE_ELEMENT_DATASET_CORE (line 248): the variant used by the
+    BoardViewportShortcut tests.
+  Several older test groups keep PRIVATE inline copies of FakeElement (around
+  lines 319, 3144, 5309, 6555, 7511, 12816) — historical duplication; prefer
+  the shared constants when writing new tests.
+
+Harness skeleton (copy from test_space_draw_stages_and_restores_draw_button_focus_via_dom
+or test_enemy_deck_play_flight_clone_keeps_the_landed_card_face):
+  1. Build the DOM: body -> div.playerScreen.playingCards.rotateHand -> board
+     tables/lanes/hands mirroring viewBoard.jinja2 structure (the selector
+     engine needs the real class names and nesting).
+  2. fakeDocument = {querySelector, querySelectorAll, addEventListener (capture
+     into documentListeners), readyState: 'complete', body}; assign
+     global.document, global.window {addEventListener, setTimeout/clearTimeout
+     (capture timers), location: {pathname}}, global.requestAnimationFrame
+     (capture rafCallbacks), global.sessionStorage (Map), global.CSS,
+     global.MutationObserver, global.Element as needed.
+  3. Embed the real JS: harness.replace('__LOADING_JS__', repr(loading_js))
+     — Python repr() yields a valid JS string literal — then
+     eval(dragCode); eval(loadingCode);
+  4. Fire (documentListeners['DOMContentLoaded'] || []).forEach(h => h()) to
+     boot the modules; grab systems from window.cardDragDrop /
+     window.loadingAnimations.
+  5. Drive interactions: call captured 'keydown'/'keyup' handlers with fake
+     events (pressKey helper pattern) or call module functions directly, e.g.
+     duplicateCard(element, lane, ordinal).
+  6. Advance async: flushTick() drains requestAnimationFrame callbacks,
+     flushTimers() runs captured setTimeout callbacks (PausableTimeout in
+     loadingAnimations.js schedules through window.setTimeout, so captured
+     timers drive the whole animation scheduler).
+  7. assert(label, condition) throws 'FAILED: <label>' and console.log('ok: …')
+     per check; end with a sentinel console.log('… ok') line.
+
+Runner: _run_node_harness(harness, label) (MMM/tests.py, line 12577) writes a
+temp .js file, runs node, SKIPS the test when node is absent, raises
+AssertionError with full stdout/stderr on non-zero exit, returns stdout.
+Python side then asserts the sentinel: self.assertIn('… ok', stdout).
+Use this helper — a dozen older tests inline their own subprocess; do not copy
+that pattern. Node tests must keep skipping gracefully when node is missing.
+
+FakeElement limits to know before writing assertions:
+  - style is a plain object: setProperty/getPropertyValue are no-op stubs, but
+    DIRECT property assignment round-trips (duplicateCard sets
+    duplicate.style.position = 'fixed' -> assertable; getBoundingClientRect
+    geometry is constant, so flight math/--move-x values cannot be verified)
+  - no CSS cascade and no layout: you can assert DOM placement, classes,
+    attributes and inline styles, but NEVER visual appearance — for that use
+    layer A (rendered markup) plus layer C (CSS rules exist)
+  - selector engine supports only the subset listed above; complex selectors
+    will silently not match
+
+
+C. JS/CSS source-text contract tests
+---------------------------------------------------------------------------
+Helpers: _read_static_asset(file_name) reads var/www/static/<file>;
+_extract_js_brace_block(source, opener) (line 9693) returns source from an
+opener string through its balanced closing brace — used to pin one function's
+body (e.g. duplicateCard's deck branch must keep fixed-position overlay and
+never insertBefore into the pile). CSS rules are checked with regexes like
+re.search(r'\.playerScreen\.enemyTurnFocus[^{]*\{[^}]*\}', css).
+Use sparingly: string matching rots fast and proves wiring, not behavior.
+Prefer layer B for behavior; reach for layer C only to pin JS<->CSS couplings
+(class names a JS file relies on must exist in a stylesheet) — e.g.
+test_ghost_class_defined_in_stylesheet,
+test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope.
+
+
+Board hooks reference (stable ids/classes/data attributes to drive or assert)
+---------------------------------------------------------------------------
+  #turnPhase        data-phase: '' | player | enemy | playerMoves
+                    (drives the Animate() branches in loadingAnimations.js)
+  #boardNext        data-next-url — reload target after animations finish
+  #timelineSteps    <script type="application/json"> special timeline steps
+  #turnLimits       data-draws-left / -plays-left / -flips-left / blocked titles
+                    (feeds cardDragDrop's staged-action guards)
+  li.cardContainer.loading — a card that must fly this render;
+                    data-source-lane (-N deck, 0 hand, 1-4 lane),
+                    data-source-ordinal, data-card-id
+  turn_phase cookie — name "turn_phase", path /game/<id>/board/<player_id>/
+  staged play cookies — name = GameCard id (digits only), value = URL-encoded
+                    JSON {laneValue, sourceLane, sourceOrdinal, flipFaceUp}
+  window globals    cardDragDrop, loadingAnimations, laneCardStacking,
+                    boardViewportFit (modules init on DOMContentLoaded)
+  board scripts     type=module: cardDragDrop.js, loadingAnimations.js,
+                    laneStacking.js, hoverCooldown.js, cardZoom.js
+                    (+ cardDragDrop.css, cardZoom.css; base: style.css, cards.css)
+  keyboard during enemy phase / timeline: E/Enter/Escape skip, W/Space pause
+                    (AnimationControls in loadingAnimations.js)
+
+
+Lessons learned so far (do not relearn these)
+---------------------------------------------------------------------------
+- Flight/duplicate clones must be appended INSIDE the board's .playingCards
+  root: appending to document.body drops every .playingCards-scoped card rule
+  and the rank/suit collapse into unstyled inline text. Assert clone placement
+  with clone.closest('.playingCards') in layer B tests — the fake DOM cannot
+  catch this via styling.
+- The enemy hand is display:none (.playerScreen .enemyDeckHand > .hand): an
+  enemy play sourced from the hand cannot show a visible flight; the bot's
+  normal turn is presented as ONE deck->lane move instead.
+- FakeElement geometry is constant and CSS is not applied: assert DOM shape,
+  classes, attributes, direct style properties — never pixels or visuals.
+- When the full suite is red on this branch, diff failure sets (section 0)
+  instead of trusting counts.
+
+
+Future direction — real automated front-end E2E
+---------------------------------------------------------------------------
+Everything above is DOM/DOM-text level. For genuine end-to-end browser tests
+later (hover cooldowns, transitions, lane stacking reflow on resize, scroll
+restoration, focus management), the practical path is:
+  - Playwright (or Selenium) driving `python3 manage.py runserver` against the
+    demo flow: title page -> POST play -> game page -> confirm -> board
+  - reuse the documented hooks: #turnPhase/#boardNext/#turnLimits and the
+    .loading + data-source-* contract to wait for animation phases instead of
+    sleeping; the phase cookie flow (end_turn -> GET -> enemy phase render)
+    gives deterministic bot turns without waiting
+  - keep selectors stable via the ids/classes listed above; the layer-A/B
+    tests then remain the fast regression net while browser tests cover
+    visual/layout behavior that FakeElement cannot

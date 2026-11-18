@@ -1140,6 +1140,44 @@ class BattleFlowTests(BattleBoardFixture):
         response = self.client.get(board_url)
         self.assertNotContains(response, "cardContainer loading")
 
+    def test_enemy_phase_static_play_carries_deck_source_and_card_face(self):
+        """A bot's drawn-and-played static card flies deck->lane with its face.
+
+        The enemy-phase GET merges the bot's draw and play of the same card
+        into one move: the played card is marked loading in its destination
+        enemy lane with the deck position as its source, carrying the full
+        static card face (rank, suit, card type) that the landed card shows.
+        The flight clone built from that markup must render under the board's
+        .playingCards CSS scope so the flying card looks exactly like a card a
+        player plays face-up to a lane.
+        """
+        for card in self.human_cards + self.bot_cards:
+            card.artSource = "static"
+            card.save(update_fields=["artSource"])
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        response = self.client.get(board_url)
+
+        loading_card = re.search(
+            r'<li class="cardContainer loading".*?</li>',
+            response.content.decode(),
+            re.DOTALL,
+        )
+        self.assertIsNotNone(loading_card)
+        loading_markup = loading_card.group(0)
+        self.assertIn('data-source-lane="-', loading_markup)
+        self.assertIn('data-source-ordinal="0"', loading_markup)
+        self.assertIn("staticCard", loading_markup)
+        self.assertIn('<span class="rank">', loading_markup)
+        self.assertIn('<span class="suit">', loading_markup)
+        self.assertIn('class="smallCardInfo"', loading_markup)
+        self.assertNotIn("fit-picture", loading_markup)
+
     def test_enemy_phase_dims_player_hand_and_board_from_phase_start(self):
         """Ending a turn darkens the player's hand while the enemy phase runs.
 
@@ -4111,8 +4149,17 @@ console.log('space draw focus round trip ok');
             "size as the playerBoard grows above them"
         )
 
-    def test_deck_draw_animation_does_not_insert_into_deck(self):
-        """Deck draws overlay the pile via fixed positioning instead of shifting it."""
+    def test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope(self):
+        """Deck flights keep the pile intact and render like real board cards.
+
+        The flight clone is positioned fixed over the deck instead of being
+        inserted into the pile, and it is appended inside the board's
+        .playingCards root: the pile's stacking is never shifted, and a bot's
+        deck->lane play carries the landed card's face markup under the same
+        CSS scope as a player's face-up lane play, so its rank and suit render
+        exactly like every other card on the board instead of collapsing into
+        unscoped body text.
+        """
         import os
 
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
@@ -4127,7 +4174,9 @@ console.log('space draw focus round trip ok');
         self.assertNotIn('insertBefore', deck_branch)
         self.assertNotIn('laneElement.appendChild', deck_branch)
         self.assertEqual(deck_branch.count('appendChild'), 1)
-        self.assertIn('document.body.appendChild', deck_branch)
+        self.assertIn("closest('.playingCards')", deck_branch)
+        self.assertIn('document.body', deck_branch)
+        self.assertNotIn('document.body.appendChild', deck_branch)
         self.assertIn("'li:last-of-type'", deck_branch)
         self.assertIn('getBoundingClientRect', deck_branch)
         self.assertIn("position = 'fixed'", deck_branch)
@@ -4140,6 +4189,160 @@ console.log('space draw focus round trip ok');
             cards_css,
         )
         self.assertIn('.duplicate-deck-flight > .card.back', cards_css)
+
+    def test_enemy_deck_play_flight_clone_keeps_the_landed_card_face(self):
+        """The bot's deck->lane flight clone renders like the landed card.
+
+        User story: end the turn, the bot plays a card, and the card flying
+        from the enemy deck to the enemy lane must show the same styled face
+        as the landed card. duplicateCard must append the enemy play clone
+        inside the .playingCards board (never on the body, where every
+        .playingCards card rule is out of scope and the rank and suit collapse
+        into one unstyled inline line), must keep the clone's static face
+        markup intact, and must leave the enemy deck pile untouched. The
+        player's own deck->hand draw keeps hiding its face instead.
+        """
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r"""
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen playingCards rotateHand');
+body.appendChild(playerScreen);
+const enemyBoards = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyBoards);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyBoards.appendChild(enemyBoard);
+const enemyDeckHand = new FakeElement('div', 'enemyDeckHand');
+enemyBoard.appendChild(enemyDeckHand);
+const enemyDeckStack = new FakeElement('div', 'deck-stack enemy-deck-stack');
+enemyDeckHand.appendChild(enemyDeckStack);
+const enemyDeck = new FakeElement('ul', 'deck enemyDeck active-deck');
+enemyDeckStack.appendChild(enemyDeck);
+const enemyDeckTop = new FakeElement('li', 'cardContainer faceDown');
+enemyDeck.appendChild(enemyDeckTop);
+enemyDeckTop.appendChild(new FakeElement('div', 'card back smallCard'));
+
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = new FakeElement('li', 'lane Visciousness');
+enemyLanes.appendChild(enemyLane);
+const enemyCardRow = new FakeElement('ul', 'cardRow');
+enemyLane.appendChild(enemyCardRow);
+const playedCard = new FakeElement('li', 'cardContainer loading');
+playedCard.setAttribute('data-source-lane', '-1');
+playedCard.setAttribute('data-source-ordinal', '0');
+playedCard.setAttribute('data-card-id', '5');
+enemyCardRow.appendChild(playedCard);
+const playedFace = new FakeElement('div', 'card smallCard staticCard rank-9 clubs');
+playedCard.appendChild(playedFace);
+playedFace.appendChild(new FakeElement('span', 'rank'));
+playedFace.appendChild(new FakeElement('span', 'suit'));
+playedFace.appendChild(new FakeElement('div', 'smallCardInfo'));
+
+const playerBoard = new FakeElement('li', 'playerBoard');
+playerScreen.appendChild(playerBoard);
+const playerDeckStack = new FakeElement('div', 'deck-stack own-deck-stack');
+playerBoard.appendChild(playerDeckStack);
+const playerDeck = new FakeElement('ul', 'deck active-deck');
+playerDeckStack.appendChild(playerDeck);
+const playerDeckTop = new FakeElement('li', 'cardContainer faceDown');
+playerDeck.appendChild(playerDeckTop);
+playerDeckTop.appendChild(new FakeElement('div', 'card back smallCard'));
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerScreen.appendChild(deckHand);
+const handFan = new FakeElement('ul', 'hand hand-fan');
+deckHand.appendChild(handFan);
+const drawnHandCard = new FakeElement('li', 'cardContainer loading');
+drawnHandCard.setAttribute('data-source-lane', '-2');
+drawnHandCard.setAttribute('data-source-ordinal', '0');
+handFan.appendChild(drawnHandCard);
+const drawnFace = new FakeElement('div', 'card smallCard staticCard rank-3 diams');
+drawnHandCard.appendChild(drawnFace);
+drawnFace.appendChild(new FakeElement('span', 'rank'));
+drawnFace.appendChild(new FakeElement('span', 'suit'));
+
+const fakeDocument = {
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    addEventListener() {},
+    readyState: 'complete',
+    body,
+};
+global.document = fakeDocument;
+
+eval(__LOADING_JS__);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const playedClone = duplicateCard(playedCard, -1, 0);
+assert('the enemy play produces a flight clone', playedClone !== null);
+assert('the enemy play clone is appended inside the .playingCards board',
+    playedClone.closest('.playingCards') === playerScreen &&
+    !body.children.includes(playedClone));
+assert('the enemy play clone overlays the pile with fixed positioning',
+    playedClone.style.position === 'fixed');
+assert('the enemy deck pile keeps exactly its own top card',
+    enemyDeck.children.length === 1 && enemyDeckTop.parentNode === enemyDeck);
+assert('the enemy play clone keeps the landed card face markup',
+    playedClone.querySelector('.card.staticCard.rank-9.clubs') !== null &&
+    playedClone.querySelector('.rank') !== null &&
+    playedClone.querySelector('.suit') !== null &&
+    playedClone.querySelector('.smallCardInfo') !== null);
+assert('the enemy play clone shows its face instead of a hidden back',
+    !playedClone.classList.contains('faceDown') &&
+    playedClone.querySelector('.card').classList.contains('back') === false);
+
+const drawnClone = duplicateCard(drawnHandCard, -2, 0);
+assert('the player draw produces a flight clone', drawnClone !== null);
+assert('the player draw clone is appended inside the .playingCards board',
+    drawnClone.closest('.playingCards') === playerScreen);
+assert('the player draw clone hides its face as a plain card back',
+    drawnClone.classList.contains('faceDown') &&
+    drawnClone.querySelector('.card').classList.contains('back') &&
+    drawnClone.querySelector('.card').children.length === 0);
+
+console.log('enemy deck play flight face ok');
+""".replace('__LOADING_JS__', repr(loading_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping enemy deck play flight face DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping enemy deck play flight face DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'enemy deck play flight face harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('enemy deck play flight face ok', completed.stdout)
 
     def test_draw_flight_reload_window_waits_for_flight_completion(self):
         """The no-phase branch must wait out the full card flight.
