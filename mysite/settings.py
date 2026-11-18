@@ -10,22 +10,44 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def env_flag(name, default):
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_csv(name, default):
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return list(default)
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
+def env_path(name, default):
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return Path(value).expanduser()
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
+SECRET_KEY = os.environ.get('MMM_SECRET_KEY') or 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_flag('MMM_DEBUG', True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_csv('MMM_ALLOWED_HOSTS', [])
+
+CSRF_TRUSTED_ORIGINS = env_csv('MMM_CSRF_TRUSTED_ORIGINS', [])
 
 
 # Application definition
@@ -51,9 +73,10 @@ MIDDLEWARE = [
 ]
 
 # SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
-SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_SECURE = env_flag('MMM_SECURE_COOKIES', False)
 SESSION_COOKIE_HTTPONLY = False  # Set to True to prevent JavaScript access to cookies
 SESSION_COOKIE_SAMESITE = 'Lax'  # Adjust as needed (None, Lax, Strict)
+CSRF_COOKIE_SECURE = env_flag('MMM_SECURE_COOKIES', False)
 
 
 ROOT_URLCONF = 'mysite.urls'
@@ -83,7 +106,7 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': env_path('MMM_DB_PATH', BASE_DIR / 'db.sqlite3'),
     }
 }
 
