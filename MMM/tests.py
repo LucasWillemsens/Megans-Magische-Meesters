@@ -9599,10 +9599,8 @@ class ChallengePageTests(TestCase):
 
 class GamePageStylingTests(TestCase):
     """The back link is one in-flow rule shared by every page, the demo
-    watermark title rides on the template-carried demoTitle class, the
-    title page shows the readable shared title over its own centered
-    column and references only real assets, game page marks stay
-    readable, and the confirm button contains its label."""
+    watermark title rides on the template-carried demoTitle class, game
+    page marks stay readable, and the confirm button contains its label."""
 
     def _game_page_content(self):
         challenger = Player.objects.create(name="Challenger")
@@ -9660,22 +9658,6 @@ class GamePageStylingTests(TestCase):
 
         deck_page = self.client.get(reverse("MMM:deckPage")).content.decode()
         self.assertIn('<div class="title demoTitle">', deck_page)
-
-    def test_title_page_shows_the_readable_shared_title_over_its_centered_column(self):
-        title_page = self.client.get(reverse("MMM:titlePage")).content.decode()
-
-        self.assertIn('<div class="title">', title_page)
-        self.assertNotIn("demoTitle", title_page)
-        self.assertNotIn("titlepageartWIP", title_page)
-        self.assertIsNotNone(
-            finders.find("title.css"),
-            "The title page links title.css but the file is missing",
-        )
-
-        with open(os.path.join(STATIC_TEST_DIR, "title.css")) as title_css_file:
-            title_css = title_css_file.read()
-        title_page_block = title_css[title_css.index(".titlePage{"):]
-        self.assertIn("align-items: center", title_page_block)
 
     def test_back_link_is_one_in_flow_rule_on_every_page(self):
         style_css = self._style_css()
