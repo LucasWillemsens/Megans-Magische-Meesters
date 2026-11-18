@@ -11300,7 +11300,7 @@ class PlayerPageToBoardEndToEndTests(TestCase):
         return values
 
     def _player_counter(self, board_html):
-        deck_hand = board_html.split('<div class="deckHand">', 1)[1]
+        deck_hand = re.split(r'<div class="deckHand[^"]*">', board_html, 1)[1]
         match = re.search(r'Deck: (\d+) \| Hand: (\d+)', deck_hand)
         self.assertIsNotNone(match, "Board is missing its deck/hand counter")
         return int(match.group(1)), int(match.group(2))
@@ -11362,7 +11362,7 @@ class PlayerPageToBoardEndToEndTests(TestCase):
             response, '<link rel="stylesheet" type="text/css" href="/static/cardDragDrop.css">'
         )
         self.assertContains(response, 'id="turnLimits"')
-        self.assertContains(response, '<div class="deckHand">')
+        self.assertContains(response, '<div class="deckHand')
         self.assertContains(response, 'class="end-turn"')
         self.assertContains(response, reverse("MMM:boardAction", args=[game_id, self.human.id]))
         deck_count_before, hand_count_before = self._player_counter(board_before_draw)
