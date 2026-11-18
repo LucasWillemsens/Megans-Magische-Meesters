@@ -1,6 +1,6 @@
 const CARD_HOVER_TARGET_SELECTOR = [
     '.playerScreen .deckHand .hand li.cardContainer',
-    '.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled)',
+    '.playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled)',
     '.playerBoard ul.cardRow[title="cards"] li.cardContainer',
     '.playerBoard ul.hologramRow .hologram',
     '.enemyBoard li.cardContainer',

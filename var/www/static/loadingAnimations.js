@@ -525,7 +525,7 @@ class loadingAnimationsSystem {
     }
 
     _drawButtonForPlayer() {
-        const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+        const deck = document.querySelector('.playerBoard .deck-stack .active-deck');
         const drawButton = deck ? deck.querySelector('button.draw') : null;
         if (!drawButton || drawButton.disabled || drawButton.closest('.blocked')) return null;
         return drawButton;
@@ -968,10 +968,7 @@ function focusEnemySide() {
 
 function activeDeckForBoard(board) {
     if (!board) return null;
-    if (board.classList.contains('playerBoard')) {
-        return document.querySelector('.playerScreen .deckHand .active-deck');
-    }
-    return board.querySelector('.enemyDeckHand .active-deck');
+    return board.querySelector('.deck-stack .active-deck');
 }
 
 function findCardRowForOrdinal(laneElement, ordinal, cardsPerRow) {

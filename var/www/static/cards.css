@@ -1244,7 +1244,7 @@ li.playerBoard > ul.basic-mat{
         margin-right: 1em;
     }
 
-.playerScreen.enemyTurnFocus > .deckHand,
+.playerScreen.enemyTurnFocus .deckHand,
 .playerScreen.enemyTurnFocus .playerBoard {
     opacity: 0.3;
     filter: grayscale(0.9);
@@ -1473,15 +1473,15 @@ button.draw{
     pointer-events: inherit;
 }
 
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
+.playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
     transition: transform 0.15s ease-out;
 }
 
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
+.playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {
     transform: rotate(3deg);
 }
 
-.playerScreen .deckHand .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled).card-hover {
+.playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled).card-hover {
     transform: rotate(3deg);
 }
 

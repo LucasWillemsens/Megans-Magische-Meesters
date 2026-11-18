@@ -94,7 +94,7 @@
                                 <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                 {% else %}
                                 {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
                                 <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
@@ -127,7 +127,7 @@
                                 <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                 {% else %}
                                 {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
                                 <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
@@ -177,9 +177,7 @@
                         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                             {{ csrf_input }}
                             <input type="hidden" name="action" value="draw">
-                            <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}"
-                                {% if turnAllowances.draws_left <=0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}" {%
-                                else %}title="Draw card" {% endif %}>Draw</button>
+                            <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
                         </form>
                         {% else %}
                         <div class="card back">*</div>
@@ -216,7 +214,7 @@
                                 <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                 {% else %}
                                 {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
                                 <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
@@ -245,7 +243,7 @@
                                 <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                 {% else %}
                                 {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
                                 <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
@@ -277,7 +275,7 @@
                                 <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                                 {% else %}
                                 {% if card.card.artSource == "" %}
-                                <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                                <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                                 {% else %}
                                 <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                                 {% endif %}
@@ -321,7 +319,7 @@
                             <span class="suit">{{ card.card|playing_card_suit_display }}</span>
                             {% else %}
                             {% if card.card.artSource == "" %}
-                            <img draggable="false" class="fit-picture" src="{{ static('1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
+                            <img draggable="false" class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.card.title}}" />
                             {% else %}
                             <img draggable="false" class="fit-picture" src="{{ static(card.card.artSource)}}" alt="art of {{card.card.title}}" />
                             {% endif %}

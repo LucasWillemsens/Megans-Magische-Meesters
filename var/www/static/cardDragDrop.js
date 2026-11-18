@@ -137,7 +137,7 @@ class RegionNavigator {
         if (element.closest(RegionNavigator.handCardSelector)) return 'hand';
         if (element.closest('.playerScreen .lanes .cardContainer')) return 'field';
         if (element.closest('.playerScreen .end-turn')) return 'end-turn';
-        if (element.closest('.playerScreen .deckHand .active-deck button.draw')) return 'draw';
+        if (element.closest('.playerBoard .deck-stack .active-deck button.draw')) return 'draw';
         return null;
     }
 
@@ -944,7 +944,7 @@ class CardDragDropSystem {
         }
 
         if (remaining.draws <= 0) {
-            const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+            const deck = document.querySelector('.playerBoard .deck-stack .active-deck');
             if (deck) {
                 deck.classList.add('blocked');
             }
@@ -1422,7 +1422,7 @@ class CardDragDropSystem {
     }
 
     _findDrawControl() {
-        const deck = document.querySelector('.playerScreen .deckHand .active-deck');
+        const deck = document.querySelector('.playerBoard .deck-stack .active-deck');
         if (!deck || deck.querySelector('.emptyDeck')) return null;
 
         const button = deck.querySelector('button.draw');

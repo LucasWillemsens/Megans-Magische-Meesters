@@ -1149,6 +1149,66 @@ class BattleFlowTests(BattleBoardFixture):
         response = self.client.get(board_url)
         self.assertNotContains(response, "cardContainer loading")
 
+    def test_enemy_phase_dims_player_hand_and_board_from_phase_start(self):
+        """Ending a turn darkens the player's hand while the enemy phase runs.
+
+        The enemy phase starts on the first board GET after the end-turn POST:
+        that render carries data-phase="enemy" while the bot's moves animate,
+        so the dimming is driven by the enemy-phase marker itself, never by a
+        bot-finished condition. The dim rules must match the DOM the board
+        renders: the deckHand row is nested inside the board table, not a
+        direct child of .playerScreen, so a direct-child rule can never hit it.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        dim_rule = re.search(
+            r'\.playerScreen\.enemyTurnFocus[^{]*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(dim_rule, "enemy turn dim rule missing from cards.css")
+        self.assertIn('.playerScreen.enemyTurnFocus .deckHand', dim_rule.group(0))
+        self.assertIn('.playerScreen.enemyTurnFocus .playerBoard', dim_rule.group(0))
+        self.assertNotIn('.playerScreen.enemyTurnFocus > .deckHand', cards_css)
+
+        enemy_phase_block = _extract_js_brace_block(loading_js, "if (phase === 'enemy')")
+        self.assertIn('focusEnemySide();', enemy_phase_block)
+        self.assertLess(
+            enemy_phase_block.index('focusEnemySide();'),
+            enemy_phase_block.index('schedule('),
+            "the dim must start with the enemy phase, not after its animations",
+        )
+        focus_enemy_side = _extract_js_brace_block(loading_js, 'function focusEnemySide()')
+        self.assertIn("playerScreen.classList.add('enemyTurnFocus')", focus_enemy_side)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self.client.post(end_turn_url, {"action": "end_turn"})
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+        content = response.content.decode()
+        direct_child = re.search(
+            r'<div class="playerScreen[^"]*"[^>]*>\s*<div class="deckHand', content
+        )
+        self.assertIsNone(
+            direct_child,
+            "the rendered deckHand is not a direct .playerScreen child; the dim "
+            "rule must stay a descendant selector",
+        )
+        nested_deck_hand = re.search(
+            r'<ul class="basic-mat table">.*?<div class="deckHand[^"]*"', content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(nested_deck_hand)
+        self.assertContains(response, '<li class="playerBoard ')
+
     def test_draw_renders_drawn_card_loading_from_deck(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1369,11 +1429,31 @@ class BattleFlowTests(BattleBoardFixture):
         with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
             drag_js = js_file.read()
 
-        self.assertIn('.playerScreen .deckHand .active-deck', loading_js)
-        self.assertIn('.enemyDeckHand .active-deck', loading_js)
-        self.assertIn('.playerScreen .deckHand .active-deck', drag_js)
-        self.assertNotIn(".playerScreen .deckHand .deck')", loading_js)
-        self.assertNotIn(".enemyDeckHand .deck')", loading_js)
+        self.assertIn("board.querySelector('.deck-stack .active-deck')", loading_js)
+        self.assertIn('.playerBoard .deck-stack .active-deck', loading_js)
+        self.assertIn('.playerBoard .deck-stack .active-deck', drag_js)
+        self.assertNotIn(".playerScreen .deckHand .active-deck", loading_js)
+        self.assertNotIn(".playerScreen .deckHand .active-deck", drag_js)
+        self.assertNotIn(".deck-stack .deck')", loading_js)
+
+        # the selectors must match the DOM the board actually renders: the
+        # active deck lives inside the playerBoard section, never inside the
+        # deckHand row
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        content = self.client.get(board_url).content.decode()
+        player_board_section = re.search(
+            r'<li class="playerBoard[^>]*>(.*?)<div class="deckHand', content, re.DOTALL,
+        )
+        deck_hand_section = re.search(
+            r'<div class="deckHand[^"]*"[^>]*>(.*)', content, re.DOTALL,
+        )
+        self.assertIsNotNone(player_board_section)
+        self.assertIsNotNone(deck_hand_section)
+        self.assertIn('active-deck', player_board_section.group(1))
+        self.assertIn('deck-stack', player_board_section.group(1))
+        self.assertNotIn('active-deck', deck_hand_section.group(1))
 
     def test_end_turn_turn_phase_sequence_across_reloads(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -2173,7 +2253,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('cursor: not-allowed', cards_css)
 
         drawable_draw = (
-            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            '.playerBoard .deck-stack .active-deck:not(.blocked) '
             'button.draw:not(.blocked):not(:disabled)'
         )
         self.assertIn(drawable_draw, cards_css)
@@ -2632,7 +2712,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('.playerBoard ul.hologramRow .hologram', target_selector_block)
         self.assertIn('.enemyBoard li.cardContainer', target_selector_block)
         self.assertIn(
-            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            '.playerBoard .deck-stack .active-deck:not(.blocked) '
             'button.draw:not(.blocked):not(:disabled)',
             target_selector_block,
         )
@@ -2749,7 +2829,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('z-index: 999;', blocked_mirror_block)
         self.assertIn('box-shadow: none;', blocked_mirror_block)
         self.assertIn(
-            '.playerScreen .deckHand .active-deck:not(.blocked) '
+            '.playerBoard .deck-stack .active-deck:not(.blocked) '
             'button.draw:not(.blocked):not(:disabled).card-hover',
             cards_css,
         )
@@ -3492,8 +3572,10 @@ const holdTimers = [];
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -3501,8 +3583,10 @@ const lane = new FakeElement('li', 'lane Intelligence');
 lanesEl.appendChild(lane);
 lane.appendChild(new FakeElement('ul', 'hologramRow'));
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
 deckHand.scrollIntoView = () => {};
 
 const endTurnForm = new FakeElement('form', 'cardActionForm');
@@ -3625,7 +3709,7 @@ const focusIs = (element) => fakeDocument.activeElement === element;
 
 const buildDeckArea = (variant) => {
     const deckStack = new FakeElement('div', 'deck-stack own-deck-stack');
-    deckHand.appendChild(deckStack);
+    playerBoard.appendChild(deckStack);
     const deck = new FakeElement('ul', 'deck active-deck');
     deckStack.appendChild(deck);
     if (variant === 'empty') {
@@ -3645,6 +3729,10 @@ const buildDeckArea = (variant) => {
     return drawButton;
 };
 const resetActiveFocus = () => { fakeDocument.activeElement = null; rafCallbacks.length = 0; };
+const clearBoardAreas = () => {
+    deckHand.children = deckHand.children.filter((child) => child === handScroll);
+    playerBoard.children = playerBoard.children.filter((child) => child === lanesEl);
+};
 const flushTick = () => {
     for (const callback of rafCallbacks.splice(0)) callback();
 };
@@ -3673,7 +3761,7 @@ const instantiateLoading = () => {
     window.loadingAnimations = new window.loadingAnimations.constructor();
 };
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 window.location.pathname = '/game/1/board/2/action/';
 const flightCard = new FakeElement('li', 'cardContainer loading');
@@ -3695,7 +3783,7 @@ const sweepFlightDuplicates = () => {
 };
 sweepFlightDuplicates();
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 window.location.pathname = boardPath;
 const refreshedDrawButton = buildDeckArea('open');
@@ -3706,7 +3794,7 @@ assert('the plain board after a Space draw gives focus back to the draw button',
 assert('the restore consumed the staged focus return',
     drawFocusStored() === null);
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 const exhaustedDrawButton = buildDeckArea('blocked');
 sessionStorage.setItem(drawFocusKey, boardPath);
@@ -3715,7 +3803,7 @@ flushTick();
 assert('a spent draw button consumes the pending return without throwing',
     !focusIs(exhaustedDrawButton) && drawFocusStored() === null);
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 buildDeckArea('empty');
 sessionStorage.setItem(drawFocusKey, boardPath);
@@ -3723,7 +3811,7 @@ instantiateLoading();
 assert('a depleted deck consumes the pending return safely',
     !focusIs(fakeDocument.body) && drawFocusStored() === null);
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 window.location.pathname = '/game/7/board/3/';
 const otherGameDrawButton = buildDeckArea('open');
@@ -3733,7 +3821,7 @@ flushTick();
 assert('a focus return staged elsewhere never leaks into another game',
     !focusIs(otherGameDrawButton) && drawFocusStored() === null);
 
-deckHand.children = [];
+clearBoardAreas();
 resetActiveFocus();
 window.location.pathname = boardPath;
 const mouseDrawButton = buildDeckArea('open');
@@ -3787,7 +3875,7 @@ console.log('space draw focus round trip ok');
 
         self.assertIn('this.drawHold = new ShortcutHoldAction();', drag_js)
         self.assertIn("event.key.toLowerCase() === 'd'", drag_js)
-        self.assertIn("document.querySelector('.playerScreen .deckHand .active-deck')", drag_js)
+        self.assertIn("document.querySelector('.playerBoard .deck-stack .active-deck')", drag_js)
         self.assertIn("deck.querySelector('button.draw')", drag_js)
         self.assertIn("deck.querySelector('.emptyDeck')", drag_js)
         self.assertIn('this.remainingAllowances().draws <= 0', drag_js)
@@ -7557,8 +7645,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -7583,10 +7673,12 @@ const fieldCards = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const deckStack = new FakeElement('div', 'deck-stack own-deck-stack');
+playerBoard.appendChild(deckStack);
 const activeDeck = new FakeElement('ul', 'deck active-deck');
-deckHand.appendChild(activeDeck);
+deckStack.appendChild(activeDeck);
 const drawForm = new FakeElement('form', 'cardActionForm');
 activeDeck.appendChild(drawForm);
 const drawActionInput = new FakeElement('input');
@@ -7825,8 +7917,10 @@ const makeHiddenInput = (name, value) => {
     return input;
 };
 
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
 const holoRows = [];
@@ -7838,10 +7932,12 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const deckStack = new FakeElement('div', 'deck-stack own-deck-stack');
+playerBoard.appendChild(deckStack);
 const activeDeck = new FakeElement('ul', 'deck active-deck');
-deckHand.appendChild(activeDeck);
+deckStack.appendChild(activeDeck);
 const drawForm = new FakeElement('form', 'cardActionForm');
 activeDeck.appendChild(drawForm);
 drawForm.appendChild(makeHiddenInput('action', 'draw'));
@@ -8821,7 +8917,7 @@ console.log('keyboard-selected property focus lifecycle ok');
         self.assertIn('.playerScreen .lanes .cardContainer', navigator_class)
         self.assertIn('.playerScreen .end-turn', navigator_class)
         self.assertIn(
-            '.playerScreen .deckHand .active-deck button.draw',
+            '.playerBoard .deck-stack .active-deck button.draw',
             navigator_class,
         )
 
