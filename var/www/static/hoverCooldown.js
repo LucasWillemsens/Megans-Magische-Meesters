@@ -26,18 +26,6 @@ class CardHoverManager {
         return true;
     }
 
-    stop() {
-        if (this.onMouseMove) {
-            this.container.removeEventListener('mousemove', this.onMouseMove);
-            this.onMouseMove = null;
-        }
-        if (this.onMouseLeave) {
-            this.container.removeEventListener('mouseleave', this.onMouseLeave);
-            this.onMouseLeave = null;
-        }
-        this.clearAllHover();
-    }
-
     handleMouseMove(event) {
         const OnCoolDown = this.startedAt && (this.startedAt + HOVER_REMOVE_COOLDOWN_MS > Date.now());
         if (this.hoveredCard && !OnCoolDown) {

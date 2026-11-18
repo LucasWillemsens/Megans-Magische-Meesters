@@ -1300,10 +1300,6 @@ class CardDragDropSystem {
         return this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card);
     }
 
-    _isStagedGhost(card) {
-        return this._keyboardSelectionControl._isStagedGhost_Legacy(card);
-    }
-
     orderableKeyboardCards() {
         return this._keyboardSelectionControl.orderableKeyboardCards();
     }
@@ -1314,10 +1310,6 @@ class CardDragDropSystem {
 
     _isGhostFlipCandidate(card) {
         return this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card);
-    }
-
-    _stagedLaneForGhost(card) {
-        return this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card);
     }
 
     _handCardForId(cardId) {
@@ -1947,14 +1939,6 @@ class CardDragDropSystem {
         return false;
     }
 
-    onHandZoneDragOver(e) {
-        return false;
-    }
-
-    onHandZoneDragLeave(e) {
-        return false;
-    }
-
     onDropZoneClick(e) {
         if (!this.keyboardSelection.selectedCard) return;
         if (!this._keyboardActionAllowed(e)) return;
@@ -2324,11 +2308,6 @@ class CardDragDropSystem {
                 zone.classList.remove('drop-zone-active');
             }
         });
-    }
-
-    refresh() {
-        this.destroy();
-        this.init();
     }
 
     destroy() {

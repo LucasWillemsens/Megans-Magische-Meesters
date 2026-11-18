@@ -42,16 +42,6 @@ class PausableTimeout {
         if (index !== -1) this.tasks.splice(index, 1);
     }
 
-    cancel(task) {
-        if (!task) return;
-        task.cancelled = true;
-        if (task.timer !== null) {
-            window.clearTimeout(task.timer);
-            task.timer = null;
-        }
-        this._remove(task);
-    }
-
     cancelAll() {
         for (const task of [...this.tasks]) {
             task.cancelled = true;

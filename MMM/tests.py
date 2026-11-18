@@ -3000,13 +3000,6 @@ class BattleFlowTests(BattleBoardFixture):
         ]
         self.assertIn('this.releaseHover();', leave_block)
 
-        stop_block = hover_js[
-            hover_js.index('stop() {'):
-            hover_js.index('handleMouseMove(event) {')
-        ]
-        self.assertIn("removeEventListener('mousemove'", stop_block)
-        self.assertIn("removeEventListener('mouseleave'", stop_block)
-        self.assertIn('this.clearAllHover();', stop_block)
         teardown_block = hover_js[
             hover_js.index('clearAllHover() {'):
             hover_js.index("document.addEventListener('DOMContentLoaded'")
@@ -4568,19 +4561,11 @@ console.log('enemy deck play flight face ok');
         # implementations; back-compat probes still work against them.
         parent_class = drag_js[control_class_end:]
         self.assertIn(
-            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
-            parent_class,
-        )
-        self.assertIn(
             'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
             parent_class,
         )
         self.assertIn(
             'this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card)',
-            parent_class,
-        )
-        self.assertIn(
-            'this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card)',
             parent_class,
         )
         self.assertIn(
@@ -4666,10 +4651,6 @@ console.log('enemy deck play flight face ok');
         self.assertIn('this._predicates.isStagedGhost(card)', staged_wrapper)
 
         parent_class = drag_js[control_class_end:]
-        self.assertIn(
-            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
-            parent_class,
-        )
         self.assertIn(
             'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
             parent_class,
