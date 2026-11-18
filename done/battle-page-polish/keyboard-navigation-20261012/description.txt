@@ -21,7 +21,7 @@ The refactor (2) and persistence (1) are independent and can run in parallel. Ar
 ## Cross-references
 
 - Sibling `end-turn-focus-in-view-20261012` fixes a related focus issue (end-turn button focused but not in view on first paint). That fix lives in `loadingAnimations.js`; this parent lives in `cardDragDrop.js` and does not touch the end-turn focus call.
-- Sibling `hologram-flip-click-fix-20261012` is a soft dependency for `focus-arrow-bindings`: the flipped-face-down focus case relies on the new `dataset.stagedFlipped` guard.
+- Sibling `hologram-flip-click-fix-20261012` is a soft dependency for `focus-arrow-bindings`: the flipped-face-down focus case relies on the new `dataset.stagedFlipped` guard. [`hologram-flip-click-fix-20261012` never had a roadmap directory; its work - the `dataset.stagedFlipped` guard - landed directly in `var/www/static/cardDragDrop.js:422-424` inside `KeyboardSelectionControl._confirmGhostFlipSelection`.]
 
 ## Acceptance criteria (parent)
 

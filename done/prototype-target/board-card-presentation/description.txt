@@ -8,5 +8,5 @@ Implementation:
 
 Acceptance criteria:
 - [x] No `GameCard` database IDs appear in rendered board markup, attributes, or client-visible metadata for either participant or board region.
-- [x] Trusted cards are rotated 90 degrees for both participants without state/rule changes.
+- [x] Trusted cards are rotated 90 degrees for both participants without state/rule changes. [reverted by 3a3a814 - "revert board page + stylng"]
 - [x] Zoom is enabled by default, enlarges cards in-page on hover, can be disabled for the session, and can be exited accessibly; it never uses overlay/browser fullscreen.

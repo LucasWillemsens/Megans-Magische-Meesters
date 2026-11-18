@@ -1,4 +1,4 @@
-Player lanes cannot overflow into the enemy board: overflow cards are clipped because `.playerScreen` and `ul.lanes` are hard-capped at fixed heights and the player board can never grow vertically.
+Player lanes cannot overflow into the enemy board: overflow cards are clipped because `.playerScreen` and `ul.lanes` are hard-capped at fixed heights and the player board can never grow vertically. (Verified implemented: all four height caps are gone from `cards.css` - `.playerScreen > ul`, `.playerScreen .playerBoard`, `li.playerBoard > ul.basic-mat` (now a flex column), and `ul.lanes` - pinned by `test_lane_heights_stretch_equal_across_board` and `test_player_board_grows_with_lanes_deckhand_pinned` in `MMM/tests.py`; the line-pinned inventory below predates the current stylesheet.)
 
 ## Behavior
 
@@ -68,4 +68,4 @@ The existing `test_lane_overflow_splits_rows_without_merging_back` (lines 2250â€
 ## Dependencies
 
 - Prefers landing together with `horizontal-lane-spread-20261012` (both touch `cards.css`).
-- Independent of `keyboard-navigation-20261012`, `end-turn-focus-in-view-20261012`, `hologram-flip-click-fix-20261012`.
+- Independent of `keyboard-navigation-20261012`, `end-turn-focus-in-view-20261012`, `hologram-flip-click-fix-20261012` (which never had a roadmap directory; its `dataset.stagedFlipped` guard landed directly in `var/www/static/cardDragDrop.js:422-424`).

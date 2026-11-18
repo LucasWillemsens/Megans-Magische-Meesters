@@ -37,12 +37,24 @@ Current state captured: a working human-vs-bot match loop (create challenge → 
 
 ### Prototype target
 
-Define the prototype target for the project: a reliable 1v1 demo with clear visuals, a readable match flow, and a polished battle experience. Deployment requirements
+Extend the demo's scenarios and team deck setup with the deferred tutorial and premade-deck work.
+
+- [x] Keep the battle board usable and make Space/Enter end-turn behave like e. Objective: board controls and lanes remain reachable while animations resolve, with no unintended submit on key release during loading.
+- [x] Finish board card presentation. Objective: hide internal card identifiers, distinguish trusted cards, and provide default-on optional in-page zoom.
+- [x] Provide the demo's game-action API and usable API documentation. Objective: let demo users perform supported actions, including resetgames, through documented JSON endpoints.
+- [x] Restore existing pages before adding prototype flow. Objective: verify current landing/player/game/board/result paths render and retain existing match interactions.
+- [ ] Replace the team's current random 10-card selection from Lucas's collection with a premade deck.
+- [x] Implement the demo's title, team, deck, and scenario flow (tutorial deferred). Objective: navigate from the title into the correct named game and allow the selected team identity and deck to persist, with the specified greeting variants.
+- [ ] Replace the deferred tutorial with a custom scenario where the player meets Megan.
 
 ### Top priority: Battle page polish
 
-- [ ] Battle page focus & flip bugfixes (2026-09-14)
+Polish the battle page to make the game feel responsive, readable, and exciting.
+
+- [x] Player lanes cannot overflow into the enemy board: overflow cards are clipped because `.playerScreen` and `ul.lanes` are hard-capped at fixed heights and the player board can never grow vertically. (Verified implemented: all four height caps are gone from `cards.css` - `.playerScreen > ul`, `.playerScreen .playerBoard`, `li.playerBoard > ul.basic-mat` (now a flex column), and `ul.lanes` - pinned by `test_lane_heights_stretch_equal_across_board` and `test_player_board_grows_with_lanes_deckhand_pinned` in `MMM/tests.py`; the line-pinned inventory below predates the current stylesheet.)
+- [x] The end-turn button is focused when the player phase starts, but the focused button can end up off-screen because the deckHand `scrollIntoView` race-conditions with the focus call. (Verified implemented: `loadingAnimations.js` now gates the deckHand `scrollIntoView` and the end-turn `focus({ preventScroll: true })` on prior `.loading` elements inside the `phase === 'player'` branch - the non-smooth scrolls sit at lines 304 and 381 - so the first-paint `autofocus` lands undisturbed.)
 - [x] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.
+- [x] The four player lanes are too narrow: at 56% field width with 14% horizontal padding on each side, only ~5 cards fit per row before the lane-stacking JS adds an overflow row. The field should be wider so each lane fits ~9 cards per row on a 1920px monitor. (Verified implemented: `ul.lanes` now spans 82vw with `flex: 1` lanes, `MAX_CARDS_PER_ROW = 25`, cardContainer `nth-child` offsets through 25 and hologram `nth-child` through 25 - the pinned 56%-width starting state no longer exists, and the line-pinned inventory below predates the landing.)
 
 #### Defer Enemy Turn Calculation
 
@@ -67,6 +79,16 @@ Animate drawn cards flying from the top of the deck into the player's and enemy'
 - [x] Teach duplicateCard() the player's deck source so a drawn card's clone starts at the top of the deck stack and flies into its hand slot, showing the card back during the flight - mirroring the enemy draw animation that already works.
 - [x] Stop viewBoard() from redirecting to the result page mid-sequence: game-ending actions render their animations, the turn-phase chain plays out ("move through the turns and move cards over until special moves play"), and the final JS navigation targets /result/ instead of the board.
 - [x] Record the player's draw in boardAction() as a first-class play with the deck card as animation source, so the drawn hand card renders loading with a negative data-source-lane (mirroring the existing bot draw flow).
+
+#### Keyboard Navigation 20261012
+
+Comprehensive keyboard navigation on the battle board. This parent groups the JS keyboard machinery rewrite, the last-focused hand card persistence, the focus-driven hover-arrow bindings, and the backtick debug overlay.
+
+- [x] Wire ArrowUp/Down/Left/Right to move focus between the four regions on the board: hand cards, field cards, end-turn button, draw button. Integrates the persisted `data-focused-hand-card` slot and the new `KeyboardSelectionControl.navigate` API.
+- [x] Verify the existing backtick debug overlay and lock its player-facing behavior in with tests: the backquote key toggles the debug counters on the player deck/hand, the enemy deck/hand, and each lane. (Verified implemented 2026-11-18: the backquote branch at `cardDragDrop.js:1527-1537` guards `_isTextControlTarget`, calls `event.preventDefault()` and `toggleDebugParagraphOverlay()` (lines 1709-1714), which toggles `debug-overlay-visible` on `.playerScreen .deckHand > p`, `.playerScreen .enemyDeckHand > p`, and `.playerScreen .lanes .lane > p`; the counter paragraphs ship with class `debug-overlay`, hidden by default and shown by `.debug-overlay-visible` in `cards.css`, with the enemy counter inside `<div class="enemyDeckHand">` (option A); `BattlePagePolishBacktickOverlayTests` at `MMM/tests.py:10794` locks the keydown branch, the text-control guard, the CSS rule, and the rendered targets in.)
+- [x] Wire focus delegation so the new `KeyboardSelectionControl` shows the curved arrow on `focusin` for: (a) a played hand card, (b) a selected ghost of a played card, (c) a flipped face-down lane card. Fill in the `onFocusIn` / `onFocusOut` stubs left by `keyboard-selection-control-refactor-20261012`.
+- [x] Extract a cohesive `KeyboardSelectionControl` class in `var/www/static/cardDragDrop.js` that owns the keyboard selection state, the per-card predicates, the focusin/focusout hook points, and the public selection API. `CardDragDropSystem` retains its public API surface and delegates selection to the new control.
+- [x] Remember the player's last selected hand-card ordinal across turns and reloads; Escape cancels selection and restores focus to that card, and Left/Right cycle through selectable hand cards again.
 
 #### Lane Card Stacking
 
@@ -204,6 +226,17 @@ Any setting like this should be stored as a rule in a new database table called 
 
 UX and accessibility close-out: every child goal under this tree is implemented, tested, and verified in the browser (PR #24). This single file replaces the per-goal directories.
 
+### Agent Loops
+
+Agent loops that apply the rules, PR-analysis and goal frameworks so the user is not bothered with small issues and can focus on playing the latest version of the game, giving feedback and writing PR comments.
+
+- [ ] Run the agent workflow continuously without a human trigger, choosing the highest-priority unblocked goal and continuing while PRs await merge.
+- [ ] Provide the agent-loop dashboard on the test environment, surfacing PR status, decisions, problems, and concise agent-health signals from existing artefacts and integrations.
+- [ ] Agents execute decisions at propose level; a new critic independently challenges each proposal and co-owns outcomes it approves.
+- [ ] Provide read-only outcome and pacing integrations for GitHub, the opencode go console, and Google Calendar free/busy; Calendar scopes remain deferred and are not a prerequisite for other integrations.
+- [ ] Deploy each eligible same-repository PR branch to an isolated playable test environment at https://pr-<number>.paintedpillars.com/. Objective and end-to-end test: open a PR, push a commit, and verify its isolated database, tests, play URL, and status update; a fork PR must never execute on the host.
+- [ ] Allow the user to drag and drop goal priorities on the dashboard and dynamically steer agents through the root `STEERING.md`.
+
 ### Battle Interaction
 
 Battle board rendering and the cookie-driven play/flip/animation system. Template: MMM/jinja2/MMM/battle/viewBoard.jinja2. Frontend: var/www/static/cardDragDrop.js, cardDragDrop.css, loadingAnimations.js, cards.css.
@@ -239,23 +272,11 @@ Turn rules, lane stats, special actions, bot turns, and win detection. Lives in 
 - [x] Per-turn counters on BattleParticipant gate actions: draws limited to intCount+1 (shrinks when over-playing speed), face-up flips to spdCount+1 (shrinks when over-playing intelligence), plays to 2+tactics minus cards already drawn/flipped. Exceeding a limit raises an exception that surfaces as an on-board error message. resetTurn() zeroes the counters on end turn.
 - [x] _game_result() ends a free-for-all game when at most one participant is neither fled nor defeated; the last active participant wins, everyone fleeing counts as a draw. viewBoard redirects to viewResult once finished; viewResult (battle/viewResult.jinja2) shows winners/losers/draw, the participant list, and a Play again link back to the player page.
 
-### Hologram Row
-
-Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.
-
 ### Test Coverage
 
 Automated tests for the battle flow, all passing via `python3 manage.py test`.
 
 - [x] MMM/tests.py BattleFlowTests (4 tests, passing): challenge confirm is idempotent (no duplicate GameCards), drawing never duplicates hand cards, the play-cookie JSON payload parses source lane/ordinal correctly, and end_turn advances roundNumber while the bot plays a card.
-
-### Turn Affordances
-
-Display clear turn affordances for draw, play, and flip actions so the player understands what they can do and why. Use the existing stats calculation and subtract plays already made by user. Grey out the moves the player can't make anymore this turn: no more draw -> grey out deck. No more flip -> grey out cards in lanes. No more plays -> grey out cards in hand and tilt them slightly upwards. Add a blocked mouse pointer on hover of these elements. Hide the ugly text and numbers from sight (but keep them for testing).
-
-- [x] Grey out the deck, hand cards and face-down lane cards when their action budget is exhausted — with `cursor: not-allowed` on hover and rule-teaching tooltips ("Draw limit reached (Intelligence + 1 per turn)") — tilt blocked hand cards slightly upwards, hide the d/p/f counter text (kept in DOM for tests), and make the server-rendered blocked state non-interactive.
-- [x] Keep the affordances truthful while the player stages cookie plays/flips client-side: `cardDragDrop.js` tracks staged plays/flips against the `#turnLimits` budgets (same formulas), blocks the hand/lane cards/deck the moment a budget runs out mid-turn, and refuses new drags/flips once blocked.
-- [x] Compute remaining draw/play/flip allowances from the existing getStats() turn-limit formulas, expose them to the board template as a hidden #turnLimits data block (the backend→frontend contract for all affordance work), and pin parity with the enforcement checks in drawCard()/playCard().
 
 ### Web Flow
 
