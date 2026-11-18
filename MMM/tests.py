@@ -1451,7 +1451,12 @@ class BattleFlowTests(BattleBoardFixture):
         )
         self.assertIsNotNone(enemy_section)
         self.assertIn("emptyDeck", enemy_section.group(1))
-        self.assertNotIn("<button", enemy_section.group(1))
+        for button_tag in re.findall(r'<button[^>]*>', enemy_section.group(1)):
+            self.assertIn(
+                'disabled', button_tag,
+                "the enemy section may only carry inert controls; the empty deck "
+                "must not gain an active button",
+            )
 
     def test_deck_animation_and_draw_selectors_use_active_deck_only(self):
         import os
@@ -1803,7 +1808,11 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIsNotNone(enemy_deck_hand)
         block = enemy_deck_hand.group(1)
         self.assertNotIn("<form", block)
-        self.assertNotIn("<button", block)
+        for button_tag in re.findall(r'<button[^>]*>', block):
+            self.assertIn(
+                'disabled', button_tag,
+                "the enemy deck and hand may only carry inert controls",
+            )
         self.assertNotIn("draggable", block)
         self.assertNotIn("data-card-id", block)
 
@@ -1815,7 +1824,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertNotIn('tabindex', enemy_section.group(1))
         
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL
         )
         self.assertIsNotNone(own_board)
@@ -1873,7 +1882,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('data-flips-left="0"', content)
 
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -3312,8 +3321,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -3327,8 +3338,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -3940,7 +3951,7 @@ console.log('space draw focus round trip ok');
         content = response.content.decode()
 
         player_board = re.search(
-            r'<li class="playerBoard\s*"[^>]*>.*?</li>\s*</ul>\s*<div class="deckHand">',
+            r'<li class="playerBoard[^>]*>.*?(?=<div class="deckHand)',
             content, re.DOTALL
         )
         self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")
@@ -4032,7 +4043,7 @@ console.log('space draw focus round trip ok');
         with open(os.path.join(static_dir, 'cards.css')) as css_file:
             cards_css = css_file.read()
 
-        lanes_rule = re.search(r'ul\.lanes\s*\{[^}]*\}', cards_css)
+        lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
         self.assertIsNotNone(lanes_rule, "ul.lanes rule missing from cards.css")
         lanes_body = lanes_rule.group(0)
         self.assertIn('display: flex', lanes_body)
@@ -4114,27 +4125,27 @@ console.log('space draw focus round trip ok');
             "div.playerScreen must lay out children vertically"
         )
 
-        deck_hand_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*\{[^}]*\}', cards_css
+        player_table_rule = re.search(
+            r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
         )
-        self.assertIsNotNone(deck_hand_rule, ".playerScreen .deckHand rule missing from cards.css")
-        deck_hand_body = deck_hand_rule.group(0)
-        self.assertIn(
-            'margin-top: auto', deck_hand_body,
-            ".playerScreen .deckHand must use margin-top: auto to pin itself to the "
-            "column bottom regardless of how tall the playerBoard above grows"
+        self.assertIsNotNone(
+            player_table_rule,
+            ".playerScreen > ul:not(.enemyBoards) rule missing from cards.css"
         )
         self.assertIn(
-            '--hand-row-height', deck_hand_body,
-            ".playerScreen .deckHand must declare --hand-row-height so child rows "
-            "keep a fixed visible size"
+            'position: fixed', player_table_rule.group(0),
+            "the player table holding the playerBoard and the deckHand must stay "
+            "anchored to the bottom of the screen so the deckHand stays pinned "
+            "regardless of how tall the playerBoard above grows"
+        )
+        self.assertIn(
+            'bottom: 0', player_table_rule.group(0),
+            "the player table must pin itself to the screen bottom"
         )
 
         deck_hand_children_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck-stack\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll,\s*'
             r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-fan\s*\{[^}]*\}',
             cards_css,
         )
@@ -4144,9 +4155,14 @@ console.log('space draw focus round trip ok');
         )
         self.assertIn(
             'height: var(--hand-row-height)', deck_hand_children_rule.group(0),
-            "deckHand child rows must keep a fixed height of var(--hand-row-height) "
-            "so the deck stack / hand fan / end-turn button stay the same visible "
-            "size as the playerBoard grows above them"
+            "deckHand hand rows must keep a fixed height of var(--hand-row-height) "
+            "so the hand fan / end-turn button stay the same visible size as the "
+            "playerBoard grows above them"
+        )
+        self.assertIsNotNone(
+            re.search(r'--hand-row-height\s*:', cards_css),
+            "cards.css must declare --hand-row-height so deckHand rows keep a "
+            "fixed visible size"
         )
 
     def test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope(self):
@@ -4601,7 +4617,7 @@ console.log('enemy deck play flight face ok');
         response = self.client.get(board_url)
         content = response.content.decode()
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -4694,7 +4710,7 @@ console.log('enemy deck play flight face ok');
         response = self.client.get(board_url)
         content = response.content.decode()
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -4901,6 +4917,13 @@ global.MutationObserver = function () {
     this.disconnect = () => {};
 };
 
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
 const dragCode = __DRAG_JS__;
 eval(dragCode);
 (documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
@@ -4912,10 +4935,6 @@ const flipCardSecond = makeFaceDownFieldCard(563);
 const flipCardUnflipped = makeFaceDownFieldCard(565);
 const stagedPlayClone = makeStagedPlayGhost(700);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
-const handList = new FakeElement('ul', 'hand');
-deckHand.appendChild(handList);
 const handGhost = new FakeElement('li', 'cardContainer ghost');
 handGhost.dataset.stagedLane = '2';
 handGhost.appendChild(makeHiddenIdInput(700));
@@ -5067,8 +5086,8 @@ unrelatedFaceDownCard.appendChild(makeHiddenIdInput(565));
 unrelatedFaceDownCard.appendChild(new FakeElement('div', 'card back smallCard'));
 cardRow.appendChild(unrelatedFaceDownCard);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -5642,8 +5661,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -5657,8 +5678,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -6215,6 +6236,7 @@ console.log('hand click then lane click ordinal flow ok');
             '    querySelector(selector) {',
             "        if (selector === '.playerBoard') return fakePlayerBoard;",
             "        if (selector === '.playerScreen') return fakePlayerScreen;",
+            "        if (selector === '.basic-mat.table > .deckHand.handContainer .hand-scroll') return makeElement(\"div\");",
             '        return null;',
             '    },',
             '    querySelectorAll() { return []; },',
@@ -6513,6 +6535,7 @@ const fakeDocument = {
     querySelector(selector) {
         if (selector === '.playerBoard') return fakePlayerBoard;
         if (selector === '.playerScreen') return fakePlayerScreen;
+        if (selector === '.basic-mat.table > .deckHand.handContainer .hand-scroll') return makeElement('div');
         const sourceMatch = selector.match(/data-source-card-id="([^"]+)"/);
         if (sourceMatch) {
             const holograms = holoRows.flatMap((row) => row.children);
@@ -6888,8 +6911,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -6914,8 +6939,8 @@ const fieldCards = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -7359,8 +7384,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const screenFocusListeners = { focusin: [], focusout: [] };
 playerScreen.addEventListener = (name, handler, capture) => {
@@ -7392,8 +7419,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -8442,8 +8469,8 @@ const cardD = makeFocusableFieldCard(
     604,
 );
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -8701,8 +8728,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -8727,8 +8756,8 @@ const fieldCards = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -9444,8 +9473,8 @@ trustedCard.appendChild(makeHiddenInput('card_id', 550));
 trustedRow.appendChild(trustedCard);
 placeCard(trustedCard, 400, 60);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
