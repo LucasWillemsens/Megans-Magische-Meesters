@@ -1650,8 +1650,6 @@ button.draw{
     content: none !important;
 }
 
-.debug-overlay,
-.debug-overlay,
 .debug-overlay{
     display:none;
     position: absolute;
@@ -1660,8 +1658,6 @@ button.draw{
     padding: 0.25rem 0.5rem;
     border: 1px solid #000;
 }
-.debug-overlay-visible,
-.debug-overlay-visible,
 .debug-overlay-visible {
     display:block;
 }
