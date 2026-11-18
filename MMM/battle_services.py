@@ -176,7 +176,6 @@ def run_specials(participant, timeline=None):
 
 def run_int_special(participant, count, timeline=None):
     from MMM.special_timeline import build_int_timeline
-    print(f"{participant.player.name} enacts master plan (max {count} cards)")
     hand_cards = list(GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0))
     random.shuffle(hand_cards)
     chosen = hand_cards[:min(count, len(hand_cards))]
@@ -196,25 +195,14 @@ def run_spd_special(participant, speed, power, opponent_id=None, timeline=None):
         return ""
     opponent_int, opponent_spd, opponent_vis, opponent_res, opponent_tactics, opponent_power, opponent_influence = opponent.getStats()
 
+    steps = timeline if timeline is not None else []
     if opponent_power < power:
-        print(f"{participant.player.name} rushes down {opponent.player.name}")
-        if timeline is not None:
-            build_spd_timeline(participant, speed, power, opponent, timeline)
-        else:
-            run_specials(opponent)
+        response = build_spd_timeline(participant, speed, power, opponent, steps)
         run_specials(opponent, timeline)
-    else:
-        if opponent_spd < speed:
-            print(f"{participant.player.name} flees from {opponent.player.name} and steals a card")
-            participant.flee()
-            if timeline is not None:
-                build_spd_timeline(participant, speed, power, opponent, timeline)
-            return f"{participant.id} fled from {opponent.id}"
-        else:
-            print(f"{participant.player.name} fails to flee from {opponent.player.name}")
-            if timeline is not None:
-                build_spd_timeline(participant, speed, power, opponent, timeline)
-    return ""
+        return response
+    if opponent_spd < speed:
+        participant.flee()
+    return build_spd_timeline(participant, speed, power, opponent, steps)
 
 
 def run_vis_special(participant, viciousness, opponent_id=None, timeline=None):
@@ -230,35 +218,25 @@ def run_vis_special(participant, viciousness, opponent_id=None, timeline=None):
     new_trusted_res_cards = get_trustable_cards(participant, [4])
     if len(new_trusted_res_cards) > 0:
         new_trusted_res_card = new_trusted_res_cards[0]
-    outcome = None
     if new_trusted_res_card is None:
-        response = f"{participant.player.name} drains the last of their resolve and is defeated"
         outcome = "drain"
-        print(response)
         participant.defeated = True
         participant.save()
     elif opponent_res < viciousness:
-        response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({viciousness} > {opponent_res})"
         outcome = "win"
-        print(response)
         opponent.defeated = True
         opponent.save()
     else:
-        response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({viciousness} <= {opponent_res})"
         outcome = "fail"
-        print(response)
-        response = ""
     if new_trusted_res_card is not None:
         new_trusted_res_card.state.trust()
         new_trusted_res_card.state.save()
-    if timeline is not None:
-        build_vis_timeline(participant, viciousness, opponent, timeline, outcome, new_trusted_res_card)
-    return response
+    steps = timeline if timeline is not None else []
+    return build_vis_timeline(participant, viciousness, opponent, steps, outcome, new_trusted_res_card)
 
 
 def run_res_special(participant, count, timeline=None):
     from MMM.special_timeline import build_res_timeline
-    print(f"{participant.player.name} holds and trusts up to {count} cards")
     new_cards = get_trustable_cards(participant)
     chosen_ids = []
     if new_cards:
