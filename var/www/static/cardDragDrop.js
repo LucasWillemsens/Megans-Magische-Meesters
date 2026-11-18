@@ -1030,7 +1030,7 @@ class CardDragDropSystem {
         if (this.remainingAllowances().plays <= 0) return;
         state.hoveredLaneValue = laneValue;
         if (state.hologram?.parentNode) state.hologram.remove();
-        const dropZone = this.dropZones.get(laneValue)?.element;
+        const dropZone = this.dropZones.get(laneValue-1)?.element;
         const holoRow = dropZone?.closest('li.lane')?.querySelector('.hologramRow');
         if (!holoRow) return;
         const hologram = this._buildPlayHologram(state.selectedCard, laneValue, true, state.rotation);
