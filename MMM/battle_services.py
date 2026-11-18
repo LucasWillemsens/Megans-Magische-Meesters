@@ -195,22 +195,14 @@ def run_spd_special(participant, speed, power, opponent_id=None, timeline=None):
         return ""
     opponent_int, opponent_spd, opponent_vis, opponent_res, opponent_tactics, opponent_power, opponent_influence = opponent.getStats()
 
+    steps = timeline if timeline is not None else []
     if opponent_power < power:
-        if timeline is not None:
-            build_spd_timeline(participant, speed, power, opponent, timeline)
-        else:
-            run_specials(opponent)
+        response = build_spd_timeline(participant, speed, power, opponent, steps)
         run_specials(opponent, timeline)
-    else:
-        if opponent_spd < speed:
-            participant.flee()
-            if timeline is not None:
-                build_spd_timeline(participant, speed, power, opponent, timeline)
-            return f"{participant.id} fled from {opponent.id}"
-        else:
-            if timeline is not None:
-                build_spd_timeline(participant, speed, power, opponent, timeline)
-    return ""
+        return response
+    if opponent_spd < speed:
+        participant.flee()
+    return build_spd_timeline(participant, speed, power, opponent, steps)
 
 
 def run_vis_special(participant, viciousness, opponent_id=None, timeline=None):
@@ -226,27 +218,21 @@ def run_vis_special(participant, viciousness, opponent_id=None, timeline=None):
     new_trusted_res_cards = get_trustable_cards(participant, [4])
     if len(new_trusted_res_cards) > 0:
         new_trusted_res_card = new_trusted_res_cards[0]
-    outcome = None
     if new_trusted_res_card is None:
-        response = f"{participant.player.name} drains the last of their resolve and is defeated"
         outcome = "drain"
         participant.defeated = True
         participant.save()
     elif opponent_res < viciousness:
-        response = f"{participant.player.name} attacks and defeats {opponent.player.name} ({viciousness} > {opponent_res})"
         outcome = "win"
         opponent.defeated = True
         opponent.save()
     else:
-        response = f"{participant.player.name} attacks {opponent.player.name} unsuccesfully ({viciousness} <= {opponent_res})"
         outcome = "fail"
-        response = ""
     if new_trusted_res_card is not None:
         new_trusted_res_card.state.trust()
         new_trusted_res_card.state.save()
-    if timeline is not None:
-        build_vis_timeline(participant, viciousness, opponent, timeline, outcome, new_trusted_res_card)
-    return response
+    steps = timeline if timeline is not None else []
+    return build_vis_timeline(participant, viciousness, opponent, steps, outcome, new_trusted_res_card)
 
 
 def run_res_special(participant, count, timeline=None):
@@ -333,15 +319,6 @@ def _ordered_lane_cards(cards):
     return sorted(cards, key=lambda card: (card.state.laneOrdinal, card.id))
 
 
-def _lane_row(name, cards):
-    return {
-        "name": name,
-        "value": len([revealedCard for revealedCard in cards if not revealedCard.state.faceDown]),
-        "cards": _ordered_lane_cards([card for card in cards if card.state.trusted == False]),
-        "trustedCards": _ordered_lane_cards([card for card in cards if card.state.trusted == True]),
-    }
-
-
 def _deck_stack_key(card):
     return card.state.lane, -card.id
 
@@ -404,12 +381,10 @@ def context_board(game_cards, participant_id):
         "handCards": hand_cards,
         "handFans": chunk_hand_cards(hand_cards),
         "handCount": len(hand_cards),
-        "laneRows": [
-            _lane_row("Intelligence", intelligence_cards),
-            _lane_row("Speed", speed_cards),
-            _lane_row("Visciousness", visciousness_cards),
-            _lane_row("Resolve", resolve_cards),
-        ],
+        "laneRows": [{"name": "Intelligence", "value": len([revealedCard for revealedCard in intelligence_cards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in intelligence_cards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in intelligence_cards if card.state.trusted == True])},
+        {"name": "Speed", "value": len([revealedCard for revealedCard in speed_cards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in speed_cards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in speed_cards if card.state.trusted == True])},
+        {"name": "Visciousness", "value": len([revealedCard for revealedCard in visciousness_cards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in visciousness_cards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in visciousness_cards if card.state.trusted == True])},
+        {"name": "Resolve", "value": len([revealedCard for revealedCard in resolve_cards if not revealedCard.state.faceDown]), "cards": _ordered_lane_cards([card for card in resolve_cards if card.state.trusted == False]), "trustedCards": _ordered_lane_cards([card for card in resolve_cards if card.state.trusted == True])}],
         "deckCount": len(deck_cards),
         "deckStack": deck_stack,
         "deckIndicators": deck_indicators,
