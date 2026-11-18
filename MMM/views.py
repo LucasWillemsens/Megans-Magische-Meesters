@@ -37,7 +37,6 @@ from .models import (
     Player,
 )
 
-BASE_URL = "http://127.0.0.1:8000/"
 TURN_PHASE_COOKIE = "turn_phase"
 CARD_ZOOM_SESSION_KEY = "card_zoom"
 OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
@@ -141,7 +140,6 @@ def index(request):
         "latest_cards_list": Card.objects.order_by("title")[:5],
         "players": Player.objects.order_by("name"),
         "assestsDir": "MMM/",
-        "landingPage": BASE_URL,
     }
     return _render(request, "MMM/index.jinja2", context)
 
@@ -172,7 +170,7 @@ def viewPlayer(request, player_id):
         "activeSort": active_sort,
         "challenges": challenges,
         "assestsDir": "MMM/",
-        "returnURL": BASE_URL,
+        "returnURL": reverse("MMM:home"),
         "error_message": "",
     }
     return _render(request, "MMM/viewPlayer.jinja2", context)
@@ -206,12 +204,14 @@ def _enrich_challenge(history, player_id):
         # result page when finished); non-participant/pending rows fall back to
         # the game page because viewBoard requires a matching participant row.
         "boardUrl": (
-            f"{BASE_URL}game/{game.id}/board/{player_id}/"
+            reverse("MMM:viewBoard", args=(game.id, player_id))
             if game is not None and is_participant
             else None
         ),
         "gameUrl": (
-            f"{BASE_URL}game/{game.id}/{player_id}/" if game is not None else None
+            reverse("MMM:viewGameAsPlayer", args=(game.id, player_id))
+            if game is not None
+            else None
         ),
     }
 
@@ -288,7 +288,7 @@ def viewCard(request, card_id):
         "cardType": [lane.name for lane in CardType][card.cardType],
         "symbols": [],
         "assestsDir": "MMM/",
-        "returnURL": BASE_URL,
+        "returnURL": reverse("MMM:home"),
         "error_message": "",
     }
     return _render(request, "MMM/viewCard.jinja2", context)
@@ -303,8 +303,7 @@ def viewGame(request, game_id):
         "challenger": game.history.challenger,
         "battlers": game.history.participants.all(),
         "assestsDir": "MMM/",
-        "submitUrl": f"{BASE_URL}game/",
-        "returnURL": BASE_URL,
+        "returnURL": reverse("MMM:home"),
         "error_message": "",
     }
     return _render(request, "MMM/viewGame.jinja2", context)
@@ -323,8 +322,8 @@ def viewGameAsPlayer(request, game_id, player_id):
         "challenger": game.history.challenger,
         "battlers": game.history.participants.all(),
         "assestsDir": "MMM/",
-        "submitUrl": f"{BASE_URL}game/{game.id}/{player_id}/confirm",
-        "returnURL": BASE_URL,
+        "submitUrl": reverse("MMM:confirmChallenge", args=(game.id, player_id)),
+        "returnURL": reverse("MMM:home"),
         "error_message": "",
     }
     return _render(request, "MMM/viewGame.jinja2", context)
@@ -341,8 +340,8 @@ def createGame(request, player_id):
         "decks": Deck.objects.filter(player_id=player_id),
         "players": Player.objects.exclude(id=player_id),
         "assestsDir": "MMM/",
-        "submitUrl": f"{BASE_URL}game/initialize/",
-        "returnURL": f"{BASE_URL}player/{player_id}/",
+        "submitUrl": reverse("MMM:initializeGame"),
+        "returnURL": reverse("MMM:viewPlayer", args=(player_id,)),
         "error_message": "",
     }
     return _render(request, "MMM/createGame.jinja2", context)
@@ -466,7 +465,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "game": game,
         "assestsDir": "MMM/",
         "error_message": error_message,
-        "actionUrl": f"{BASE_URL}game/{game.id}/board/{player_id}/action/",
+        "actionUrl": reverse("MMM:boardAction", args=(game.id, player_id)),
         "handCards": own_board["handCards"],
         "handFans": own_board["handFans"],
         "ownLaneRows": own_board["laneRows"],
@@ -557,7 +556,7 @@ def viewResult(request, game_id, player_id):
         "lastParticipants": last_participants,
         "result": win and "winners" or "losers",
         "participants": game.history.participants.all(),
-        "playAgainUrl": f"{BASE_URL}player/{player_id}/",
+        "playAgainUrl": reverse("MMM:viewPlayer", args=(player_id,)),
     }
     return _render(request, "MMM/battle/viewResult.jinja2", context)
 

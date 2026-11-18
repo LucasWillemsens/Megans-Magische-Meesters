@@ -867,7 +867,7 @@ class BattleFlowTests(BattleBoardFixture):
             f'{playing_card_suit_class(generated_card)}"',
             content,
         )
-        self.assertIn(f'href="http://127.0.0.1:8000/card/{generated_card.id}/"', content)
+        self.assertIn(f'href="{reverse("MMM:viewCard", args=[generated_card.id])}"', content)
         self.assertNotIn("/static/1flubeltje.jpg", content)
         self.assertNotIn("class=\"cardTitle\">Two of Clubs", content)
         self.assertIn("Intelligence", content)
@@ -10056,7 +10056,7 @@ class PlayerPageTests(TestCase):
         response = self.client.get(reverse("MMM:viewPlayer", args=[challenger.id]))
         content = response.content.decode()
 
-        expected_url = f"http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/"
+        expected_url = reverse("MMM:viewBoard", args=[game.id, challenger.id])
         self.assertContains(
             response,
             f'<a class="challenge-card-link" href="{expected_url}" draggable="false">',
@@ -10131,7 +10131,7 @@ class PlayerPageTests(TestCase):
             self.assertContains(
                 response,
                 '<a class="challenge-card-link" '
-                f'href="http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/" '
+                f'href="{reverse("MMM:viewBoard", args=[game.id, challenger.id])}" '
                 'draggable="false">',
             )
             self.assertContains(
@@ -10271,7 +10271,6 @@ class PlayerPageTests(TestCase):
         first_card, _ = self._create_owned_card(player, "Zulu")
         second_card, _ = self._create_owned_card(player, "Alpha")
         player_url = reverse("MMM:viewPlayer", args=[player.id])
-        absolute_player_url = f"http://127.0.0.1:8000{player_url}"
 
         default_response = self.client.get(player_url)
         invalid_response = self.client.get(player_url + "?sort=unsupported")
@@ -10288,7 +10287,7 @@ class PlayerPageTests(TestCase):
             default_response,
             'class="collection-sort-control is-active"',
         )
-        self.assertContains(default_response, f'href="{absolute_player_url}"')
+        self.assertContains(default_response, f'href="{player_url}"')
         self.assertContains(
             default_response,
             'aria-current="true">Default',
@@ -10300,7 +10299,7 @@ class PlayerPageTests(TestCase):
         ):
             self.assertContains(
                 default_response,
-                f'href="{absolute_player_url}?sort={sort_key}"',
+                f'href="{player_url}?sort={sort_key}"',
             )
             self.assertContains(default_response, label)
             sorted_response = self.client.get(player_url + f"?sort={sort_key}")
@@ -10311,7 +10310,7 @@ class PlayerPageTests(TestCase):
             self.assertContains(sorted_response, f'aria-current="true">{label}')
         self.assertContains(
             invalid_response,
-            f'href="{absolute_player_url}?sort=name"',
+            f'href="{player_url}?sort=name"',
         )
         self.assertContains(
             invalid_response,
@@ -12279,7 +12278,7 @@ class DemoNavigationTests(TestCase):
         self.assertEqual(admin_root.count('class="backlink"'), 1)
         self.assertIn(f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>', admin_root)
 
-        entry_backlink = f'<a class="backlink" href="{views.BASE_URL}">back</a>'
+        entry_backlink = f'<a class="backlink" href="{reverse("MMM:home")}">back</a>'
         for page_url in (
             reverse("MMM:viewPlayer", args=[self.lucas.id]),
             reverse("MMM:viewCard", args=[self.lucas_card_ids[0]]),
@@ -12290,7 +12289,7 @@ class DemoNavigationTests(TestCase):
 
         started_challenge = self.client.get(reverse("MMM:createGame", args=[self.lucas.id])).content.decode()
         self.assertEqual(started_challenge.count('class="backlink"'), 1)
-        self.assertIn(f'<a class="backlink" href="{views.BASE_URL}player/{self.lucas.id}/">back</a>', started_challenge)
+        self.assertIn(f'<a class="backlink" href="{reverse("MMM:viewPlayer", args=[self.lucas.id])}">back</a>', started_challenge)
 
         fresh_game = Game.objects.latest("id")
         game_page = self.client.get(reverse("MMM:viewGame", args=[fresh_game.id])).content.decode()
