@@ -1996,8 +1996,6 @@ class CardDragDropSystem {
         return false;
     }
 
-    //TODO add a trick like this for drawing cards as well. Click the top deck card should flip it over somewhat, while not revealing it.
-    //Then releasing it on the deck itself or dragging it to the hand sends a click 
     onHandZoneDrop(e) {
         e.preventDefault();
         e.stopPropagation();        
