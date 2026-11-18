@@ -11973,12 +11973,17 @@ class DemoNavigationTests(TestCase):
         player_url = reverse("MMM:viewPlayer", args=[self.lucas.id])
         card_url = reverse("MMM:viewCard", args=[self.lucas_card_ids[0]])
         reset_url = reverse("MMM:resetGames")
+        docs_url = reverse("MMM:apiSwaggerUI")
         self.assertIn(f'href="{player_url}"', content)
         self.assertIn(f'href="{card_url}"', content)
         self.assertIn(f'href="{reset_url}"', content)
+        self.assertIn(f'href="{docs_url}"', content)
         self.assertEqual(self.client.get(player_url).status_code, 200)
         self.assertEqual(self.client.get(card_url).status_code, 200)
         self.assertRedirects(self.client.get(reset_url, follow=True), "/title/")
+        docs_response = self.client.get(docs_url)
+        self.assertEqual(docs_response.status_code, 200)
+        self.assertIn("Game action API", docs_response.content.decode())
 
     def test_settings_page_holds_only_the_card_zoom_preference(self):
         response = self.client.get(reverse("MMM:demoSettings"))
@@ -12065,6 +12070,72 @@ class DemoNavigationTests(TestCase):
         game_page = self.client.get(reverse("MMM:viewGame", args=[fresh_game.id])).content.decode()
         self.assertEqual(game_page.count('class="backlink"'), 1)
         self.assertIn(entry_backlink, game_page)
+
+    def test_back_button_lies_after_admin_page_content_instead_of_over_it(self):
+        """A long collection must never run under the back button.
+
+        The link used generic absolute positioning, so it floated over the
+        viewport corner and the player page's cards ran right under it. The
+        admin pages now render the link at the end of the document in normal
+        flow; only the demo shell pages keep the floating corner link.
+        """
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'style.css')) as style_file:
+            style_css = style_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as demo_css_file:
+            demo_css = demo_css_file.read()
+
+        backlink_rule = _extract_js_brace_block(style_css, "a.backlink{")
+        self.assertIn("font-weight: 800", backlink_rule)
+        self.assertNotIn("absolute", backlink_rule)
+        self.assertNotIn("fixed", backlink_rule)
+
+        demo_backlink_rule = re.search(r'body\.demoPage a\.backlink\{[^}]*\}', demo_css)
+        self.assertIsNotNone(demo_backlink_rule, "demo pages lost their corner back link")
+        self.assertIn("position: absolute", demo_backlink_rule.group(0))
+
+        for admin_url in (
+            reverse("MMM:index"),
+            reverse("MMM:viewPlayer", args=[self.lucas.id]),
+            reverse("MMM:apiSwaggerUI"),
+        ):
+            content = self.client.get(admin_url).content.decode()
+            self.assertIn('<body class="">', content)
+            self.assertGreater(
+                content.index('class="backlink"'),
+                content.rindex("</div>"),
+                f"back button must follow the content on {admin_url}",
+            )
+
+        for demo_url in (reverse("MMM:deckPage"), reverse("MMM:demoSettings")):
+            self.assertIn('<body class="demoPage">', self.client.get(demo_url).content.decode())
+
+    def test_admin_pages_never_scroll_horizontally(self):
+        """Admin and swagger pages fit the viewport width, vertically only.
+
+        The player page's portrait box carried a negative right margin, so it
+        poked past the viewport edge and gave long pages a horizontal scrollbar
+        next to the vertical one. The admin pages now wrap that box, and every
+        non-demo page clamps horizontal overflow so a second scrollbar can
+        never appear; the demo shell pages keep their full-bleed boards.
+        """
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'style.css')) as style_file:
+            style_css = style_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as demo_css_file:
+            demo_css = demo_css_file.read()
+
+        player_info_rule = re.search(r'\.playerInfo\{[^}]*\}', style_css)
+        self.assertIsNotNone(player_info_rule, "player info rule missing from style.css")
+        self.assertNotIn("margin-right: -3rem", player_info_rule.group(0))
+
+        demo_nav_player_info = re.search(r'\.demoNav \.playerInfo\{[^}]*\}', demo_css)
+        self.assertIsNotNone(demo_nav_player_info, "demo nav lost its player info margin")
+        self.assertIn("margin-right: -3rem", demo_nav_player_info.group(0))
+
+        horizontal_clamp = re.search(r'body:not\(\.demoPage\)\s*\{[^}]*\}', style_css)
+        self.assertIsNotNone(horizontal_clamp, "admin pages lack the horizontal clamp")
+        self.assertIn("overflow-x: hidden", horizontal_clamp.group(0))
 
     def test_anonymous_play_opens_the_existing_annabel_vs_lucas_game(self):
         response = self.client.post(reverse("MMM:play"))

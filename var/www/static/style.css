@@ -32,6 +32,10 @@ body {
     margin: 0;
 }
 
+body:not(.demoPage) {
+    overflow-x: hidden;
+}
+
 .all{
     display: block;
     position: relative;
@@ -116,12 +120,6 @@ a {
     text-decoration: none;
     font-weight: 500;
 }
-a#back{
-    position: fixed;
-    bottom: 1rem;
-    left: 2rem;
-}
-
 a:hover {
     text-decoration: underline;
 }
@@ -373,7 +371,6 @@ a:hover {
     align-items: center;
     width: calc(82px + 4em);
     height: 10em;
-    margin-right: -3rem;
     padding-left: 1rem;
     padding-top: 0.25rem;
 }
@@ -444,9 +441,6 @@ a:hover {
     }
 
 a.backlink{
-    position: absolute;
-    bottom: 1rem;
-    left: 1rem;
     font-weight: 800;
     &::before{
         content: '←';
