@@ -96,6 +96,13 @@
 - Description: the split (test environment, continuous loop, decisions and critic, dashboard, priority ordering, integrations) is the planner's starting point.
 - Open questions now: only Calendar scopes, deferred by the user.
 - Next: planner splits the goal and writes acceptance criteria. Test environment is the only subgoal the user has asked for first.
+
+## 2026-11-18 — per-PR environment implementation plan verified
+
+- State: refined `per-pr-test-environment/description.txt` into an implementation plan and measurable criteria; kept it as one leaf because manager, deployment, routing, and readiness form a single lifecycle that is verified together.
+- Verified files: `mysite/settings.py` currently hard-codes an insecure secret, `DEBUG=True`, empty `ALLOWED_HOSTS`, and `BASE_DIR/db.sqlite3`; `mysite/wsgi.py` loads `mysite.settings`; `mysite/urls.py` includes `MMM.urls`; `.gitignore` excludes `.env` and SQLite files; `MMM/tests.py` is the main existing app test suite. No `requirements.txt` currently exists.
+- Build guidance: preserve local defaults while making runtime security/database settings environment-configurable; deployment state and credentials must remain outside repo. Add dependencies only in a selected dependency file if needed. Keep fork exclusion before checkout/execution, sequential builds, isolated checkout/runtime/SQLite, readiness gate, hostname routing, cap/eviction, and merge/close retention in one manager lifecycle.
+- Risk: Windows/WSL, proxy, and Cloudflare Tunnel boundary is not covered by repository tests, so smoke-test documentation is an explicit deliverable. No product ambiguity remains; no independent subgoal warranted.
 ## 2026-11-16 — planning subgoals
 
 - State: split `agent-loops` into six independently actionable roadmap leaves; `per-pr-test-environment` is first and planned at implementation/test-contract level.

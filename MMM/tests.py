@@ -1,12 +1,19 @@
+import importlib
 import json
 import os
 import re
+import sys
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
 from types import SimpleNamespace
 from datetime import timedelta
+from pathlib import Path
+from unittest import mock
+
+import mysite.settings
 
 from django.test import TestCase
+from django.conf import settings
 from django.utils import timezone
 from django.urls import reverse
 from django.contrib.staticfiles import finders
@@ -13430,3 +13437,86 @@ class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
         self.assertNotIn('id="turnPhase"', settled_content)
         self.assertRegex(settled_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
         self.assertEqual(Game.objects.get(pk=self.game.id).roundNumber, 2)
+
+
+class SettingsDeploymentEnvironmentTests(TestCase):
+    """mysite settings take their deployment values from MMM_* environment
+    variables and keep the local development defaults when those are unset."""
+
+    deployment_environment = {
+        "MMM_SECRET_KEY": "settings-test-secret-key",
+        "MMM_DEBUG": "false",
+        "MMM_ALLOWED_HOSTS": "pr-12.paintedpillars.com,127.0.0.1,localhost",
+        "MMM_CSRF_TRUSTED_ORIGINS": "https://pr-12.paintedpillars.com",
+        "MMM_SECURE_COOKIES": "true",
+        "MMM_DB_PATH": "/tmp/opencode/settings-tests-pr-12.sqlite3",
+    }
+    development_secret_key = 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
+
+    def reload_settings(self, environment):
+        with mock.patch.dict(os.environ, environment, clear=True):
+            return importlib.reload(mysite.settings)
+
+    def test_deployment_values_come_from_the_environment(self):
+        settings_module = self.reload_settings(self.deployment_environment)
+
+        self.assertEqual(settings_module.SECRET_KEY, "settings-test-secret-key")
+        self.assertFalse(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [
+            "pr-12.paintedpillars.com", "127.0.0.1", "localhost",
+        ])
+        self.assertEqual(settings_module.CSRF_TRUSTED_ORIGINS, [
+            "https://pr-12.paintedpillars.com",
+        ])
+        self.assertTrue(settings_module.SESSION_COOKIE_SECURE)
+        self.assertTrue(settings_module.CSRF_COOKIE_SECURE)
+        self.assertEqual(
+            Path(settings_module.DATABASES["default"]["NAME"]).as_posix(),
+            "/tmp/opencode/settings-tests-pr-12.sqlite3",
+        )
+        self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+
+    def test_local_development_defaults_without_environment(self):
+        settings_module = self.reload_settings({})
+
+        self.assertEqual(settings_module.SECRET_KEY, self.development_secret_key)
+        self.assertTrue(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [])
+        self.assertEqual(settings_module.CSRF_TRUSTED_ORIGINS, [])
+        self.assertFalse(settings_module.SESSION_COOKIE_SECURE)
+        self.assertFalse(settings_module.CSRF_COOKIE_SECURE)
+        self.assertEqual(
+            settings_module.DATABASES["default"]["NAME"],
+            settings_module.BASE_DIR / "db.sqlite3",
+        )
+        self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+
+    def test_empty_environment_values_fall_back_to_the_defaults(self):
+        settings_module = self.reload_settings(
+            {name: "" for name in self.deployment_environment}
+        )
+
+        self.assertEqual(settings_module.SECRET_KEY, self.development_secret_key)
+        self.assertTrue(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [])
+        self.assertEqual(
+            settings_module.DATABASES["default"]["NAME"],
+            settings_module.BASE_DIR / "db.sqlite3",
+        )
+
+    def tearDown(self):
+        self.reload_settings({})
+
+
+class SessionCookieHostScopeTests(TestCase):
+    """Session cookies stay host-only, so a PR environment never shares a
+    cookie scope with production or with another PR environment."""
+
+    def test_title_page_sets_a_host_only_session_cookie(self):
+        self.assertIsNone(settings.SESSION_COOKIE_DOMAIN)
+
+        response = self.client.get(reverse("MMM:titlePage"))
+
+        session_cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+        self.assertEqual(session_cookie["domain"], "")
+        self.assertTrue(session_cookie.value)
