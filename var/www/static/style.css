@@ -59,7 +59,8 @@ h1 {
         font-size: 1.25rem;
     }
 
-.title.demoTitle{
+.title.demoTitle,
+body:has(> .fullpage-background) .title{
     height: 50%;
     color:lightgray;
     pointer-events: none;
@@ -67,9 +68,6 @@ h1 {
     position: relative;
     top:-0.7rem;
 }
-    .title.demoTitle h1{
-        height:50%;
-    }
 
 h2 {
     margin-top: 2rem;
@@ -121,6 +119,12 @@ a {
     text-decoration: none;
     font-weight: 500;
 }
+a#back{
+    position: fixed;
+    bottom: 1rem;
+    left: 2rem;
+}
+
 a:hover {
     text-decoration: underline;
 }
@@ -448,6 +452,12 @@ a.backlink{
         padding: 0;
         font-size: 1.5rem;
     }
+}
+
+body:has(> .fullpage-background) .backlink{
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
 }
 
 .invisible{
