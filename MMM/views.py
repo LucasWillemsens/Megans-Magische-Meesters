@@ -411,12 +411,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         finished, _, _ = game_outcome(game)
         if not finished:
             try:
-                bot_result = run_bot_turn(game, player_id)
-                if isinstance(bot_result, tuple):
-                    bot_actions, bot_timelines = bot_result
-                else:
-                    bot_actions = bot_result
-                    bot_timelines = []
+                bot_actions, bot_timelines = run_bot_turn(game, player_id)
             except Exception as exc:
                 bot_actions = []
                 bot_timelines = []
@@ -609,7 +604,6 @@ def _addLoadingAnimations(context, request):
                 "flipFaceUp": payload["flipFaceUp"],
             }
         )
-    print(f"Updating loading animations for plays: {plays} at {request.path}")
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
     context["handFans"] = chunk_hand_cards(context["handCards"])
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
@@ -652,5 +646,4 @@ def _update_played_cards(lane_rows, plays):
                     if play["sourceOrdinal"] is not None:
                         card.state.laneOrdinal = play["sourceOrdinal"]
                     card.cssClass = "loading"
-                    print(f"{card.card.title}(card{card.id}) {card.state.lane}({card.state.laneOrdinal}) -> {row['name']} .")
     return lane_rows
