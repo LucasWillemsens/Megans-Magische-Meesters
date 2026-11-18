@@ -1,4 +1,4 @@
-The four player lanes are too narrow: at 56% field width with 14% horizontal padding on each side, only ~5 cards fit per row before the lane-stacking JS adds an overflow row. The field should be wider so each lane fits ~9 cards per row on a 1920px monitor.
+The four player lanes are too narrow: at 56% field width with 14% horizontal padding on each side, only ~5 cards fit per row before the lane-stacking JS adds an overflow row. The field should be wider so each lane fits ~9 cards per row on a 1920px monitor. (Verified implemented: `ul.lanes` now spans 82vw with `flex: 1` lanes, `MAX_CARDS_PER_ROW = 25`, cardContainer `nth-child` offsets through 25 and hologram `nth-child` through 25 - the pinned 56%-width starting state no longer exists, and the line-pinned inventory below predates the landing.)
 
 ## Behavior
 
@@ -122,4 +122,4 @@ The four player lanes are too narrow: at 56% field width with 14% horizontal pad
 ## Dependencies
 
 - Prefers landing together with `board-overflow-into-enemy-20261012` (both touch `cards.css`).
-- Independent of `keyboard-navigation-20261012`, `end-turn-focus-in-view-20261012`, `hologram-flip-click-fix-20261012`.
+- Independent of `keyboard-navigation-20261012`, `end-turn-focus-in-view-20261012`, `hologram-flip-click-fix-20261012` (which never had a roadmap directory; its `dataset.stagedFlipped` guard landed directly in `var/www/static/cardDragDrop.js:422-424`).

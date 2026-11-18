@@ -18,9 +18,7 @@ python3 manage.py check                          # run before tests (W004 warnin
 python3 manage.py test                          # full suite
 python3 manage.py test MMM.tests.BattleFlowTests.test_enemy_phase_get_runs_bots_and_marks_moves_loading
 node --check var/www/static/loadingAnimations.js  # syntax-check a static JS file
-NOTE (2026-11-18): the fixbugs branch carries 32 pre-existing failures/errors
-(backtick overlay, focus arrows, keyboard DOM harnesses, viewport shortcuts).
-Before assuming you broke something, diff the failure sets:
+NOTE: before assuming you broke something, diff the failure sets:
   python3 manage.py test 2>&1 | grep -E "^(FAIL|ERROR):" | sort
 before vs. after your change (git stash helps).
 
