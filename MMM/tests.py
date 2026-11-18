@@ -1592,6 +1592,56 @@ class BattleFlowTests(BattleBoardFixture):
             bot_lane_cards,
         )
 
+    def test_staged_play_cookie_from_board_token_consumes_the_play(self):
+        """A play staged under the token rendered on the board lands the card."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(draw_url, {"action": "draw"})
+
+        hand_card = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__lane=0,
+        ).get()
+
+        # The drag-drop JS reads the card id the board renders and stages the
+        # play cookie under that exact name, so the rendered token must be the
+        # name the board action resolves back to this card.
+        board = self.client.get(board_url)
+        hand_fans = re.findall(
+            r'<ul class="hand hand-fan" data-fan-index="\d+">(.*?)</ul>',
+            board.content.decode(),
+            re.DOTALL,
+        )
+        rendered_hand_tokens = re.findall(
+            r'<li class="cardContainer [^>]+data-card-id="([^"]+)"[^>]*>',
+            "".join(hand_fans),
+        )
+
+        self.assertEqual(rendered_hand_tokens, [card_token(self.game.id, hand_card.id)])
+
+        self.client.cookies[rendered_hand_tokens[0]] = (
+            '{"laneValue": "2", "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
+        )
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+
+        self.assertNotContains(response, "Action error")
+        hand_card.refresh_from_db()
+        self.assertEqual(hand_card.state.lane, 2)
+        self.assertTrue(hand_card.state.faceDown)
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.human_participant.id,
+                state__lane=0,
+            ).count(),
+            0,
+        )
+
     def test_empty_enemy_hand_renders_no_empty_indicator(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])

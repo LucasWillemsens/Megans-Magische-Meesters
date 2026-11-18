@@ -1018,8 +1018,8 @@ class CardDragDropSystem {
             zone.addEventListener('dragleave', this.onDropZoneDragLeave.bind(this));
             zone.addEventListener('drop', this.onDropZoneDrop.bind(this));
             zone.addEventListener('click', this.onDropZoneClick.bind(this));
-            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index));
-            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index));
+            zone.addEventListener('mouseenter', (event) => this.onDropZoneMouseEnter(event, index + 1));
+            zone.addEventListener('mouseleave', (event) => this.onDropZoneMouseLeave(event, index + 1));
         });
     }
 
