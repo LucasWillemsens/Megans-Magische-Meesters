@@ -10896,6 +10896,14 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         with open(css_path) as css_file:
             return css_file.read()
 
+    def _css_rules_for_selector(self, cards_css, selector):
+        """(start_index, body) of every rule whose selector list uses only `selector`."""
+        return [
+            (match.start(), match.group(2).strip())
+            for match in re.finditer(r'([^{}]+)\{([^{}]+)\}', cards_css)
+            if all(part.strip() == selector for part in match.group(1).split(','))
+        ]
+
     def test_backtick_overlay_keydown_branch_toggles_three_targets(self):
         drag_js = self._read_card_drag_drop_js()
         keydown_code = self._slice_on_keyboard_key_down(drag_js)
@@ -10931,10 +10939,13 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
     def test_backtick_overlay_css_rule_uses_absolute_white_z3(self):
         cards_css = self._read_cards_css()
 
-        rule_match = re.search(r'\.debug-overlay-visible[^{]*\{[^}]*\}', cards_css)
-        self.assertIsNotNone(rule_match, "No .debug-overlay-visible CSS rule found")
+        overlay_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
+        self.assertNotEqual(
+            overlay_rules, [],
+            "No .debug-overlay CSS rule found for the debug overlay box",
+        )
 
-        rule_body = rule_match.group(0)
+        rule_body = overlay_rules[0][1]
         self.assertIn('position: absolute', rule_body)
         self.assertIn('background: white', rule_body)
         self.assertIn('z-index: 3', rule_body)
@@ -10947,43 +10958,25 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         content = response.content.decode()
 
-        player_section_match = re.search(
-            r'<div class="deckHand">\s*(.*?)<div class="deck-stack',
+        player_p_match = re.search(
+            r'<div class="deckHand[^"]*">\s*(<p[^>]*>[\s\S]*?</p>)\s*<div class="hand-scroll"',
             content,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            player_section_match,
-            "Could not locate <div class=\"deckHand\"> opening in rendered board",
-        )
-        player_p_match = re.match(
-            r'\s*<p[^>]*>([\s\S]*?)</p>',
-            player_section_match.group(1),
         )
         self.assertIsNotNone(
             player_p_match,
-            "Player deck/hand counter <p> is not the first direct child of "
-            "<div class=\"deckHand\">",
+            "Player deck/hand counter <p> is not the first child of the deckHand container",
         )
         self.assertIn('Deck:', player_p_match.group(1))
         self.assertIn('| Hand:', player_p_match.group(1))
 
-        enemy_section_match = re.search(
-            r'<div class="enemyDeckHand">\s*(.*?)<div class="deck-stack enemy-deck-stack"',
+        enemy_p_match = re.search(
+            r'<div class="enemyDeckHand">\s*(<p class="cardType[^"]*"[^>]*>[\s\S]*?</p>)'
+            r'\s*<div class="deck-stack enemy-deck-stack"',
             content,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            enemy_section_match,
-            "Could not locate <div class=\"enemyDeckHand\"> opening in rendered board",
-        )
-        enemy_p_match = re.match(
-            r'\s*<p class="cardType"[^>]*>([\s\S]*?)</p>',
-            enemy_section_match.group(1),
         )
         self.assertIsNotNone(
             enemy_p_match,
-            "Enemy deck/hand counter <p class=\"cardType\"> is not the first direct child of "
+            "Enemy deck/hand counter <p class=\"cardType\"> is not the first child of "
             "<div class=\"enemyDeckHand\">",
         )
         self.assertIn('Deck:', enemy_p_match.group(1))
@@ -11013,18 +11006,18 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
 
         self.assertRegex(
             scrubbed,
-            r'<p[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            r'<p class="debug-overlay">\s*Deck: \d+ \| Hand: \d+',
             "Player counter <p> must not be inside <script>, <template>, or hidden <div>",
         )
         self.assertRegex(
             scrubbed,
-            r'<p class="cardType"[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            r'<p class="cardType debug-overlay">Deck: \d+ \| Hand: \d+</p>',
             "Enemy counter <p class=\"cardType\"> must not be inside dev-only blocks",
         )
         for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
             self.assertRegex(
                 scrubbed,
-                rf'<p[^>]*>[\s\S]*?\|\s*{lane_name}\s*</p>',
+                rf'<p class="debug-overlay">\s*\d+ \| {lane_name}\s*</p>',
                 f"Lane <p> for {lane_name} must not be inside dev-only blocks",
             )
 
@@ -11062,15 +11055,21 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
 
     def test_backtick_debug_paragraph_css_styling_applies_visibility_class(self):
         cards_css = self._read_cards_css()
-        visible_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*>\s*p\.debug-overlay-visible[^{]*\{[^}]*\}',
-            cards_css,
+
+        hidden_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
+        visible_rules = self._css_rules_for_selector(cards_css, '.debug-overlay-visible')
+        self.assertNotEqual(hidden_rules, [], "No .debug-overlay CSS rule found")
+        self.assertNotEqual(
+            visible_rules, [], "No .debug-overlay-visible CSS rule found"
         )
-        self.assertIsNotNone(visible_rule, "No <p> debug-overlay-visible CSS rule found")
-        body = visible_rule.group(0)
-        self.assertIn('position: absolute', body)
-        self.assertIn('background: white', body)
-        self.assertIn('z-index: 3', body)
+
+        self.assertIn('display:none', hidden_rules[0][1])
+        self.assertIn('display:block', visible_rules[0][1])
+        self.assertLess(
+            hidden_rules[0][0], visible_rules[0][0],
+            "The display:block rule must come after the display:none rule "
+            "so toggling debug-overlay-visible wins the cascade",
+        )
 
     def test_backtick_dead_key_and_grave_dispatch_toggles_paragraphs_via_dom(self):
         import os
