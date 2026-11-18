@@ -102,18 +102,6 @@ class Deck(models.Model):
         else:
             return f"{self.title} - {self.description}"
 
-    def available(self):
-        for card in self.cards.all():
-            lastOwner = card.ownerHistory.order_by("-aquiredAt").all()[0]
-
-            #not currently owned
-            if lastOwner.cardOwner.id != self.player.id: return False
-
-            #currently in use
-            if GameCard.objects.filter(card_id=card.id).exists():
-                return False
-        return True
-
 #games
 
 class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and cards 
@@ -211,7 +199,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         existingGameCards = list(
             GameCard.objects.filter(game_id=game_id, user_id=self.id).select_related("card", "state")
         )
-        # print(f"existing game cards for participant {self.id} in game {game_id}: {existingGameCards}, self.startingCard_id: {self.startingCard_id}, selected deck: {self.deck}" )
         if existingGameCards: return (gameCard for gameCard in existingGameCards if gameCard.card_id == self.startingCard_id), existingGameCards
 
         #order of deck not selected yet, game must be initialized
@@ -299,7 +286,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         return gameCard
 
     def playCard(self, game_card_id, lane=None, flipFaceUp=False,specialClause=False, sourceLane=None, sourceOrdinal=None):
-        print(f"{self.player.name} plays card {game_card_id} to lane {lane} {flipFaceUp and 'face up' or ''}")
         gameCard = GameCard.objects.select_related("state", "card").get(
             pk=game_card_id,
             game_id=self.getGame().id,
@@ -345,7 +331,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         tactics = intCount + spdCount
         power = visCount + resCount
         influence = tactics + power 
-        # print(f"lane counts for {self.player.name} - int: {intCount}, spd: {spdCount}, vis: {visCount}, res: {resCount} - tactics: {tactics}, power: {power}, influence: {influence}")
         return intCount, spdCount, visCount, resCount, tactics, power, influence
     
     # Keep in sync with drawCard()/playCard() enforcement.
@@ -386,9 +371,6 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         self.save()
 
     def shuffleBoard(self):
-        print(f" {self.player.name} cards are shuffled back into the deck")
-        # for existingCard in GameCard.objects.all():
-        #     print(existingCard.__str__())
         boardCards = GameCard.objects.filter(
             game_id=self.getGame().id, 
             user_id=self.id, 
@@ -400,13 +382,10 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             user_id=self.id, 
             state__lane=0)
         if (boardCards is None or len(boardCards) < 1) and (handCards is None or len(handCards) < 1):
-            # print(f" {self.player.name} has no cards to shuffle back")
             return
         for card in boardCards:
-            # print(f"{card.card.title} is shuffled from board: {card.__str__()}")
             card.state.shuffleBack()
         for card in handCards:
-            # print(f"{card.card.title} is shuffled from hand: {card.__str__()}")
             card.state.shuffleBack()
 
 class BattleHistory(models.Model):
