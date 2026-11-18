@@ -2,7 +2,6 @@ import json
 import random
 from urllib.parse import unquote
 
-from .card_tokens import play_card_token_index
 from .models import (
     BattleHistory,
     BattleParticipant,
@@ -75,14 +74,13 @@ def parse_play_cookie_payload(cookie_value):
 
 
 def cookie_staged_plays(cookies, game):
-    """Resolve staged play cookies by presentation token into game card payloads."""
-    token_index = play_card_token_index(game.id)
+    """Resolve staged play cookies, keyed by game card id, into play payloads."""
+    game_card_ids = set(GameCard.objects.filter(game_id=game.id).values_list("id", flat=True))
     staged_plays = {}
     for cookie_name, cookie_value in cookies.items():
-        if cookie_name not in token_index:
+        if not cookie_name.isdigit() or int(cookie_name) not in game_card_ids:
             continue
-        card_id, _participant_id = token_index[cookie_name]
-        staged_plays[str(card_id)] = parse_play_cookie_payload(cookie_value)
+        staged_plays[cookie_name] = parse_play_cookie_payload(cookie_value)
     return staged_plays
 
 

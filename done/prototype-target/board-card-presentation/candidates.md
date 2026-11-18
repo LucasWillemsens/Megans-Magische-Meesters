@@ -1,0 +1,7 @@
+# board-card-presentation candidates
+
+## simplicity-first-fix-the-region-asymmetry-not-the-symptom
+
+- Pattern: A goal-level fix built a concealment/indirection layer to hide a symptom (raw card ids in board markup) instead of fixing the cause — the enemy deck/hand rendered per-card identifiers that the player board's equivalent regions never render. The fix copied the player board's approach in the template and deleted the layer.
+- Evidence: Acceptance criterion "No GameCard database IDs appear in rendered board markup" (commit 1b1ca88, "huge fix and update") produced `MMM/card_tokens.py` (hash tokens, per-request index, timeline rewrite, token-pinning tests). Reversed 2026-11-18 after user review: "using card_token() seems to be a solution for another problem in a completely separate part of the program... Why would enemy deck render card_id's at all??? player deck does not!". The cross-game-staleness test was also removed as a non-problem: cookies are path-scoped per board URL and ownership is enforced by the DB filter in `consume_staged_plays`.
+- Proposed rule: Before building any concealment, alias, or hardening layer, diff the broken region against the equivalent region that already works (enemy board vs player board) and fix the asymmetry directly. An acceptance criterion must cite a concrete user-visible problem; prototype surfaces (the demo JSON API) exposing state is accepted by the user and is not grounds for a concealment mechanism.

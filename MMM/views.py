@@ -15,7 +15,6 @@ from .battle_services import (
     reset_games,
     run_bot_turn,
 )
-from .card_tokens import play_card_token_index, timeline_card_tokens
 from .demo_flow import (
     TEAM_BOTS,
     anonymous_scenario,
@@ -491,7 +490,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             else f"/game/{game_id}/board/{player_id}/"
         ),
         "actionPlays": action_plays or [],
-        "timelineSteps": timeline_card_tokens(timeline_steps or [], game.id),
+        "timelineSteps": timeline_steps or [],
         "cardZoomEnabled": card_zoom_enabled(request),
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
@@ -592,23 +591,24 @@ def _render(request, template_name, context, clear_cookies=False):
 def _addLoadingAnimations(context, request):
     plays = list(context.get("actionPlays", []))
     game = context.get("game")
-    token_index = play_card_token_index(game.id) if game else {}
+    game_card_participants = {
+        str(card_id): participant_id
+        for card_id, participant_id in GameCard.objects.filter(game_id=game.id).values_list("id", "user_id")
+    } if game else {}
     for cookie_name, cookie_value in request.COOKIES.items():
-        if cookie_name not in token_index or not cookie_value:
+        if cookie_name not in game_card_participants or not cookie_value:
             continue
-        card_id, participant_id = token_index[cookie_name]
         payload = parse_play_cookie_payload(cookie_value)
         plays.append(
             {
-                "cardId": str(card_id),
-                "participantId": participant_id,
+                "cardId": cookie_name,
+                "participantId": game_card_participants[cookie_name],
                 "laneValue": payload["laneValue"],
                 "sourceLane": payload["sourceLane"],
                 "sourceOrdinal": payload["sourceOrdinal"],
                 "flipFaceUp": payload["flipFaceUp"],
             }
         )
-    context["plays"] = plays
     print(f"Updating loading animations for plays: {plays} at {request.path}")
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
     context["handFans"] = chunk_hand_cards(context["handCards"])

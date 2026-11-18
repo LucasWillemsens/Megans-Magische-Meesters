@@ -13,7 +13,6 @@ from django.contrib.staticfiles import finders
 
 from . import views
 from . import battle_services
-from .card_tokens import card_token
 from .demo_flow import (
     DEMO_DECK_CARD_COUNT,
     create_demo_scenario,
@@ -742,10 +741,6 @@ class BattleFlowTests(BattleBoardFixture):
     def test_hand_fan_cards_keep_action_and_source_attributes(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
         self._replace_hand_with_count(self.human_participant, 14)
-        game_card_ids = {
-            str(card.id)
-            for card in GameCard.objects.filter(game_id=self.game.id)
-        }
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         content = response.content.decode()
         hand_fans = re.findall(
@@ -754,24 +749,20 @@ class BattleFlowTests(BattleBoardFixture):
             re.DOTALL,
         )
         hand_html = "".join(hand_fans)
-        hand_tokens = re.findall(
+        hand_card_ids = re.findall(
             r'<li class="cardContainer [^>]+data-card-id="([^"]+)"[^>]*>',
             hand_html,
         )
 
-        self.assertEqual(len(hand_tokens), 14)
-        self.assertEqual(len(set(hand_tokens)), 14)
-        for token in hand_tokens:
-            self.assertNotIn(token, game_card_ids)
+        self.assertEqual(len(hand_card_ids), 14)
+        self.assertEqual(len(set(hand_card_ids)), 14)
         for card in GameCard.objects.filter(
             game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
         ):
-            self.assertIn(card_token(self.game.id, card.id), hand_tokens)
+            self.assertIn(str(card.id), hand_card_ids)
         self.assertEqual(hand_html.count('name="card_id"'), 14)
-        hidden_card_token_values = re.findall(r'name="card_id" value="([^"]+)"', hand_html)
-        self.assertEqual(set(hidden_card_token_values), set(hand_tokens))
-        for value in hidden_card_token_values:
-            self.assertNotIn(value, game_card_ids)
+        hidden_card_id_values = re.findall(r'name="card_id" value="([^"]+)"', hand_html)
+        self.assertEqual(set(hidden_card_id_values), set(hand_card_ids))
         self.assertEqual(hand_html.count('data-source-lane="0"'), 14)
         self.assertEqual(hand_html.count('data-source-ordinal="'), 14)
         self.assertEqual(hand_html.count('draggable="true"'), 14)
@@ -1306,9 +1297,13 @@ class BattleFlowTests(BattleBoardFixture):
             re.DOTALL,
         )
         self.assertIsNotNone(enemy_deck_hand)
+        enemy_board = battle_services.context_board(
+            GameCard.objects.filter(game_id=self.game.id),
+            self.bot_participant.id,
+        )
         self.assertEqual(
-            enemy_deck_hand.group(1).count("data-card-id="),
-            bot_deck_count + bot_hand_count,
+            enemy_deck_hand.group(1).count("cardContainer faceDown"),
+            len(enemy_board["deckStack"]) + bot_hand_count,
         )
         self.assertNotIn("fourColours", content)
         self.assertIn(
@@ -1651,7 +1646,7 @@ class BattleFlowTests(BattleBoardFixture):
             state__lane__gt=0,
         ).count()
         
-        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
+        self.client.cookies[str(bot_card.id)] = (
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
         )
         response = self.client.post(action_url, {"action": "draw"})
@@ -1672,8 +1667,8 @@ class BattleFlowTests(BattleBoardFixture):
             bot_lane_cards,
         )
 
-    def test_staged_play_cookie_from_board_token_consumes_the_play(self):
-        """A play staged under the token rendered on the board lands the card."""
+    def test_staged_play_cookie_from_board_consumes_the_play(self):
+        """A play staged under the card id rendered on the board lands the card."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1689,7 +1684,7 @@ class BattleFlowTests(BattleBoardFixture):
         ).get()
 
         # The drag-drop JS reads the card id the board renders and stages the
-        # play cookie under that exact name, so the rendered token must be the
+        # play cookie under that exact name, so the rendered id must be the
         # name the board action resolves back to this card.
         board = self.client.get(board_url)
         hand_fans = re.findall(
@@ -1697,14 +1692,14 @@ class BattleFlowTests(BattleBoardFixture):
             board.content.decode(),
             re.DOTALL,
         )
-        rendered_hand_tokens = re.findall(
+        rendered_hand_card_ids = re.findall(
             r'<li class="cardContainer [^>]+data-card-id="([^"]+)"[^>]*>',
             "".join(hand_fans),
         )
 
-        self.assertEqual(rendered_hand_tokens, [card_token(self.game.id, hand_card.id)])
+        self.assertEqual(rendered_hand_card_ids, [str(hand_card.id)])
 
-        self.client.cookies[rendered_hand_tokens[0]] = (
+        self.client.cookies[rendered_hand_card_ids[0]] = (
             '{"laneValue": "2", "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
         response = self.client.post(end_turn_url, {"action": "end_turn"})
@@ -1772,6 +1767,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertNotIn("<form", block)
         self.assertNotIn("<button", block)
         self.assertNotIn("draggable", block)
+        self.assertNotIn("data-card-id", block)
 
         enemy_section = re.search(
             r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
@@ -2074,7 +2070,7 @@ class BattleFlowTests(BattleBoardFixture):
 
         # Stage a play cookie that plays the card face-down (no flip) to consume
         # both a play and leave the card face-down in the lane
-        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
+        self.client.cookies[str(hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -2128,8 +2124,8 @@ class BattleFlowTests(BattleBoardFixture):
         ))
         self.assertEqual(len(hand_cards), 2)
 
-        # Stage 1 play via the card's presentation token (play to lane 4, face down)
-        self.client.cookies[card_token(self.game.id, hand_cards[0].id)] = (
+        # Stage 1 play via the card's id (play to lane 4, face down)
+        self.client.cookies[str(hand_cards[0].id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -2155,10 +2151,10 @@ class BattleFlowTests(BattleBoardFixture):
             game_id=game.id, user_id=participant.id, state__lane=0
         ).first()
 
-        # Play it face-down to lane 4 (flipFaceUp=false) via its presentation token.
+        # Play it face-down to lane 4 (flipFaceUp=false) via its card id.
         # With int=0, spd=0, after 1 draw + 1 face-down play:
         # flips_left = max(0, 1+min(0, 1-1-1)-0) = 0
-        self.client.cookies[card_token(game.id, hand_card.id)] = (
+        self.client.cookies[str(hand_card.id)] = (
             '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": false}'
         )
 
@@ -11778,56 +11774,6 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.client.post(confirm_url)
         return self.client.get(board_url).content.decode()
 
-    def test_board_marks_carry_tokens_and_never_their_game_card_ids(self):
-        self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
-        self._initialize_with_hand_card(self.human_participant, self.human_cards[3])
-        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
-        content = self.client.get(board_url).content.decode()
-
-        game_card_ids = {
-            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
-        }
-        self.assertTrue(game_card_ids)
-
-        token_values = re.findall(r'data-card-id="([^"]+)"', content)
-        self.assertTrue(token_values)
-        for token in token_values:
-            self.assertNotIn(token, game_card_ids)
-        self.assertEqual(re.findall(r'data-card-id="(\d+)"', content), [])
-        self.assertEqual(
-            re.findall(r'data-card-id="([^"]+)"', content),
-            re.findall(r'data-card-id="([^"]+)"', self.client.get(
-                reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
-            ).content.decode()),
-        )
-        expected_tokens = set()
-        for card in GameCard.objects.filter(game_id=self.game.id):
-            expected_tokens.add(card_token(self.game.id, card.id))
-        self.assertTrue(set(token_values).issubset(expected_tokens))
-
-        own_trusted_card = GameCard.objects.get(
-            game_id=self.game.id,
-            user_id=self.human_participant.id,
-            state__trusted=True,
-        )
-        self.assertIn(card_token(self.game.id, own_trusted_card.id), token_values)
-        self.assertNotIn('data-card-id="%s"' % own_trusted_card.id, content)
-
-        hidden_id_inputs = re.findall(
-            r'<input type="hidden" name="card_id" value="([^"]+)">',
-            content,
-        )
-        self.assertTrue(hidden_id_inputs)
-        for value in hidden_id_inputs:
-            self.assertNotIn(value, game_card_ids)
-        self.assertTrue(set(hidden_id_inputs).issubset(expected_tokens))
-        hand_card = GameCard.objects.get(
-            game_id=self.game.id,
-            user_id=self.human_participant.id,
-            state__lane=0,
-        )
-        self.assertIn(card_token(self.game.id, hand_card.id), hidden_id_inputs)
-
     def test_trusted_cards_render_sideways_for_both_participants(self):
         content = self._confirm_and_get_board()
 
@@ -11940,13 +11886,13 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.assertIn('<script type="module" src="/static/cardZoom.js">', content)
         self.assertIn('<link rel="stylesheet" type="text/css" href="/static/cardZoom.css">', content)
 
-    def test_token_staged_play_moves_hand_card_without_exposing_ids(self):
+    def test_staged_play_moves_hand_card(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
 
         hand_card = self._initialize_with_hand_card(self.human_participant, self.human_cards[1])
-        self.client.cookies[card_token(self.game.id, hand_card.id)] = (
+        self.client.cookies[str(hand_card.id)] = (
             '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 99, "flipFaceUp": false}'
         )
 
@@ -11956,9 +11902,8 @@ class BoardCardPresentationTests(BattleBoardFixture):
         hand_card.refresh_from_db()
         self.assertEqual(hand_card.state.lane, 2)
         self.assertIn('cardContainer faceDown loading', response.content.decode())
-        self.assertNotIn(f'data-card-id="{hand_card.id}"', response.content.decode())
 
-    def test_token_staged_flip_reveals_face_down_card(self):
+    def test_staged_flip_reveals_face_down_card(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
@@ -11968,7 +11913,7 @@ class BoardCardPresentationTests(BattleBoardFixture):
         lane_card.refresh_from_db()
         self.assertTrue(lane_card.state.faceDown)
 
-        self.client.cookies[card_token(self.game.id, lane_card.id)] = (
+        self.client.cookies[str(lane_card.id)] = (
             '{"laneValue": 1, "sourceLane": 1, "sourceOrdinal": 1, "flipFaceUp": true}'
         )
 
@@ -11977,88 +11922,6 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.assertNotContains(response, "Action error")
         lane_card.refresh_from_db()
         self.assertFalse(lane_card.state.faceDown)
-
-    def test_timeline_steps_conceal_game_card_ids(self):
-        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
-        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
-        self._replace_deck_with_count(self.human_participant, 1)
-        self.client.post(confirm_url)
-
-        response = self.client.post(draw_url, {"action": "draw"})
-        content = response.content.decode()
-        steps_match = re.search(
-            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
-            content,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(steps_match)
-        steps = json.loads(steps_match.group(1))
-        affected_cards = [
-            card_effect for step in steps for card_effect in step["affectedCards"]
-        ]
-        self.assertTrue(affected_cards)
-
-        game_card_ids = {
-            str(card.id) for card in GameCard.objects.filter(game_id=self.game.id)
-        }
-        expected_tokens = {
-            card_token(self.game.id, card.id)
-            for card in GameCard.objects.filter(game_id=self.game.id)
-        }
-        for card_effect in affected_cards:
-            self.assertIn(str(card_effect["cardId"]), expected_tokens)
-            self.assertNotIn(str(card_effect["cardId"]), game_card_ids)
-
-        bot_deck_card = self.bot_participant.getNextDeckCard()
-        bot_token = card_token(self.game.id, bot_deck_card.id)
-        self.assertNotEqual(bot_token, str(bot_deck_card.id))
-        self.assertNotIn(f'data-card-id="{bot_deck_card.id}"', content)
-
-    def test_foreign_and_unknown_staged_tokens_are_ignored(self):
-        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
-        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
-        self.client.post(confirm_url)
-
-        bot_card = GameCard.objects.filter(
-            game_id=self.game.id, user_id=self.bot_participant.id
-        ).first()
-        bot_lane_cards = GameCard.objects.filter(
-            game_id=self.game.id,
-            user_id=self.bot_participant.id,
-            state__lane__gt=0,
-        ).count()
-        foreign_card = Card.objects.create(title="Unrelated", artSource="", cardType=1)
-        foreign_game = Game.objects.create(
-            title="Other game",
-            history=BattleHistory.objects.create(challenger=self.human),
-            roundNumber=1,
-        )
-        foreign_game_card = GameCard.create(foreign_card.id, foreign_game.id, self.human_participant.id)
-        foreign_game_card.save()
-
-        self.client.cookies[card_token(self.game.id, bot_card.id)] = (
-            '{"laneValue": 2, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
-        )
-        self.client.cookies[card_token(foreign_game.id, foreign_game_card.id)] = (
-            '{"laneValue": 3, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
-        )
-        self.client.cookies["notatoken"] = (
-            '{"laneValue": 4, "sourceLane": 0, "sourceOrdinal": 1, "flipFaceUp": true}'
-        )
-
-        response = self.client.post(action_url, {"action": "play"})
-
-        self.assertNotContains(response, "Action error")
-        self.assertEqual(
-            GameCard.objects.filter(
-                game_id=self.game.id,
-                user_id=self.bot_participant.id,
-                state__lane__gt=0,
-            ).count(),
-            bot_lane_cards,
-        )
-        foreign_game_card.refresh_from_db()
-        self.assertTrue(foreign_game_card.state.inDeck)
 
 
 class DemoNavigationTests(TestCase):
