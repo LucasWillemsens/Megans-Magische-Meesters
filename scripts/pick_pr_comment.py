@@ -65,16 +65,6 @@ def is_eligible(thread):
         and bool(thread.get("comments", {}).get("nodes"))
     )
 
-def verbose_output(thread):
-    print(json.dumps({
-        "status": "picked",
-        "thread_id": thread["id"],
-        "path": thread["path"],
-        "line": thread.get("line") or thread.get("originalLine"),
-        "comments": thread["comments"]["nodes"],
-    }))
-    #example
-    # {"status": "picked", "thread_id": "PRRT_kwDORO-wxc6r5FqP", "path": "roadmap/battle-page-polish/board-overflow-into-enemy-20261012/description.txt", "line": 1, "comments": [{"databaseId": 4259519370, "author": {"login": "LucasWillemsens"}, "body": "bad one", "path": "roadmap/battle-page-polish/board-overflow-into-enemy-20261012/description.txt", "line": null, "createdAt": "2026-10-13T13:54:03Z", "url": "https://github.com/LucasWillemsens/Megans-Magische-Meesters/pull/28#discussion_r4259519370"}]}
 def compact_output(thread):
     print(thread["path"] +" ( ln: " + str(thread.get("line")) +"): "+ thread["comments"]["nodes"][0]["body"])
 #{"path": "roadmap/battle-page-polish/hologram-flip-click-fix-20261012/description.txt", "comment": "stuff like this really should not be in the roadmap at all"}

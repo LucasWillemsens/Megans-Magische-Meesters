@@ -154,20 +154,6 @@ def get_changed_django_files():
     return sorted(all_changed)
 
 
-def read_changed_files_content(changed_files):
-    """Read the current content of changed files for matching."""
-    parts = []
-    for rel_path in changed_files:
-        full = REPO_ROOT / rel_path
-        if full.exists():
-            try:
-                content = full.read_text(errors="replace")
-                parts.append(f"# FILE: {rel_path}\n{content}")
-            except Exception:
-                pass
-    return "\n".join(parts)
-
-
 # ---------------------------------------------------------------------------
 # Self-improvement helpers
 # ---------------------------------------------------------------------------
