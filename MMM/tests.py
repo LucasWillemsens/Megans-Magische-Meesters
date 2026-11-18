@@ -11967,9 +11967,18 @@ class DemoNavigationTests(TestCase):
         content = response.content.decode()
         self.assertIn("Players", content)
         self.assertIn("Cards", content)
-        self.assertIn(f'href="player/{self.lucas.id}"', content)
-        self.assertIn('href="game/reset/"', content)
-        self.assertIn('href="card/%d/"' % self.lucas_card_ids[0], content)
+
+    def test_admin_page_links_lead_to_the_pages_they_name(self):
+        content = self.client.get(reverse("MMM:index")).content.decode()
+        player_url = reverse("MMM:viewPlayer", args=[self.lucas.id])
+        card_url = reverse("MMM:viewCard", args=[self.lucas_card_ids[0]])
+        reset_url = reverse("MMM:resetGames")
+        self.assertIn(f'href="{player_url}"', content)
+        self.assertIn(f'href="{card_url}"', content)
+        self.assertIn(f'href="{reset_url}"', content)
+        self.assertEqual(self.client.get(player_url).status_code, 200)
+        self.assertEqual(self.client.get(card_url).status_code, 200)
+        self.assertRedirects(self.client.get(reset_url, follow=True), "/title/")
 
     def test_settings_page_holds_only_the_card_zoom_preference(self):
         response = self.client.get(reverse("MMM:demoSettings"))

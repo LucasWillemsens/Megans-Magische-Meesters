@@ -34,7 +34,7 @@
                 alt="{{player}}'s profile picture" />
                 
                 {% endif %}
-                <a href="player/{{ player.id }}">{{ player.name }}</a>
+                <a href="{{ url('MMM:viewPlayer', args=[player.id]) }}">{{ player.name }}</a>
             </li>
         {% endfor %}
         </ul>
@@ -55,7 +55,7 @@
             {% for card in latest_cards_list %}
             <li class="cardContainer">
                 <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
-                    href="card/{{ card.id }}/">
+                    href="{{ url('MMM:viewCard', args=[card.id]) }}">
                     {% if card.artSource == "static" %}
                     <span class="rank">{{ card|playing_card_rank_display }}</span>
                     <span class="suit">{{ card|playing_card_suit_display }}</span>
@@ -86,7 +86,7 @@
     </div>
     
     <div class="createButton">
-        <a href="game/reset/" draggable="false">
+        <a href="{{ url('MMM:resetGames') }}" draggable="false">
             ResetGames
         </a>
     </div>
