@@ -4,6 +4,15 @@
     --demo-settings-page-background: linear-gradient(160deg, #2b0320 0%, #4a122e 55%, #6b2a1f 100%);
 }
 
+.fullpage-background{
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    user-select: none;
+    pointer-events: none;
+    z-index: -1;
+}
+
 body.demoPage a.backlink{
     position: absolute;
     bottom: 1rem;

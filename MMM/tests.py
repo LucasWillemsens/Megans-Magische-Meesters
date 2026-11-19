@@ -1465,6 +1465,50 @@ class BattleFlowTests(BattleBoardFixture):
                 "must not gain an active button",
             )
 
+    def test_board_renders_backdrop_and_deck_indicator_face_art(self):
+        """The wood-texture backdrop and the deck-indicator card-back faces are
+        real visible art served from static files in deployment; phantom-asset
+        sweeps must not strip them from the board again."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 64)
+        self._replace_deck_with_count(self.bot_participant, 64)
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        self.assertIn(
+            '<img draggable="false" class="fit-picture fullpage-background" '
+            'src="/static/woodtextureorangedark2.jpg"',
+            content,
+        )
+
+        deck_face = (
+            '<img class="deck-indicator-face" draggable="false" '
+            'src="/static/extradeck.png"'
+        )
+        own_section = re.search(
+            r'<div class="deck-stack own-deck-stack"[^>]*>(.*?)<div class="hand-scroll"[^>]*>',
+            content,
+            re.DOTALL,
+        )
+        enemy_section = re.search(
+            r'<div class="enemyDeckHand">(.*?)<ul class="lanes">',
+            content,
+            re.DOTALL,
+        )
+        for section_name, section in (
+            ("own", own_section),
+            ("enemy", enemy_section),
+        ):
+            self.assertIsNotNone(section)
+            self.assertIn(
+                deck_face,
+                section.group(1),
+                f"the {section_name} deck indicator lost its card-back face art",
+            )
+
     def test_deck_animation_and_draw_selectors_use_active_deck_only(self):
         import os
 
