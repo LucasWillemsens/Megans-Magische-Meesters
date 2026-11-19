@@ -1,5 +1,9 @@
 # agent-loops lessons
 
+## 2026-11-18 — PR #31 review: platform junk and static assets
+- A static-asset reference missing from Git does not prove the feature is dead: deployment may contain untracked binary assets. Before deleting references, verify the deployed environment or ask the owner; prefer restoring and committing the asset, as with `titlepageartWIP.png` (PR #31).
+- A platform-junk ignore list should cover the maintainer's actual development OS, not only Mac/IDE artifacts; Windows cleanup should include `*.lnk`, `Thumbs.db`, and `desktop.ini` (PR #31).
+
 ## 2026-11-18 — Per-PR test environments
 - Resolve PR head commits with `git ls-remote` against the canonical remote when the installed GitHub CLI lacks the needed head-SHA field; this avoids fetching or executing untrusted PR code just to discover its revision.
 - Keep deployment orchestration stdlib-only when it runs on an already-provisioned host, and document host prerequisites rather than adding runtime dependencies for the manager.

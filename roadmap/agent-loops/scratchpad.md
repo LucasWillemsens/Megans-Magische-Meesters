@@ -1,5 +1,12 @@
 # agent-loops scratchpad
 
+## 2026-11-18 — PR #31 review: Windows ignore coverage
+
+- State: PR #31 review found a committed `.lnk`; `.gitignore` lacks Windows junk patterns. Proposed follow-up: add a `# Windows` section with `*.lnk`, `Thumbs.db`, and `desktop.ini`.
+- Discovered: existing ignore coverage focuses on Mac/IDE files and misses the maintainer's Windows environment.
+- Decided: record the concrete fix and durable platform-coverage lesson; the fix is not yet confirmed implemented.
+- Next: add Windows patterns in a follow-up commit, then remove this section after completion.
+
 ## 2026-11-12 — brainstorm: agent-loops goal created
 
 - State: new top-level goal `roadmap/agent-loops/` with `description.txt` holding the user's spec and captured ideas. No subgoals yet, no code touched.
