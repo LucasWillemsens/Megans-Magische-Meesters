@@ -164,5 +164,5 @@ if (this.keyboardSelectionControl?._focusArrow) {
 ## Dependencies
 
 - Depends on `keyboard-selection-control-refactor-20261012/` (the `onFocusIn` / `onFocusOut` stubs and constructor-injected `_focusArrowTarget` / `_createFocusArrow`).
-- Soft dependency on sibling `hologram-flip-click-fix-20261012`: the flipped-face-down focus case relies on the `dataset.stagedFlipped = 'true'` guard on the lane card.
+- Soft dependency on sibling `hologram-flip-click-fix-20261012`: the flipped-face-down focus case relies on the `dataset.stagedFlipped = 'true'` guard on the lane card. [`hologram-flip-click-fix-20261012` never had a roadmap directory; its work - the `dataset.stagedFlipped` guard - landed directly in `var/www/static/cardDragDrop.js:422-424` inside `KeyboardSelectionControl._confirmGhostFlipSelection`.]
 - Independent of `last-focused-hand-card-persistence-20261012`, `arrow-key-routing-20261012`, `backtick-debug-overlay-20261012`.

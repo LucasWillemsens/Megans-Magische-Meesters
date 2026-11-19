@@ -1300,10 +1300,6 @@ class CardDragDropSystem {
         return this._keyboardSelectionControl._isPlayableKeyboardCard_Legacy(card);
     }
 
-    _isStagedGhost(card) {
-        return this._keyboardSelectionControl._isStagedGhost_Legacy(card);
-    }
-
     orderableKeyboardCards() {
         return this._keyboardSelectionControl.orderableKeyboardCards();
     }
@@ -1314,10 +1310,6 @@ class CardDragDropSystem {
 
     _isGhostFlipCandidate(card) {
         return this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card);
-    }
-
-    _stagedLaneForGhost(card) {
-        return this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card);
     }
 
     _handCardForId(cardId) {
@@ -1524,7 +1516,7 @@ class CardDragDropSystem {
 
     onKeyboardKeyDown(event) {
         if (event.defaultPrevented) return;
-        if (event.key === '`' || (event.code === 'Backquote')) {
+        if (event.key === '`' || (event.code === 'Backquote' && event.key !== '~')) {
             const target = event.target || document.activeElement;
             if (this._isTextControlTarget(target) || this._isTextControlTarget(document.activeElement)) {
                 event.preventDefault();
@@ -1947,14 +1939,6 @@ class CardDragDropSystem {
         return false;
     }
 
-    onHandZoneDragOver(e) {
-        return false;
-    }
-
-    onHandZoneDragLeave(e) {
-        return false;
-    }
-
     onDropZoneClick(e) {
         if (!this.keyboardSelection.selectedCard) return;
         if (!this._keyboardActionAllowed(e)) return;
@@ -1996,8 +1980,6 @@ class CardDragDropSystem {
         return false;
     }
 
-    //TODO add a trick like this for drawing cards as well. Click the top deck card should flip it over somewhat, while not revealing it.
-    //Then releasing it on the deck itself or dragging it to the hand sends a click 
     onHandZoneDrop(e) {
         e.preventDefault();
         e.stopPropagation();        
@@ -2326,11 +2308,6 @@ class CardDragDropSystem {
                 zone.classList.remove('drop-zone-active');
             }
         });
-    }
-
-    refresh() {
-        this.destroy();
-        this.init();
     }
 
     destroy() {

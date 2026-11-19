@@ -97,7 +97,7 @@ Use the available filesystem tools to:
 
 Given input: "Plan the enemy-turn-indicators goal"
 
-1. Read `roadmap/battle-page-polish/enemy-turn-indicators/description.txt`
+1. Read `done/battle-page-polish/enemy-turn-indicators/description.txt`
 2. Search for existing turn-indicator behavior in the relevant python code, templates, and JavaScript.
 3. Keep this as one leaf if backend and frontend work form a cohesive feature. Split if investigation shows independently deliverable components or multiple end-to-end tests would have to be build in order to ensure added functionality.
 4. Update the goal description with the implementation specification and acceptance criteria.

@@ -33,3 +33,11 @@ env/
 
 # Assets downloaded
 assets/downloaded/
+
+# Per-PR test environment runtime state
+/var/deployments/
+
+# Windows
+*.lnk
+Thumbs.db
+desktop.ini

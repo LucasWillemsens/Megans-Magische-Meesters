@@ -1,5 +1,18 @@
 # agent-loops lessons
 
+## 2026-11-18 — PR #31 review: platform junk and static assets
+- A static-asset reference missing from Git does not prove the feature is dead: deployment may contain untracked binary assets. Before deleting references, verify the deployed environment or ask the owner; prefer restoring and committing the asset, as with `titlepageartWIP.png` (PR #31).
+- A platform-junk ignore list should cover the maintainer's actual development OS, not only Mac/IDE artifacts; Windows cleanup should include `*.lnk`, `Thumbs.db`, and `desktop.ini` (PR #31).
+
+## 2026-11-18 — Per-PR test environments
+- Resolve PR head commits with `git ls-remote` against the canonical remote when the installed GitHub CLI lacks the needed head-SHA field; this avoids fetching or executing untrusted PR code just to discover its revision.
+- Keep deployment orchestration stdlib-only when it runs on an already-provisioned host, and document host prerequisites rather than adding runtime dependencies for the manager.
+- Persist per-environment secrets in gitignored state and never print them; host-only session cookies avoid widening cookie scope across routed test environments.
+- Check process liveness after startup before publishing a ready route, so port conflicts and immediate exits cannot appear as healthy deployments.
+- Treat stopped/failed environments with unchanged revisions as stable state; rebuild only on a new revision or an explicit request to avoid capacity churn.
+- Test deployment state transitions against lowest-unused port allocation, including an environment's own old server appearing among stopped records during rebuild.
+- Legacy PR revisions may not contain current deployment settings; keep their databases isolated in their checkout and document that rebuild cleanup resets them.
+
 ## 2026-11-16 — PR #28 review insights (agent/skill framework refactor)
 - Inline narrative of another artefact's contract rots: agent bodies that restate a script's output shape, errors, or semantics duplicate its docstring; point to the source instead (pr-comment-analyst.md, PR #28).
 - Redundant restatement of a skill's content in an agent body wastes always-loaded tokens; keep a bare pointer bullet and let the skill carry the detail (devops.md CI section, PR #28).

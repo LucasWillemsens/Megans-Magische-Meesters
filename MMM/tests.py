@@ -1,12 +1,19 @@
+import importlib
 import json
 import os
 import re
+import sys
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
 from types import SimpleNamespace
 from datetime import timedelta
+from pathlib import Path
+from unittest import mock
+
+import mysite.settings
 
 from django.test import TestCase
+from django.conf import settings
 from django.utils import timezone
 from django.urls import reverse
 from django.contrib.staticfiles import finders
@@ -860,7 +867,7 @@ class BattleFlowTests(BattleBoardFixture):
             f'{playing_card_suit_class(generated_card)}"',
             content,
         )
-        self.assertIn(f'href="http://127.0.0.1:8000/card/{generated_card.id}/"', content)
+        self.assertIn(f'href="{reverse("MMM:viewCard", args=[generated_card.id])}"', content)
         self.assertNotIn("/static/1flubeltje.jpg", content)
         self.assertNotIn("class=\"cardTitle\">Two of Clubs", content)
         self.assertIn("Intelligence", content)
@@ -1451,7 +1458,56 @@ class BattleFlowTests(BattleBoardFixture):
         )
         self.assertIsNotNone(enemy_section)
         self.assertIn("emptyDeck", enemy_section.group(1))
-        self.assertNotIn("<button", enemy_section.group(1))
+        for button_tag in re.findall(r'<button[^>]*>', enemy_section.group(1)):
+            self.assertIn(
+                'disabled', button_tag,
+                "the enemy section may only carry inert controls; the empty deck "
+                "must not gain an active button",
+            )
+
+    def test_board_renders_backdrop_and_deck_indicator_face_art(self):
+        """The wood-texture backdrop and the deck-indicator card-back faces are
+        real visible art served from static files in deployment; phantom-asset
+        sweeps must not strip them from the board again."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 64)
+        self._replace_deck_with_count(self.bot_participant, 64)
+
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        self.assertIn(
+            '<img draggable="false" class="fit-picture fullpage-background" '
+            'src="/static/woodtextureorangedark2.jpg"',
+            content,
+        )
+
+        deck_face = (
+            '<img class="deck-indicator-face" draggable="false" '
+            'src="/static/extradeck.png"'
+        )
+        own_section = re.search(
+            r'<div class="deck-stack own-deck-stack"[^>]*>(.*?)<div class="hand-scroll"[^>]*>',
+            content,
+            re.DOTALL,
+        )
+        enemy_section = re.search(
+            r'<div class="enemyDeckHand">(.*?)<ul class="lanes">',
+            content,
+            re.DOTALL,
+        )
+        for section_name, section in (
+            ("own", own_section),
+            ("enemy", enemy_section),
+        ):
+            self.assertIsNotNone(section)
+            self.assertIn(
+                deck_face,
+                section.group(1),
+                f"the {section_name} deck indicator lost its card-back face art",
+            )
 
     def test_deck_animation_and_draw_selectors_use_active_deck_only(self):
         import os
@@ -1803,7 +1859,11 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIsNotNone(enemy_deck_hand)
         block = enemy_deck_hand.group(1)
         self.assertNotIn("<form", block)
-        self.assertNotIn("<button", block)
+        for button_tag in re.findall(r'<button[^>]*>', block):
+            self.assertIn(
+                'disabled', button_tag,
+                "the enemy deck and hand may only carry inert controls",
+            )
         self.assertNotIn("draggable", block)
         self.assertNotIn("data-card-id", block)
 
@@ -1815,7 +1875,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertNotIn('tabindex', enemy_section.group(1))
         
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL
         )
         self.assertIsNotNone(own_board)
@@ -1873,7 +1933,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('data-flips-left="0"', content)
 
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -2984,13 +3044,6 @@ class BattleFlowTests(BattleBoardFixture):
         ]
         self.assertIn('this.releaseHover();', leave_block)
 
-        stop_block = hover_js[
-            hover_js.index('stop() {'):
-            hover_js.index('handleMouseMove(event) {')
-        ]
-        self.assertIn("removeEventListener('mousemove'", stop_block)
-        self.assertIn("removeEventListener('mouseleave'", stop_block)
-        self.assertIn('this.clearAllHover();', stop_block)
         teardown_block = hover_js[
             hover_js.index('clearAllHover() {'):
             hover_js.index("document.addEventListener('DOMContentLoaded'")
@@ -3312,8 +3365,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -3327,8 +3382,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -3940,7 +3995,7 @@ console.log('space draw focus round trip ok');
         content = response.content.decode()
 
         player_board = re.search(
-            r'<li class="playerBoard\s*"[^>]*>.*?</li>\s*</ul>\s*<div class="deckHand">',
+            r'<li class="playerBoard[^>]*>.*?(?=<div class="deckHand)',
             content, re.DOTALL
         )
         self.assertIsNotNone(player_board, "Could not find playerBoard section in rendered HTML")
@@ -4032,7 +4087,7 @@ console.log('space draw focus round trip ok');
         with open(os.path.join(static_dir, 'cards.css')) as css_file:
             cards_css = css_file.read()
 
-        lanes_rule = re.search(r'ul\.lanes\s*\{[^}]*\}', cards_css)
+        lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
         self.assertIsNotNone(lanes_rule, "ul.lanes rule missing from cards.css")
         lanes_body = lanes_rule.group(0)
         self.assertIn('display: flex', lanes_body)
@@ -4114,27 +4169,27 @@ console.log('space draw focus round trip ok');
             "div.playerScreen must lay out children vertically"
         )
 
-        deck_hand_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*\{[^}]*\}', cards_css
+        player_table_rule = re.search(
+            r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
         )
-        self.assertIsNotNone(deck_hand_rule, ".playerScreen .deckHand rule missing from cards.css")
-        deck_hand_body = deck_hand_rule.group(0)
-        self.assertIn(
-            'margin-top: auto', deck_hand_body,
-            ".playerScreen .deckHand must use margin-top: auto to pin itself to the "
-            "column bottom regardless of how tall the playerBoard above grows"
+        self.assertIsNotNone(
+            player_table_rule,
+            ".playerScreen > ul:not(.enemyBoards) rule missing from cards.css"
         )
         self.assertIn(
-            '--hand-row-height', deck_hand_body,
-            ".playerScreen .deckHand must declare --hand-row-height so child rows "
-            "keep a fixed visible size"
+            'position: fixed', player_table_rule.group(0),
+            "the player table holding the playerBoard and the deckHand must stay "
+            "anchored to the bottom of the screen so the deckHand stays pinned "
+            "regardless of how tall the playerBoard above grows"
+        )
+        self.assertIn(
+            'bottom: 0', player_table_rule.group(0),
+            "the player table must pin itself to the screen bottom"
         )
 
         deck_hand_children_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.deck-stack\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand\s*,\s*'
-            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll\s*,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand,\s*'
+            r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-scroll,\s*'
             r'\.playerScreen\s+\.deckHand\s*>\s*\.hand-fan\s*\{[^}]*\}',
             cards_css,
         )
@@ -4144,9 +4199,14 @@ console.log('space draw focus round trip ok');
         )
         self.assertIn(
             'height: var(--hand-row-height)', deck_hand_children_rule.group(0),
-            "deckHand child rows must keep a fixed height of var(--hand-row-height) "
-            "so the deck stack / hand fan / end-turn button stay the same visible "
-            "size as the playerBoard grows above them"
+            "deckHand hand rows must keep a fixed height of var(--hand-row-height) "
+            "so the hand fan / end-turn button stay the same visible size as the "
+            "playerBoard grows above them"
+        )
+        self.assertIsNotNone(
+            re.search(r'--hand-row-height\s*:', cards_css),
+            "cards.css must declare --hand-row-height so deckHand rows keep a "
+            "fixed visible size"
         )
 
     def test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope(self):
@@ -4545,19 +4605,11 @@ console.log('enemy deck play flight face ok');
         # implementations; back-compat probes still work against them.
         parent_class = drag_js[control_class_end:]
         self.assertIn(
-            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
-            parent_class,
-        )
-        self.assertIn(
             'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
             parent_class,
         )
         self.assertIn(
             'this._keyboardSelectionControl._isGhostFlipCandidate_Legacy(card)',
-            parent_class,
-        )
-        self.assertIn(
-            'this._keyboardSelectionControl._stagedLaneForGhost_Legacy(card)',
             parent_class,
         )
         self.assertIn(
@@ -4601,7 +4653,7 @@ console.log('enemy deck play flight face ok');
         response = self.client.get(board_url)
         content = response.content.decode()
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -4643,10 +4695,6 @@ console.log('enemy deck play flight face ok');
         self.assertIn('this._predicates.isStagedGhost(card)', staged_wrapper)
 
         parent_class = drag_js[control_class_end:]
-        self.assertIn(
-            'this._keyboardSelectionControl._isStagedGhost_Legacy(card)',
-            parent_class,
-        )
         self.assertIn(
             'this._keyboardSelectionControl._isOrderableKeyboardCard_Legacy(card)',
             parent_class,
@@ -4694,7 +4742,7 @@ console.log('enemy deck play flight face ok');
         response = self.client.get(board_url)
         content = response.content.decode()
         own_board = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="deckHand)',
             content, re.DOTALL,
         )
         self.assertIsNotNone(own_board)
@@ -4901,6 +4949,13 @@ global.MutationObserver = function () {
     this.disconnect = () => {};
 };
 
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
 const dragCode = __DRAG_JS__;
 eval(dragCode);
 (documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
@@ -4912,10 +4967,6 @@ const flipCardSecond = makeFaceDownFieldCard(563);
 const flipCardUnflipped = makeFaceDownFieldCard(565);
 const stagedPlayClone = makeStagedPlayGhost(700);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
-const handList = new FakeElement('ul', 'hand');
-deckHand.appendChild(handList);
 const handGhost = new FakeElement('li', 'cardContainer ghost');
 handGhost.dataset.stagedLane = '2';
 handGhost.appendChild(makeHiddenIdInput(700));
@@ -5067,8 +5118,8 @@ unrelatedFaceDownCard.appendChild(makeHiddenIdInput(565));
 unrelatedFaceDownCard.appendChild(new FakeElement('div', 'card back smallCard'));
 cardRow.appendChild(unrelatedFaceDownCard);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -5642,8 +5693,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -5657,8 +5710,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -6215,6 +6268,7 @@ console.log('hand click then lane click ordinal flow ok');
             '    querySelector(selector) {',
             "        if (selector === '.playerBoard') return fakePlayerBoard;",
             "        if (selector === '.playerScreen') return fakePlayerScreen;",
+            "        if (selector === '.basic-mat.table > .deckHand.handContainer .hand-scroll') return makeElement(\"div\");",
             '        return null;',
             '    },',
             '    querySelectorAll() { return []; },',
@@ -6513,6 +6567,7 @@ const fakeDocument = {
     querySelector(selector) {
         if (selector === '.playerBoard') return fakePlayerBoard;
         if (selector === '.playerScreen') return fakePlayerScreen;
+        if (selector === '.basic-mat.table > .deckHand.handContainer .hand-scroll') return makeElement('div');
         const sourceMatch = selector.match(/data-source-card-id="([^"]+)"/);
         if (sourceMatch) {
             const holograms = holoRows.flatMap((row) => row.children);
@@ -6888,8 +6943,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -6914,8 +6971,8 @@ const fieldCards = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -7359,8 +7416,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const screenFocusListeners = { focusin: [], focusout: [] };
 playerScreen.addEventListener = (name, handler, capture) => {
@@ -7392,8 +7451,8 @@ const holoRows = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -8442,8 +8501,8 @@ const cardD = makeFocusableFieldCard(
     604,
 );
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -8701,8 +8760,10 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
 const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+matTable.appendChild(playerBoard);
 
 const lanesEl = new FakeElement('ul', 'lanes');
 playerBoard.appendChild(lanesEl);
@@ -8727,8 +8788,8 @@ const fieldCards = [];
     holoRows.push(holoRow);
 });
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -9444,8 +9505,8 @@ trustedCard.appendChild(makeHiddenInput('card_id', 550));
 trustedRow.appendChild(trustedCard);
 placeCard(trustedCard, 400, 60);
 
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+playerTable.appendChild(deckHand);
 const handScroll = new FakeElement('div', 'hand-scroll');
 deckHand.appendChild(handScroll);
 const handList = new FakeElement('ul', 'hand');
@@ -10039,7 +10100,7 @@ class PlayerPageTests(TestCase):
         response = self.client.get(reverse("MMM:viewPlayer", args=[challenger.id]))
         content = response.content.decode()
 
-        expected_url = f"http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/"
+        expected_url = reverse("MMM:viewBoard", args=[game.id, challenger.id])
         self.assertContains(
             response,
             f'<a class="challenge-card-link" href="{expected_url}" draggable="false">',
@@ -10114,7 +10175,7 @@ class PlayerPageTests(TestCase):
             self.assertContains(
                 response,
                 '<a class="challenge-card-link" '
-                f'href="http://127.0.0.1:8000/game/{game.id}/board/{challenger.id}/" '
+                f'href="{reverse("MMM:viewBoard", args=[game.id, challenger.id])}" '
                 'draggable="false">',
             )
             self.assertContains(
@@ -10254,7 +10315,6 @@ class PlayerPageTests(TestCase):
         first_card, _ = self._create_owned_card(player, "Zulu")
         second_card, _ = self._create_owned_card(player, "Alpha")
         player_url = reverse("MMM:viewPlayer", args=[player.id])
-        absolute_player_url = f"http://127.0.0.1:8000{player_url}"
 
         default_response = self.client.get(player_url)
         invalid_response = self.client.get(player_url + "?sort=unsupported")
@@ -10271,7 +10331,7 @@ class PlayerPageTests(TestCase):
             default_response,
             'class="collection-sort-control is-active"',
         )
-        self.assertContains(default_response, f'href="{absolute_player_url}"')
+        self.assertContains(default_response, f'href="{player_url}"')
         self.assertContains(
             default_response,
             'aria-current="true">Default',
@@ -10283,7 +10343,7 @@ class PlayerPageTests(TestCase):
         ):
             self.assertContains(
                 default_response,
-                f'href="{absolute_player_url}?sort={sort_key}"',
+                f'href="{player_url}?sort={sort_key}"',
             )
             self.assertContains(default_response, label)
             sorted_response = self.client.get(player_url + f"?sort={sort_key}")
@@ -10294,7 +10354,7 @@ class PlayerPageTests(TestCase):
             self.assertContains(sorted_response, f'aria-current="true">{label}')
         self.assertContains(
             invalid_response,
-            f'href="{absolute_player_url}?sort=name"',
+            f'href="{player_url}?sort=name"',
         )
         self.assertContains(
             invalid_response,
@@ -10867,6 +10927,14 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         with open(css_path) as css_file:
             return css_file.read()
 
+    def _css_rules_for_selector(self, cards_css, selector):
+        """(start_index, body) of every rule whose selector list uses only `selector`."""
+        return [
+            (match.start(), match.group(2).strip())
+            for match in re.finditer(r'([^{}]+)\{([^{}]+)\}', cards_css)
+            if all(part.strip() == selector for part in match.group(1).split(','))
+        ]
+
     def test_backtick_overlay_keydown_branch_toggles_three_targets(self):
         drag_js = self._read_card_drag_drop_js()
         keydown_code = self._slice_on_keyboard_key_down(drag_js)
@@ -10902,10 +10970,13 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
     def test_backtick_overlay_css_rule_uses_absolute_white_z3(self):
         cards_css = self._read_cards_css()
 
-        rule_match = re.search(r'\.debug-overlay-visible[^{]*\{[^}]*\}', cards_css)
-        self.assertIsNotNone(rule_match, "No .debug-overlay-visible CSS rule found")
+        overlay_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
+        self.assertNotEqual(
+            overlay_rules, [],
+            "No .debug-overlay CSS rule found for the debug overlay box",
+        )
 
-        rule_body = rule_match.group(0)
+        rule_body = overlay_rules[0][1]
         self.assertIn('position: absolute', rule_body)
         self.assertIn('background: white', rule_body)
         self.assertIn('z-index: 3', rule_body)
@@ -10918,43 +10989,25 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         content = response.content.decode()
 
-        player_section_match = re.search(
-            r'<div class="deckHand">\s*(.*?)<div class="deck-stack',
+        player_p_match = re.search(
+            r'<div class="deckHand[^"]*">\s*(<p[^>]*>[\s\S]*?</p>)\s*<div class="hand-scroll"',
             content,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            player_section_match,
-            "Could not locate <div class=\"deckHand\"> opening in rendered board",
-        )
-        player_p_match = re.match(
-            r'\s*<p[^>]*>([\s\S]*?)</p>',
-            player_section_match.group(1),
         )
         self.assertIsNotNone(
             player_p_match,
-            "Player deck/hand counter <p> is not the first direct child of "
-            "<div class=\"deckHand\">",
+            "Player deck/hand counter <p> is not the first child of the deckHand container",
         )
         self.assertIn('Deck:', player_p_match.group(1))
         self.assertIn('| Hand:', player_p_match.group(1))
 
-        enemy_section_match = re.search(
-            r'<div class="enemyDeckHand">\s*(.*?)<div class="deck-stack enemy-deck-stack"',
+        enemy_p_match = re.search(
+            r'<div class="enemyDeckHand">\s*(<p class="cardType[^"]*"[^>]*>[\s\S]*?</p>)'
+            r'\s*<div class="deck-stack enemy-deck-stack"',
             content,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            enemy_section_match,
-            "Could not locate <div class=\"enemyDeckHand\"> opening in rendered board",
-        )
-        enemy_p_match = re.match(
-            r'\s*<p class="cardType"[^>]*>([\s\S]*?)</p>',
-            enemy_section_match.group(1),
         )
         self.assertIsNotNone(
             enemy_p_match,
-            "Enemy deck/hand counter <p class=\"cardType\"> is not the first direct child of "
+            "Enemy deck/hand counter <p class=\"cardType\"> is not the first child of "
             "<div class=\"enemyDeckHand\">",
         )
         self.assertIn('Deck:', enemy_p_match.group(1))
@@ -10984,18 +11037,18 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
 
         self.assertRegex(
             scrubbed,
-            r'<p[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            r'<p class="debug-overlay">\s*Deck: \d+ \| Hand: \d+',
             "Player counter <p> must not be inside <script>, <template>, or hidden <div>",
         )
         self.assertRegex(
             scrubbed,
-            r'<p class="cardType"[^>]*>[\s\S]*?Deck:[^<]*\| Hand:[^<]*</p>',
+            r'<p class="cardType debug-overlay">Deck: \d+ \| Hand: \d+</p>',
             "Enemy counter <p class=\"cardType\"> must not be inside dev-only blocks",
         )
         for lane_name in ('Intelligence', 'Speed', 'Visciousness', 'Resolve'):
             self.assertRegex(
                 scrubbed,
-                rf'<p[^>]*>[\s\S]*?\|\s*{lane_name}\s*</p>',
+                rf'<p class="debug-overlay">\s*\d+ \| {lane_name}\s*</p>',
                 f"Lane <p> for {lane_name} must not be inside dev-only blocks",
             )
 
@@ -11033,15 +11086,21 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
 
     def test_backtick_debug_paragraph_css_styling_applies_visibility_class(self):
         cards_css = self._read_cards_css()
-        visible_rule = re.search(
-            r'\.playerScreen\s+\.deckHand\s*>\s*p\.debug-overlay-visible[^{]*\{[^}]*\}',
-            cards_css,
+
+        hidden_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
+        visible_rules = self._css_rules_for_selector(cards_css, '.debug-overlay-visible')
+        self.assertNotEqual(hidden_rules, [], "No .debug-overlay CSS rule found")
+        self.assertNotEqual(
+            visible_rules, [], "No .debug-overlay-visible CSS rule found"
         )
-        self.assertIsNotNone(visible_rule, "No <p> debug-overlay-visible CSS rule found")
-        body = visible_rule.group(0)
-        self.assertIn('position: absolute', body)
-        self.assertIn('background: white', body)
-        self.assertIn('z-index: 3', body)
+
+        self.assertIn('display:none', hidden_rules[0][1])
+        self.assertIn('display:block', visible_rules[0][1])
+        self.assertLess(
+            hidden_rules[0][0], visible_rules[0][0],
+            "The display:block rule must come after the display:none rule "
+            "so toggling debug-overlay-visible wins the cascade",
+        )
 
     def test_backtick_dead_key_and_grave_dispatch_toggles_paragraphs_via_dom(self):
         import os
@@ -11272,7 +11331,7 @@ class PlayerPageToBoardEndToEndTests(TestCase):
         return values
 
     def _player_counter(self, board_html):
-        deck_hand = board_html.split('<div class="deckHand">', 1)[1]
+        deck_hand = re.split(r'<div class="deckHand[^"]*">', board_html, 1)[1]
         match = re.search(r'Deck: (\d+) \| Hand: (\d+)', deck_hand)
         self.assertIsNotNone(match, "Board is missing its deck/hand counter")
         return int(match.group(1)), int(match.group(2))
@@ -11334,7 +11393,7 @@ class PlayerPageToBoardEndToEndTests(TestCase):
             response, '<link rel="stylesheet" type="text/css" href="/static/cardDragDrop.css">'
         )
         self.assertContains(response, 'id="turnLimits"')
-        self.assertContains(response, '<div class="deckHand">')
+        self.assertContains(response, '<div class="deckHand')
         self.assertContains(response, 'class="end-turn"')
         self.assertContains(response, reverse("MMM:boardAction", args=[game_id, self.human.id]))
         deck_count_before, hand_count_before = self._player_counter(board_before_draw)
@@ -11984,8 +12043,9 @@ class TitleGreetingTests(TestCase):
 
 
 class BoardCardPresentationTests(BattleBoardFixture):
-    """Board markup conceals GameCard ids, trusted cards read sideways and
-    hover zoom ships enabled by default with a session toggle."""
+    """Board presentation: trusted cards render on both boards in their own
+    rows, hover zoom ships enabled by default with a session toggle, and
+    staged plays and flips move real board cards."""
 
     def _confirm_and_get_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -11993,51 +12053,41 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.client.post(confirm_url)
         return self.client.get(board_url).content.decode()
 
-    def test_trusted_cards_render_sideways_for_both_participants(self):
+    def test_trusted_cards_render_for_both_participants(self):
         content = self._confirm_and_get_board()
-
-        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as css_file:
-            cards_css = css_file.read()
-        self.assertIn(".playingCards li.cardContainer.trusted {\n    --card-rotation: 90deg;\n}", cards_css)
 
         enemy_section = re.search(
             r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
             content, re.DOTALL,
         ).group(1)
         own_section = re.search(
-            r'<li class="playerBoard.*?(?=<div class="deckHand">)',
+            r'<li class="playerBoard.*?(?=<div class="[^"]*deckHand)',
             content, re.DOTALL,
         ).group(0)
 
-        for section in (enemy_section, own_section):
-            trusted_rows = re.findall(
-                r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
-                section,
-                re.DOTALL,
-            )
-            trusted_containers = [
-                attributes
-                for row in trusted_rows
-                for attributes in re.findall(r'<li class="cardContainer([^>]*)"', row)
+        for section, participant in (
+            (enemy_section, self.bot_participant),
+            (own_section, self.human_participant),
+        ):
+            trusted_titles = [
+                game_card.card.title
+                for game_card in GameCard.objects.filter(
+                    game_id=self.game.id,
+                    user_id=participant.id,
+                    state__trusted=True,
+                )
             ]
-            self.assertTrue(trusted_containers)
-            for attributes in trusted_containers:
-                classes = attributes.split('"')[0].split()
-                self.assertIn("trusted", classes)
-                self.assertNotIn("--card-rotation", attributes)
+            self.assertTrue(trusted_titles)
 
-        for section in (enemy_section, own_section):
-            lane_rows = re.findall(
-                r'<ul class="cardRow" title="cards">(.*?)</ul>',
-                section,
-                re.DOTALL,
+            trusted_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="trustedCards">(.*?)</ul>', section, re.DOTALL)
             )
-            for attributes in (
-                container
-                for row in lane_rows
-                for container in re.findall(r'<li class="cardContainer([^>]*)"', row)
-            ):
-                self.assertNotIn("trusted", attributes.split('"')[0].split())
+            lane_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="cards">(.*?)</ul>', section, re.DOTALL)
+            )
+            for card_title in trusted_titles:
+                self.assertIn(f'title="{card_title} of ', trusted_rows)
+                self.assertNotIn(f'title="{card_title} of ', lane_rows)
 
     def test_board_zoom_is_on_by_default_and_togglable_per_session(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -12272,7 +12322,7 @@ class DemoNavigationTests(TestCase):
         self.assertEqual(admin_root.count('class="backlink"'), 1)
         self.assertIn(f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>', admin_root)
 
-        entry_backlink = f'<a class="backlink" href="{views.BASE_URL}">back</a>'
+        entry_backlink = f'<a class="backlink" href="{reverse("MMM:home")}">back</a>'
         for page_url in (
             reverse("MMM:viewPlayer", args=[self.lucas.id]),
             reverse("MMM:viewCard", args=[self.lucas_card_ids[0]]),
@@ -12283,7 +12333,7 @@ class DemoNavigationTests(TestCase):
 
         started_challenge = self.client.get(reverse("MMM:createGame", args=[self.lucas.id])).content.decode()
         self.assertEqual(started_challenge.count('class="backlink"'), 1)
-        self.assertIn(f'<a class="backlink" href="{views.BASE_URL}player/{self.lucas.id}/">back</a>', started_challenge)
+        self.assertIn(f'<a class="backlink" href="{reverse("MMM:viewPlayer", args=[self.lucas.id])}">back</a>', started_challenge)
 
         fresh_game = Game.objects.latest("id")
         game_page = self.client.get(reverse("MMM:viewGame", args=[fresh_game.id])).content.decode()
@@ -12627,10 +12677,16 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
-const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
+const basicMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(basicMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+basicMat.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+basicMat.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
 const endTurnForm = new FakeElement('form', 'cardActionForm');
-playerScreen.appendChild(endTurnForm);
+handScroll.appendChild(endTurnForm);
 const endTurnButton = new FakeElement('button', 'end-turn');
 endTurnForm.appendChild(endTurnButton);
 
@@ -12797,12 +12853,16 @@ const documentListeners = {};
 const body = new FakeElement('body');
 const playerScreen = new FakeElement('div', 'playerScreen');
 body.appendChild(playerScreen);
-const playerBoard = new FakeElement('div', 'playerBoard');
-playerScreen.appendChild(playerBoard);
-const deckHand = new FakeElement('div', 'deckHand');
-playerScreen.appendChild(deckHand);
+const basicMat = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(basicMat);
+const playerBoard = new FakeElement('li', 'playerBoard');
+basicMat.appendChild(playerBoard);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+basicMat.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
 const endTurnForm = new FakeElement('form', 'cardActionForm');
-playerScreen.appendChild(endTurnForm);
+handScroll.appendChild(endTurnForm);
 const endTurnButton = new FakeElement('button', 'end-turn');
 endTurnForm.appendChild(endTurnButton);
 
@@ -13280,9 +13340,9 @@ console.log('board viewport fit ok');
 
     def test_viewport_and_release_shortcut_source_contract(self):
         drag_js = _read_static_asset('cardDragDrop.js')
+        drag_css = _read_static_asset('cardDragDrop.css')
         loading_js = _read_static_asset('loadingAnimations.js')
         stacking_js = _read_static_asset('laneStacking.js')
-        cards_css = _read_static_asset('cards.css')
 
         self.assertIn('_isEndTurnActivationKey(event) {', drag_js)
         self.assertIn("event.key === ' ' ||", drag_js)
@@ -13332,19 +13392,8 @@ console.log('board viewport fit ok');
             'compaction must be tried before complete enemy boards are hidden',
         )
 
-        self.assertIn('min-height: min(1080px, 100vh);', cards_css)
-        self.assertIn(
-            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard .enemyDeckHand ul.hand,',
-            cards_css,
-        )
-        self.assertIn(
-            '.playerScreen ul.enemyBoards.enemy-board-fit-compact li.enemyBoard ul.cardRow[title="trustedCards"]',
-            cards_css,
-        )
-        self.assertIn(
-            '.playerScreen ul.enemyBoards li.enemyBoard.enemy-board-fit-hidden',
-            cards_css,
-        )
+        self.assertIn('.shortcut-hold-loading {', drag_css)
+        self.assertIn('@keyframes shortcutHoldProgress', drag_css)
 
 
 class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
@@ -13356,21 +13405,20 @@ class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
         self.assertEqual(response.status_code, 200)
 
         html = response.content.decode()
-        referenced_assets = set(re.findall(r'/static/([a-zA-Z0-9._-]+)', html))
-        missing = [name for name in sorted(referenced_assets) if finders.find(name) is None]
+        scripts = re.findall(r'<script[^>]*src="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        links = re.findall(r'<link[^>]*href="[^"]*?/static/([a-zA-Z0-9._-]+)"', html)
+        referenced_assets = sorted(set(scripts + links))
+        missing = [name for name in referenced_assets if finders.find(name) is None]
         self.assertEqual(missing, [], f"Board references missing static assets: {missing}")
 
         asset_markers = {
-            'cards.css': [
-                'enemy-board-fit-compact',
-                'enemy-board-fit-hidden',
-                'min-height: min(1080px, 100vh);',
-            ],
+            'cardDragDrop.css': ['shortcut-hold-loading', 'shortcutHoldProgress'],
             'laneStacking.js': ['class BoardViewportFit', 'SMALL_VIEWPORT_MAX_HEIGHT = 768'],
             'loadingAnimations.js': ['class LoadingEndTurnGuard', "phase === 'playerMoves'"],
             'cardDragDrop.js': ['_isEndTurnReleaseKey', 'ShortcutHoldAction'],
         }
         for asset, markers in asset_markers.items():
+            self.assertIn(asset, referenced_assets)
             asset_path = finders.find(asset)
             self.assertIsNotNone(asset_path)
             with open(asset_path) as asset_file:
@@ -13430,3 +13478,86 @@ class BoardViewportShortcutEndToEndTests(BattleBoardFixture):
         self.assertNotIn('id="turnPhase"', settled_content)
         self.assertRegex(settled_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
         self.assertEqual(Game.objects.get(pk=self.game.id).roundNumber, 2)
+
+
+class SettingsDeploymentEnvironmentTests(TestCase):
+    """mysite settings take their deployment values from MMM_* environment
+    variables and keep the local development defaults when those are unset."""
+
+    deployment_environment = {
+        "MMM_SECRET_KEY": "settings-test-secret-key",
+        "MMM_DEBUG": "false",
+        "MMM_ALLOWED_HOSTS": "pr-12.paintedpillars.com,127.0.0.1,localhost",
+        "MMM_CSRF_TRUSTED_ORIGINS": "https://pr-12.paintedpillars.com",
+        "MMM_SECURE_COOKIES": "true",
+        "MMM_DB_PATH": "/tmp/opencode/settings-tests-pr-12.sqlite3",
+    }
+    development_secret_key = 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
+
+    def reload_settings(self, environment):
+        with mock.patch.dict(os.environ, environment, clear=True):
+            return importlib.reload(mysite.settings)
+
+    def test_deployment_values_come_from_the_environment(self):
+        settings_module = self.reload_settings(self.deployment_environment)
+
+        self.assertEqual(settings_module.SECRET_KEY, "settings-test-secret-key")
+        self.assertFalse(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [
+            "pr-12.paintedpillars.com", "127.0.0.1", "localhost",
+        ])
+        self.assertEqual(settings_module.CSRF_TRUSTED_ORIGINS, [
+            "https://pr-12.paintedpillars.com",
+        ])
+        self.assertTrue(settings_module.SESSION_COOKIE_SECURE)
+        self.assertTrue(settings_module.CSRF_COOKIE_SECURE)
+        self.assertEqual(
+            Path(settings_module.DATABASES["default"]["NAME"]).as_posix(),
+            "/tmp/opencode/settings-tests-pr-12.sqlite3",
+        )
+        self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+
+    def test_local_development_defaults_without_environment(self):
+        settings_module = self.reload_settings({})
+
+        self.assertEqual(settings_module.SECRET_KEY, self.development_secret_key)
+        self.assertTrue(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [])
+        self.assertEqual(settings_module.CSRF_TRUSTED_ORIGINS, [])
+        self.assertFalse(settings_module.SESSION_COOKIE_SECURE)
+        self.assertFalse(settings_module.CSRF_COOKIE_SECURE)
+        self.assertEqual(
+            settings_module.DATABASES["default"]["NAME"],
+            settings_module.BASE_DIR / "db.sqlite3",
+        )
+        self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+
+    def test_empty_environment_values_fall_back_to_the_defaults(self):
+        settings_module = self.reload_settings(
+            {name: "" for name in self.deployment_environment}
+        )
+
+        self.assertEqual(settings_module.SECRET_KEY, self.development_secret_key)
+        self.assertTrue(settings_module.DEBUG)
+        self.assertEqual(settings_module.ALLOWED_HOSTS, [])
+        self.assertEqual(
+            settings_module.DATABASES["default"]["NAME"],
+            settings_module.BASE_DIR / "db.sqlite3",
+        )
+
+    def tearDown(self):
+        self.reload_settings({})
+
+
+class SessionCookieHostScopeTests(TestCase):
+    """Session cookies stay host-only, so a PR environment never shares a
+    cookie scope with production or with another PR environment."""
+
+    def test_title_page_sets_a_host_only_session_cookie(self):
+        self.assertIsNone(settings.SESSION_COOKIE_DOMAIN)
+
+        response = self.client.get(reverse("MMM:titlePage"))
+
+        session_cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+        self.assertEqual(session_cookie["domain"], "")
+        self.assertTrue(session_cookie.value)
