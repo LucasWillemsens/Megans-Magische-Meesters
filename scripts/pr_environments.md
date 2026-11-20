@@ -4,10 +4,12 @@
 GitHub runner: the loop itself builds and serves every eligible pull request on
 this host, so fork PR code never runs here.
 
-Each eligible PR gets `https://pr-<number>.paintedpillars.com/`, backed by its
+Each eligible PR gets `https://pr-<number>.paintedpillars.com/MMM/`, backed by its
 own checkout, SQLite database, and runtime port under `var/deployments/`.
 Everything under `var/deployments/` is gitignored runtime state and must never
-be committed.
+be committed. The game app itself is mounted at `/MMM/` in the URLconf, so
+the PR environment serves exactly the same paths as local development and
+production; the bare host root redirects there until the band site exists.
 
 ## Security boundary
 
@@ -177,17 +179,18 @@ installed in WSL.
    `python3 scripts/pr_environments.py sync`. Expect a `ready` line with the
    environment URL and port, and a PR comment carrying the URL and play note.
    `python3 scripts/pr_environments.py status` lists the environment.
-2. **Direct server.** `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/`
-   must return 200 (the PR environment binds its own port).
-3. **Proxy routing.** `curl -s -H "Host: pr-<n>.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80`
+2. **Direct server.** `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/MMM/title/`
+   must return 200 (the PR environment binds its own port; the bare `/`
+   redirects to the game mount).
+3. **Proxy routing.** `curl -s -H "Host: pr-<n>.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80/MMM/title/`
    must return 200 through Caddy, served by the PR environment's port, while
-   `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80`
+   `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80/MMM/title/`
    stays on production's block. No Caddy or tunnel change was made per PR.
 4. **Tunnel end to end.** On a phone or another network, open
-   `https://pr-<n>.paintedpillars.com/`: the title page renders, static CSS
+   `https://pr-<n>.paintedpillars.com/MMM/`: the title page renders, static CSS
    and JS load, and starting the demo battle works. In the browser devtools
    the `sessionid` Set-Cookie has no `Domain` attribute and carries `Secure`.
-   `https://www.paintedpillars.com/` (or its 502 while production is absent)
+   `https://www.paintedpillars.com/MMM/` (or its 502 while production is absent)
    is unaffected by PR environments.
 5. **Isolation.** Open a second PR and sync. `status` shows two distinct
    ports; `var/deployments/pr-<a>/db.sqlite3` and `pr-<b>/db.sqlite3` are two

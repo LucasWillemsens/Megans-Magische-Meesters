@@ -1,0 +1,27 @@
+{% extends 'MMM/band/base.jinja2' %}
+{% block title %}Music &ndash; Painted Pillars{% endblock %}
+
+{% block content %}
+<main class="bandContent">
+    <h1 class="bandPageTitle">Music</h1>
+    <section class="bandStreaming">
+        <h2 class="bandSectionTitle">Our music is available on</h2>
+        <div class="bandStreamingLinks">
+            {% for label, linkUrl, icon in streamingLinks %}
+            <a class="bandStreamingLink" href="{{ linkUrl }}" target="_blank" rel="noopener">
+                <img class="bandStreamingIcon" src="{{ static(icon) }}" alt="">
+                <span>{{ label }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    <section>
+        <h2 class="bandSectionTitle">Songs</h2>
+        <ul class="bandReleaseList">
+            {% for title, trackUrl in releases %}
+            <li class="bandRelease"><a href="{{ trackUrl }}" target="_blank" rel="noopener">{{ title }}</a></li>
+            {% endfor %}
+        </ul>
+    </section>
+</main>
+{% endblock %}

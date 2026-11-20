@@ -75,7 +75,7 @@ def pr_log_path(number):
 
 
 def environment_url(number):
-    return f"https://{pr_hostname(number)}/"
+    return f"https://{pr_hostname(number)}/MMM/"
 
 
 def utc_now_iso():

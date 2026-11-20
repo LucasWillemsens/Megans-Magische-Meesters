@@ -20,6 +20,7 @@ from django.contrib.staticfiles import finders
 
 from . import views
 from . import battle_services
+from . import api_docs
 from .demo_flow import (
     DEMO_DECK_CARD_COUNT,
     create_demo_scenario,
@@ -1554,10 +1555,7 @@ class BattleFlowTests(BattleBoardFixture):
 
         self.assertContains(response, 'data-phase="playerMoves"')
         self.assertEqual(response.cookies["turn_phase"].value, "enemy")
-        self.assertEqual(
-            response.cookies["turn_phase"]["path"],
-            f"/game/{self.game.id}/board/{self.human.id}/",
-        )
+        self.assertEqual(response.cookies["turn_phase"]["path"], board_url)
 
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
@@ -2055,10 +2053,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertRedirects(response, result_url)
         self.assertEqual(response.cookies["turn_phase"].value, "")
         self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
-        self.assertEqual(
-            response.cookies["turn_phase"]["path"],
-            f"/game/{self.game.id}/board/{self.human.id}/",
-        )
+        self.assertEqual(response.cookies["turn_phase"]["path"], board_url)
 
     def test_result_redirects_back_to_board_when_unfinished(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -3482,7 +3477,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
     setTimeout(callback) {
         const id = nextTimerId++;
         holdTimers.push({ id, callback });
@@ -3736,7 +3731,7 @@ global.window = {
     removeEventListener() {},
     cardDragDrop: null,
     loadingAnimations: null,
-    location: { pathname: '/game/1/board/2/' },
+    location: { pathname: '/MMM/game/1/board/2/' },
     setTimeout(callback) {
         const id = 1000 + holdTimers.length;
         holdTimers.push({ id, callback });
@@ -3826,7 +3821,7 @@ const flushTick = () => {
     for (const callback of rafCallbacks.splice(0)) callback();
 };
 
-const boardPath = '/game/1/board/2/';
+const boardPath = '/MMM/game/1/board/2/';
 const drawFocusKey = 'mmmDrawFocusReturn';
 
 resetActiveFocus();
@@ -3852,7 +3847,7 @@ const instantiateLoading = () => {
 
 clearBoardAreas();
 resetActiveFocus();
-window.location.pathname = '/game/1/board/2/action/';
+window.location.pathname = '/MMM/game/1/board/2/action/';
 const flightCard = new FakeElement('li', 'cardContainer loading');
 flightCard.setAttribute('data-source-lane', '-2');
 flightCard.setAttribute('data-source-ordinal', '0');
@@ -3902,7 +3897,7 @@ assert('a depleted deck consumes the pending return safely',
 
 clearBoardAreas();
 resetActiveFocus();
-window.location.pathname = '/game/7/board/3/';
+window.location.pathname = '/MMM/game/7/board/3/';
 const otherGameDrawButton = buildDeckArea('open');
 sessionStorage.setItem(drawFocusKey, boardPath);
 instantiateLoading();
@@ -4940,7 +4935,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/action/' },
+    location: { pathname: '/MMM/game/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -5172,7 +5167,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/action/' },
+    location: { pathname: '/MMM/game/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -5808,7 +5803,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.MutationObserver = function (handler) {
@@ -5880,6 +5875,8 @@ assert('typed play keeps the 1-based dataset hand ordinal in the cookie',
     playCookieCardId(cookieWrites[0]) === '301' && typedPayload.laneValue === '1' &&
     typedPayload.sourceLane === '0' && typedPayload.sourceOrdinal === '1' &&
     typedPayload.flipFaceUp === false);
+assert('the staged play cookie is scoped to the prefixed board path',
+    cookieWrites[0].includes(';path=/MMM/game/1/board/1/'));
 assert('typed staging kept the 1-based focused input', focusedHandCardInput.value === '1');
 
 fakeDocument.activeElement = body;
@@ -8281,7 +8278,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -8871,7 +8868,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.MutationObserver = function (handler) {
@@ -9581,7 +9578,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -9919,7 +9916,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -9953,7 +9950,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -9986,7 +9983,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -11489,13 +11486,13 @@ class GameActionApiTests(BattleBoardFixture):
 
     def setUp(self):
         super().setUp()
-        self.schema_url = "/api/schema/"
-        self.docs_url = "/api/docs/"
-        self.reset_url = "/api/games/reset/"
-        self.board_url = f"/api/games/{self.game.id}/board/{self.human.id}/"
-        self.play_url = f"{self.board_url}play/"
-        self.draw_url = f"{self.board_url}draw/"
-        self.end_turn_url = f"{self.board_url}end-turn/"
+        self.schema_url = reverse("MMM:apiSchema")
+        self.docs_url = reverse("MMM:apiSwaggerUI")
+        self.reset_url = reverse("MMM:apiResetGames")
+        self.board_url = reverse("MMM:apiBoardState", args=[self.game.id, self.human.id])
+        self.play_url = reverse("MMM:apiPlayCardsAction", args=[self.game.id, self.human.id])
+        self.draw_url = reverse("MMM:apiDrawCardAction", args=[self.game.id, self.human.id])
+        self.end_turn_url = reverse("MMM:apiEndTurnAction", args=[self.game.id, self.human.id])
 
     def _confirm_via_browser(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -11541,27 +11538,32 @@ class GameActionApiTests(BattleBoardFixture):
             self.schema_url,
             self.docs_url,
             self.reset_url,
-            "/api/games/{gameId}/board/{playerId}/",
-            "/api/games/{gameId}/board/{playerId}/play/",
-            "/api/games/{gameId}/board/{playerId}/draw/",
-            "/api/games/{gameId}/board/{playerId}/end-turn/",
+            api_docs.BOARD_PATH,
+            api_docs.PLAY_PATH,
+            api_docs.DRAW_PATH,
+            api_docs.END_TURN_PATH,
         ):
             self.assertIn(path, schema["paths"], path)
 
-        play_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/play/"]["post"]
+        self.assertEqual(api_docs.BOARD_PATH.format(gameId=1, playerId=2), reverse("MMM:apiBoardState", args=[1, 2]))
+        self.assertEqual(api_docs.PLAY_PATH.format(gameId=1, playerId=2), reverse("MMM:apiPlayCardsAction", args=[1, 2]))
+        self.assertEqual(api_docs.DRAW_PATH.format(gameId=1, playerId=2), reverse("MMM:apiDrawCardAction", args=[1, 2]))
+        self.assertEqual(api_docs.END_TURN_PATH.format(gameId=1, playerId=2), reverse("MMM:apiEndTurnAction", args=[1, 2]))
+
+        play_operation = schema["paths"][api_docs.PLAY_PATH]["post"]
         self.assertTrue(play_operation["requestBody"]["required"])
         self.assertIn("200", play_operation["responses"])
         for status in ("400", "404"):
             self.assertIn(status, play_operation["responses"])
             self.assertIn("#/components/schemas/Error", play_operation["responses"][status]["content"]["application/json"]["schema"]["$ref"])
 
-        end_turn_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/end-turn/"]["post"]
+        end_turn_operation = schema["paths"][api_docs.END_TURN_PATH]["post"]
         self.assertFalse(end_turn_operation["requestBody"]["required"])
         for status in ("200", "400", "404"):
             self.assertIn(status, end_turn_operation["responses"])
 
-        board_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/"]["get"]
-        draw_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/draw/"]["post"]
+        board_operation = schema["paths"][api_docs.BOARD_PATH]["get"]
+        draw_operation = schema["paths"][api_docs.DRAW_PATH]["post"]
         for operation in (board_operation, play_operation, draw_operation, end_turn_operation):
             path_parameters = {
                 parameter["name"]: parameter
@@ -11629,14 +11631,14 @@ class GameActionApiTests(BattleBoardFixture):
         )
 
     def test_api_board_state_404s_are_json(self):
-        response = self.client.get("/api/games/999999/board/1/")
+        response = self.client.get(reverse("MMM:apiBoardState", args=[999999, 1]))
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
             json.loads(response.content.decode())["error"],
             "no such game or participant",
         )
 
-        response = self.client.get(f"/api/games/{self.game.id}/board/999999/")
+        response = self.client.get(reverse("MMM:apiBoardState", args=[self.game.id, 999999]))
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
             json.loads(response.content.decode())["error"],
@@ -11652,7 +11654,7 @@ class GameActionApiTests(BattleBoardFixture):
     def test_api_board_state_maps_verified_browser_board_to_json(self):
         self._confirm_via_browser()
 
-        browser_response = self.client.get(f"/game/{self.game.id}/board/{self.human.id}/")
+        browser_response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         self.assertEqual(browser_response.status_code, 200)
         self.assertNotIn("Action error", browser_response.content.decode())
 
@@ -11910,9 +11912,9 @@ class GameActionApiTests(BattleBoardFixture):
         self.assertEqual(Deck.objects.count(), 0)
         self.assertEqual(Player.objects.count(), 2)
 
-        response = self.client.get("/game/reset/")
-        self.assertRedirects(response, "/", target_status_code=302)
-        self.assertEqual(self.client.get("/title/").status_code, 200)
+        response = self.client.get(reverse("MMM:resetGames"))
+        self.assertRedirects(response, reverse("MMM:home"), target_status_code=302)
+        self.assertEqual(self.client.get(reverse("MMM:titlePage")).status_code, 200)
 
     def test_api_methods_follow_documented_status_codes(self):
         self._confirm_via_browser()
@@ -11940,7 +11942,7 @@ class GameActionApiTests(BattleBoardFixture):
         )
         self.assertEqual(response.status_code, 302)
 
-        demo_board_url = f"/api/games/{demo_game_id}/board/{self.human.id}/"
+        demo_board_url = reverse("MMM:apiBoardState", args=[demo_game_id, self.human.id])
 
         response = self.client.post(
             reverse("MMM:confirmChallenge", args=[demo_game_id, self.human.id])
@@ -12111,7 +12113,7 @@ class BoardCardPresentationTests(BattleBoardFixture):
         response = self.client.get(settings_url)
         content = response.content.decode()
         self.assertRegex(content, r'data-card-zoom="enabled"')
-        self.assertRegex(content, r'<form method="post"[^>]*action="/settings/zoom/"')
+        self.assertRegex(content, r'<form method="post"[^>]*action="%s"' % re.escape(reverse("MMM:toggleCardZoom")))
         self.assertIn('<input type="hidden" name="enable" value="false">', content)
         self.assertIn("Disable hover card zoom", content)
 
@@ -12222,14 +12224,6 @@ class DemoNavigationTests(TestCase):
     def _deck_card_ids(self, deck):
         return sorted(card.id for card in deck.cards.all())
 
-    def test_root_redirects_everyone_to_the_title_page(self):
-        response = self.client.get("/")
-        self.assertRedirects(response, "/title/", fetch_redirect_response=False)
-
-        title_response = self.client.get(response["Location"])
-        self.assertEqual(title_response.status_code, 200)
-        self.assertContains(title_response, "Magical Masters")
-
     def test_current_index_renders_for_anyone_at_the_admin_route(self):
         response = self.client.get(reverse("MMM:index"))
         self.assertEqual(response.status_code, 200)
@@ -12249,7 +12243,7 @@ class DemoNavigationTests(TestCase):
         self.assertIn(f'href="{docs_url}"', content)
         self.assertEqual(self.client.get(player_url).status_code, 200)
         self.assertEqual(self.client.get(card_url).status_code, 200)
-        self.assertRedirects(self.client.get(reset_url, follow=True), "/title/")
+        self.assertRedirects(self.client.get(reset_url, follow=True), reverse("MMM:titlePage"))
         docs_response = self.client.get(docs_url)
         self.assertEqual(docs_response.status_code, 200)
         self.assertIn("Game action API", docs_response.content.decode())
@@ -12410,11 +12404,11 @@ class DemoNavigationTests(TestCase):
         response = self.client.post(reverse("MMM:play"))
         board_url = response["Location"]
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(board_url.startswith("/game/"))
+        self.assertTrue(board_url.startswith("/MMM/game/"))
         self.assertTrue(board_url.endswith("/board/%d/" % self._created_player("Annabel").id))
 
         game = Game.objects.get(title="Annabel vs Lucas")
-        self.assertIn(f"/game/{game.id}/board/", board_url)
+        self.assertEqual(board_url, reverse("MMM:viewBoard", args=[game.id, self._created_player("Annabel").id]))
         participants = list(game.history.participants.select_related("player"))
         participants_by_player = {
             participant.player.name: participant for participant in participants
@@ -12624,6 +12618,179 @@ class DemoNavigationTests(TestCase):
         self.assertIsNone(self._created_player("Cats"))
 
 
+class MmmUrlPrefixTests(TestCase):
+    """The game owns /MMM/ and nothing else: representative pages and APIs
+    resolve under the mount, their unprefixed equivalents route to no game
+    view, and static assets stay at the root-relative /static/."""
+
+    def test_reverse_resolves_representative_pages_and_apis_under_the_prefix(self):
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        self.assertEqual(reverse("MMM:titlePage"), "/MMM/title/")
+        self.assertEqual(reverse("MMM:play"), "/MMM/play/")
+        self.assertEqual(reverse("MMM:resetGames"), "/MMM/game/reset/")
+        self.assertEqual(reverse("MMM:index"), "/MMM/admin/")
+        self.assertEqual(reverse("MMM:apiSchema"), "/MMM/api/schema/")
+        self.assertEqual(reverse("MMM:apiSwaggerUI"), "/MMM/api/docs/")
+        self.assertEqual(reverse("MMM:apiResetGames"), "/MMM/api/games/reset/")
+
+    def test_representative_prefixed_pages_and_apis_serve_the_game(self):
+        for url in (
+            reverse("MMM:titlePage"),
+            reverse("MMM:apiSchema"),
+            reverse("MMM:apiSwaggerUI"),
+            reverse("MMM:index"),
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+
+    def test_unprefixed_equivalents_do_not_serve_game_views(self):
+        for url in (
+            "/title/",
+            "/play/",
+            "/deck/",
+            "/settings/",
+            "/admin/",
+            "/game/reset/",
+            "/game/1/board/1/",
+            "/api/schema/",
+            "/api/docs/",
+            "/api/games/reset/",
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 404, url)
+
+    def test_static_urls_stay_root_relative_from_the_prefixed_pages(self):
+        self.assertEqual(settings.STATIC_URL, "/static/")
+        content = self.client.get(reverse("MMM:titlePage")).content.decode()
+        self.assertIn('href="/static/style.css"', content)
+        self.assertNotIn('"/MMM/static/', content)
+
+
+class BandSiteTests(TestCase):
+    """The archived Painted Pillars band site is served at the domain root
+    next to the game at /MMM/: home with the hero and news feed, releases
+    at /music/ with the /songs/ alias, the about biography and the
+    social-links contact page."""
+
+    BAND_PAGES = {
+        "home": "/",
+        "music": "/music/",
+        "songs": "/songs/",
+        "about": "/about/",
+        "contact": "/contact/",
+    }
+
+    def _page_content(self, page):
+        return self.client.get(self.BAND_PAGES[page]).content.decode()
+
+    def test_band_routes_resolve_at_the_domain_root(self):
+        self.assertEqual(reverse("band_home"), "/")
+        self.assertEqual(reverse("band_music"), "/music/")
+        self.assertEqual(reverse("band_songs"), "/songs/")
+        self.assertEqual(reverse("band_about"), "/about/")
+        self.assertEqual(reverse("band_contact"), "/contact/")
+
+    def test_every_band_page_serves_200_with_shared_navigation_and_game_link(self):
+        for page, url in self.BAND_PAGES.items():
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, page)
+            content = response.content.decode()
+            for nav_url in ("/", "/music/", "/about/", "/contact/"):
+                self.assertIn(f'href="{nav_url}"', content, page)
+            self.assertIn('href="/MMM/"', content, page)
+            self.assertNotIn('href="/live/"', content, page)
+            self.assertNotIn('href="/press-kit/"', content, page)
+            self.assertNotIn("wpforms", content, page)
+
+    def test_songs_alias_serves_the_releases_page(self):
+        for url in (self.BAND_PAGES["music"], self.BAND_PAGES["songs"]):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            content = response.content.decode()
+            self.assertIn("Answer", content)
+            self.assertIn("The Stoic", content)
+            self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+
+    def test_home_shows_the_archived_hero_listen_cta_and_news_feed(self):
+        content = self._page_content("home")
+        self.assertIn("band/stage-photo.jpg", content)
+        self.assertIn("Listen to us here!", content)
+        self.assertIn('href="/music/"', content)
+        self.assertIn("News", content)
+        self.assertIn("Upcoming concert at Noorderlicht in Amsterdam", content)
+        self.assertIn("A celebration of childishness", content)
+        self.assertIn("New studio session", content)
+        self.assertIn("We rocked the shop window!", content)
+        self.assertIn("band/news/pay.jpg", content)
+        self.assertIn("band/news/collywobbles.jpg", content)
+        self.assertIn("band/news/a-drink.jpg", content)
+
+    def test_music_links_streaming_platforms_and_lists_archived_releases(self):
+        content = self._page_content("music")
+        self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+        self.assertIn(
+            "https://www.youtube.com/watch?v=HDyESqUPBmc&amp;list=PLKC6VD0RhYE4csTWJnUeiLe-R7hJwy6Dj",
+            content,
+        )
+        self.assertIn("https://music.apple.com/gb/artist/painted-pillars/1603642369", content)
+        for release_name in (
+            "Answer", "Catastrophe", "Bell", "Pay", "Collywobbles",
+            "Mary", "A Drink", "For A While", "Lovely", "The Stoic",
+        ):
+            self.assertIn(release_name, content)
+            self.assertIn("https://open.spotify.com/track/", content)
+
+    def test_about_shows_the_archived_band_bio_and_member_descriptions(self):
+        content = self._page_content("about")
+        self.assertIn("radical eclecticism", content)
+        self.assertIn("Pop music as it is meant to be.", content)
+        self.assertIn("band/band-photo.jpg", content)
+        self.assertIn("Eric Faassen", content)
+        self.assertIn("singer and guitarist", content)
+        self.assertIn("Rob Müller", content)
+        self.assertIn("bassist, cover art painter", content)
+        self.assertIn("Lucas Willemsens", content)
+        self.assertIn("drummer, poet and computer whisperer", content)
+
+    def test_contact_offers_social_links_without_a_submission_form(self):
+        content = self._page_content("contact")
+        self.assertIn("https://www.instagram.com/paintedpillars/", content)
+        self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+        self.assertIn("https://www.youtube.com/channel/UCPLO8M2TtIZi3aUkXG3psrg", content)
+        self.assertIn("https://music.apple.com/gb/artist/painted-pillars/1603642369", content)
+        self.assertNotIn("<form", content)
+        self.assertNotIn("<input", content)
+
+    def test_band_styling_and_assets_are_served_from_the_local_static_files(self):
+        for page in self.BAND_PAGES:
+            self.assertIn('href="/static/band.css"', self._page_content(page))
+        for asset in (
+            "band.css",
+            "band/logo-tile.png",
+            "band/logo-header.png",
+            "band/stage-photo.jpg",
+            "band/band-photo.jpg",
+            "band/fonts/lobster.woff2",
+            "band/fonts/special-elite.woff2",
+            "band/spotify.svg",
+            "band/youtube.svg",
+            "band/apple-music.svg",
+            "band/news/pay.jpg",
+            "band/news/collywobbles.jpg",
+            "band/news/shop-window.jpg",
+            "band/news/a-drink.jpg",
+            "band/news/studio-session.jpg",
+            "band/news/for-a-while.jpg",
+        ):
+            self.assertIsNotNone(finders.find(asset), asset)
+
+    def test_the_game_keeps_working_under_the_mmm_mount_next_to_the_band_site(self):
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        response = self.client.get(reverse("MMM:titlePage"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Magical Masters")
+
+
 def _run_node_harness(harness, label):
     """Execute a generated node harness and return its stdout, skipping when node is absent."""
     import os
@@ -12736,7 +12903,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/' },
+    location: { pathname: '/MMM/game/1/board/1/' },
     setTimeout(callback) {
         const id = nextTimerId++;
         holdTimers.push({ id, callback });
@@ -12874,7 +13041,7 @@ turnPhaseEl.dataset = { phase };
 body.appendChild(turnPhaseEl);
 const boardNext = new FakeElement('div');
 boardNext.setAttribute('id', 'boardNext');
-boardNext.setAttribute('data-next-url', '/game/1/board/1/');
+boardNext.setAttribute('data-next-url', '/MMM/game/1/board/1/');
 body.appendChild(boardNext);
 
 const fakeDocument = {
@@ -12915,7 +13082,7 @@ global.window = {
     removeEventListener() {},
     cardDragDrop: null,
     loadingAnimations: null,
-    location: { pathname: '/game/1/board/1/' },
+    location: { pathname: '/MMM/game/1/board/1/' },
     scrollTo() {},
     setTimeout(callback) { loadingTimers.push(callback); return loadingTimers.length; },
     clearTimeout() {},

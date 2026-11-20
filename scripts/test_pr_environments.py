@@ -125,16 +125,16 @@ class PlayNoteTests(unittest.TestCase):
         areas = self.manager.changed_file_areas(
             ["MMM/views.py", "MMM/jinja2/MMM/board.jinja2", "var/www/static/board.js", "roadmap/x/description.txt"]
         )
-        note = self.manager.ready_play_note(pull(9), "https://pr-9.paintedpillars.com/", areas)
-        self.assertIn("https://pr-9.paintedpillars.com/", note)
+        note = self.manager.ready_play_note(pull(9), "https://pr-9.paintedpillars.com/MMM/", areas)
+        self.assertIn("https://pr-9.paintedpillars.com/MMM/", note)
         self.assertIn("- game flow and page interaction (1 file)", note)
         self.assertIn("- page templates (1 file)", note)
         self.assertIn("- board styling and interaction scripts (1 file)", note)
         self.assertNotIn("roadmap", note)
 
     def test_ready_note_without_play_areas_skips_the_area_list(self):
-        note = self.manager.ready_play_note(pull(9), "https://pr-9.paintedpillars.com/", {})
-        self.assertIn("https://pr-9.paintedpillars.com/", note)
+        note = self.manager.ready_play_note(pull(9), "https://pr-9.paintedpillars.com/MMM/", {})
+        self.assertIn("https://pr-9.paintedpillars.com/MMM/", note)
         self.assertNotIn("What to play and look at", note)
 
     def test_failed_note_carries_no_environment_url(self):
@@ -300,7 +300,7 @@ class SyncFlowTests(ManagerHarness):
             self.assertTrue(env["MMM_SECRET_KEY"])
         self.assertEqual([number for number, _ in self.published], [9, 10])
         for number, body in self.published:
-            self.assertIn(f"https://pr-{number}.paintedpillars.com/", body)
+            self.assertIn(f"https://pr-{number}.paintedpillars.com/MMM/", body)
         routes = json.loads((self.deployment_root / "proxy_routes.json").read_text())
         self.assertEqual(routes, {
             "pr-9.paintedpillars.com": 8100,
@@ -432,7 +432,7 @@ class SyncFlowTests(ManagerHarness):
         number, body = self.published[0]
         self.assertEqual(number, 9)
         self.assertIn("failed", body)
-        self.assertNotIn("https://pr-9.paintedpillars.com/", body)
+        self.assertNotIn("https://pr-9.paintedpillars.com/MMM/", body)
         routes = json.loads((self.deployment_root / "proxy_routes.json").read_text())
         self.assertEqual(routes, {})
 
@@ -458,7 +458,7 @@ class RebuildCommandTests(ManagerHarness):
         self.assertEqual(state["environments"]["2"]["status"], "ready")
         self.assertEqual(state["environments"]["2"]["port"], 8102)
         self.assertEqual(self.started, [2])
-        self.assertIn("https://pr-2.paintedpillars.com/", self.published[0][1])
+        self.assertIn("https://pr-2.paintedpillars.com/MMM/", self.published[0][1])
 
     def test_rebuild_refuses_a_fork_pr_before_checkout_or_execution(self):
         self.pulls = [pull(number=77, owner="someone-else")]

@@ -1,0 +1,26 @@
+{% extends 'MMM/band/base.jinja2' %}
+
+{% block content %}
+<section class="bandHero">
+    <img class="bandHeroPhoto" src="{{ static('band/stage-photo.jpg') }}" alt="Painted Pillars performing on stage">
+    <a class="bandListenLink" href="{{ url('band_music') }}">Listen to us here!</a>
+</section>
+<main class="bandContent">
+    <h1 class="bandPageTitle">News</h1>
+    <div class="bandNewsGrid">
+        {% for item in newsItems %}
+        <article class="bandNewsCard">
+            {% if item.image %}
+            <img class="bandNewsPhoto" src="{{ static(item.image) }}" alt="">
+            {% endif %}
+            <p class="bandNewsCategories">{{ item.categories|join(' / ') }}</p>
+            <h2 class="bandNewsTitle">{{ item.title }}</h2>
+            {% if item.excerpt %}
+            <p class="bandNewsExcerpt">{{ item.excerpt }}</p>
+            {% endif %}
+            <p class="bandNewsMeta">{{ item.date }} &mdash; Painted Pillars</p>
+        </article>
+        {% endfor %}
+    </div>
+</main>
+{% endblock %}

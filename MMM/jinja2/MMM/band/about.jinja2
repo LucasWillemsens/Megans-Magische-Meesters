@@ -1,0 +1,16 @@
+{% extends 'MMM/band/base.jinja2' %}
+{% block title %}About &ndash; Painted Pillars{% endblock %}
+
+{% block content %}
+<main class="bandContent">
+    <h1 class="bandPageTitle">About</h1>
+    <p class="bandBio">{{ bandBio }}</p>
+    <img class="bandPhoto" src="{{ static('band/band-photo.jpg') }}" alt="The three members of Painted Pillars">
+    <h2 class="bandSectionTitle">Painted Pillars is</h2>
+    <ul class="bandMembers">
+        {% for member, description in bandMembers %}
+        <li class="bandMember"><strong>{{ member }}</strong>, {{ description }}</li>
+        {% endfor %}
+    </ul>
+</main>
+{% endblock %}
