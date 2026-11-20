@@ -1,5 +1,11 @@
 # agent-loops scratchpad
 
+## 2026-11-20 — production live at www.paintedpillars.com
+- State: production serving on gunicorn :8000 (head 0b9b9e8) via `scripts/production.py`; Caddy (user binary, port 8080, `~/.config/caddy/Caddyfile`) routes `www` + `handle_path /static/*` → collected static; cloudflared tunnel `mmm-production` (22f2fa20-…) routes `*.paintedpillars.com` → :8080; first deploy done, static gate green.
+- Discovered: lessons recorded 2026-11-20 cover STATIC_URL, Caddy prefix stripping, Cloudflare negative caching, and the three static sources; Cloudflare still holds cached 404s for `/static/MMM/profile.jpg` and `/static/woodtextureorangedark2.jpg` until TTL or purge.
+- Decided: production mirrors the per-PR layout under `var/deployments/production/` on this WSL host; gunicorn + collectstatic hard gate; no systemd yet.
+- Next: processes are plain nohup/setsid — they die on WSL restart; set up systemd user units (needs `loginctl enable-linger`, sudo once) or accept manual restart. Then purge Cloudflare cache, and hook `scripts/pr_environments.py sync` onto the same host when PR environments go live.
+
 ## 2026-11-18 — PR #31 review: Windows ignore coverage
 
 - State: PR #31 review found a committed `.lnk`; `.gitignore` lacks Windows junk patterns. Proposed follow-up: add a `# Windows` section with `*.lnk`, `Thumbs.db`, and `desktop.ini`.

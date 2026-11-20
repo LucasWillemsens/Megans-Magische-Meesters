@@ -1,5 +1,14 @@
 # agent-loops lessons
 
+## 2026-11-20 — Production deployment at www.paintedpillars.com
+- `STATIC_URL` must be root-relative (`'/static/'`): without the leading slash every `{% static %}` URL is page-relative and 404s on any path deeper than one level — the title page masked the bug because `/title/` happens to resolve correctly.
+- Caddy `file_server` keeps the matched URI prefix: with `handle /static/*` the served path is `<root>/static/<file>`, so a root change to a flat collectstatic tree needs `handle_path` (which strips the prefix) or nothing under `/static/` serves at all.
+- Cloudflare caches static extensions by URL *and* caches their 404s: an origin fix can be invisible for up to ~4 hours (`cf-cache-status: HIT` on a 404), and stale 200s can mask a fully broken origin — always verify with a cache-busting query string and read `cf-cache-status` before trusting a status code.
+- Production static has three sources, not one: `STATICFILES_DIRS` entries (`var/www/static/`, gitignored `assets/downloaded/`) *and* app-level `MMM/static/` — only `collectstatic` into a persistent `STATIC_ROOT` (plus injecting gitignored art at deploy time) covers all of them; serving a single source directory always drops files.
+- Runtime state that must survive rebuilds (db, secret, collected static) belongs beside the checkout, never inside it, so `git clean -fdx` cannot destroy it — same isolation principle as the per-PR environments.
+- User-level binaries (`~/.local/bin`) plus a high port (8080) avoid sudo entirely in WSL; port 80 needs root, so the tunnel points at the user-owned port instead of the conventional one.
+- Caddy started with `admin off` has no reload endpoint — config changes require a process restart, so `caddy reload` failing with "connection refused" means restart, not debug the config.
+
 ## 2026-11-18 — PR #31 review: platform junk and static assets
 - A static-asset reference missing from Git does not prove the feature is dead: deployment may contain untracked binary assets. Before deleting references, verify the deployed environment or ask the owner; prefer restoring and committing the asset, as with `titlepageartWIP.png` (PR #31).
 - A platform-junk ignore list should cover the maintainer's actual development OS, not only Mac/IDE artifacts; Windows cleanup should include `*.lnk`, `Thumbs.db`, and `desktop.ini` (PR #31).
