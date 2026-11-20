@@ -3,12 +3,17 @@
 
 Serves www.paintedpillars.com from var/deployments/production/, a checkout of
 the canonical repository's main branch, on port 8000 through gunicorn. Every
-deploy is gated by migrate, the deck seed, manage.py check, and manage.py
-test; a failing gate aborts before the running server is touched and records
-the failure in state.json. The production database and the Django secret key
-live beside the checkout, never inside it, so both survive every rebuild.
-The manager never reads or writes the working repository beyond resolving
-its origin remote, and it never touches the working repository's db.sqlite3.
+deploy is gated by migrate, the deck seed, manage.py check, manage.py test,
+and collectstatic; a failing gate aborts before the running server is
+touched and records the failure in state.json. The collectstatic gate builds
+the served static tree in production/staticfiles/ from the checkout, and the
+working repository's gitignored downloaded art (MMM_PRODUCTION_EXTRA_STATIC)
+is copied in after it, so the tree never depends on untracked files inside
+the checkout. The production database and the Django secret key live beside
+the checkout, never inside it, so both survive every rebuild. The manager
+never writes the working repository and never touches its db.sqlite3;
+beyond resolving its origin remote it only reads from the extra static
+directory.
 
 Usage:
     python3 scripts/production.py deploy [--force]
@@ -21,6 +26,7 @@ import fcntl
 import json
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -34,12 +40,14 @@ DEPLOYMENTS_DIR = Path(os.environ.get("MMM_PRODUCTION_DEPLOYMENTS_DIR", REPO_ROO
 PRODUCTION_HOSTNAME = os.environ.get("MMM_PRODUCTION_HOSTNAME", "www.paintedpillars.com")
 PRODUCTION_PORT = int(os.environ.get("MMM_PRODUCTION_PORT", "8000"))
 PRODUCTION_BRANCH = os.environ.get("MMM_PRODUCTION_BRANCH", "main")
+EXTRA_STATIC_DIR = Path(os.environ.get("MMM_PRODUCTION_EXTRA_STATIC", REPO_ROOT / "assets" / "downloaded"))
 
 GATES = (
     ("manage.py", "migrate"),
     ("manage.py", "add_deck_cards"),
     ("manage.py", "check"),
     ("manage.py", "test"),
+    ("manage.py", "collectstatic", "--noinput"),
 )
 GUNICORN_APPLICATION = "mysite.wsgi:application"
 
@@ -58,6 +66,10 @@ def production_checkout():
 
 def production_database():
     return production_directory() / "db.sqlite3"
+
+
+def production_static_root():
+    return production_directory() / "staticfiles"
 
 
 def production_log_path():
@@ -91,7 +103,6 @@ def new_deployment_entry():
         "port": None,
         "head_sha": None,
         "failure": None,
-        "static_failure": None,
         "built_at": None,
     }
 
@@ -193,6 +204,7 @@ def deployment_environment(secret_key):
         "MMM_CSRF_TRUSTED_ORIGINS": f"https://{PRODUCTION_HOSTNAME}",
         "MMM_SECURE_COOKIES": "true",
         "MMM_DB_PATH": str(production_database()),
+        "MMM_STATIC_ROOT": str(production_static_root()),
     }
 
 
@@ -283,7 +295,8 @@ def deploy_production(state, head_sha):
     process only after every gate passes; a failing gate records the failure
     and leaves the running server untouched."""
     entry = state.setdefault("deployment", new_deployment_entry())
-    entry.update(status="building", head_sha=head_sha, failure=None, static_failure=None)
+    entry.update(status="building", head_sha=head_sha, failure=None)
+    entry.pop("static_failure", None)
     if not entry.get("port"):
         entry["port"] = PRODUCTION_PORT
     save_state(state)
@@ -296,16 +309,13 @@ def deploy_production(state, head_sha):
             exit_status, output = run_command((sys.executable, *command), cwd=checkout, env=gate_environment)
             if exit_status:
                 raise BuildFailure(f"{command[1]} failed with exit status {exit_status}\n{output_tail(output)}")
-        static_exit_status, static_output = run_command(
-            (sys.executable, "manage.py", "collectstatic", "--noinput"),
-            cwd=checkout,
-            env=gate_environment,
-        )
-        if static_exit_status:
-            entry["static_failure"] = (
-                f"collectstatic failed with exit status {static_exit_status}\n{output_tail(static_output)}"
-            )
-            print(f"production: {entry['static_failure'].splitlines()[0]}")
+        if not EXTRA_STATIC_DIR.is_dir():
+            print(f"production: extra static files not found at {EXTRA_STATIC_DIR}; deploying without them")
+        else:
+            try:
+                shutil.copytree(EXTRA_STATIC_DIR, production_static_root(), dirs_exist_ok=True)
+            except OSError as error:
+                raise BuildFailure(f"copying extra static files from {EXTRA_STATIC_DIR} failed\n{error}") from error
         ensure_gunicorn()
         stop_server(entry)
         entry.update(status="ready", built_at=utc_now_iso(), pid=start_server(secret_key))
@@ -355,8 +365,6 @@ def status_lines(state):
         parts.append(f"pid {entry['pid']}, " + ("running" if production_server_running(entry) else "not running"))
     if entry.get("failure"):
         parts.append(entry["failure"].splitlines()[0])
-    if entry.get("static_failure"):
-        parts.append(entry["static_failure"].splitlines()[0])
     return [" | ".join(parts)]
 
 

@@ -42,11 +42,14 @@ class EnvironmentTests(TemporaryDeploymentDirectory):
         self.assertEqual(environment["MMM_SECURE_COOKIES"], "true")
         self.assertEqual(environment["MMM_DB_PATH"], str(self.manager.production_database()))
         self.assertTrue(environment["MMM_DB_PATH"].startswith(str(self.deployment_root)))
+        self.assertEqual(environment["MMM_STATIC_ROOT"], str(self.manager.production_static_root()))
+        self.assertTrue(environment["MMM_STATIC_ROOT"].startswith(str(self.deployment_root)))
 
-    def test_the_database_and_secret_key_live_outside_the_checkout(self):
+    def test_the_database_secret_key_and_static_root_live_outside_the_checkout(self):
         checkout = self.manager.production_checkout()
         self.assertEqual(self.manager.production_database().parent, checkout.parent)
         self.assertEqual(self.manager.production_env_path().parent, checkout.parent)
+        self.assertEqual(self.manager.production_static_root().parent, checkout.parent)
 
 
 class StateTests(TemporaryDeploymentDirectory):
@@ -61,16 +64,12 @@ class StateTests(TemporaryDeploymentDirectory):
             status="failed",
             head_sha="abcdef1234567890",
             failure="test failed with exit status 1\ntraceback tail",
-            static_failure="collectstatic failed with exit status 1\ntraceback tail",
         )
         self.manager.save_state({"deployment": entry})
         reloaded = self.manager.load_state()
         self.assertEqual(reloaded["deployment"]["status"], "failed")
         self.assertEqual(reloaded["deployment"]["head_sha"], "abcdef1234567890")
         self.assertEqual(reloaded["deployment"]["failure"], "test failed with exit status 1\ntraceback tail")
-        self.assertEqual(
-            reloaded["deployment"]["static_failure"], "collectstatic failed with exit status 1\ntraceback tail"
-        )
 
 
 class SecretKeyTests(TemporaryDeploymentDirectory):
@@ -193,6 +192,7 @@ class ManagerHarness(TemporaryDeploymentDirectory):
         self.manager.start_server = self.record_start
         self.manager.stop_server = self.record_stop
         self.manager.production_server_running = lambda entry: entry.get("pid") in self.live_server_pids
+        self.manager.EXTRA_STATIC_DIR = self.deployment_root / "extra-static"
 
     def run_command(self, command, cwd, env=None):
         self.command_calls.append((command, cwd, env))
@@ -269,6 +269,7 @@ class DeployFlowTests(ManagerHarness):
         for command, cwd, env in self.gate_calls():
             self.assertEqual(cwd, checkout)
             self.assertEqual(env["MMM_DB_PATH"], str(self.manager.production_database()))
+            self.assertEqual(env["MMM_STATIC_ROOT"], str(self.manager.production_static_root()))
             self.assertEqual(env["MMM_DEBUG"], "false")
             self.assertEqual(env["MMM_ALLOWED_HOSTS"], "www.paintedpillars.com")
             self.assertEqual(env["MMM_CSRF_TRUSTED_ORIGINS"], "https://www.paintedpillars.com")
@@ -364,15 +365,44 @@ class DeployFlowTests(ManagerHarness):
         self.assertEqual(self.stopped, [4242])
         self.assertIsNone(entry["pid"])
 
-    def test_a_collectstatic_failure_is_recorded_without_blocking_the_deploy(self):
+    def test_a_collectstatic_failure_aborts_and_leaves_the_running_server_untouched(self):
+        self.manager.save_state({"deployment": self.ready_entry(sha="0000000000000000")})
         self.exit_statuses["manage.py collectstatic --noinput"] = 1
         exit_status = self.manager.main(["deploy"])
         state = self.manager.load_state()
         entry = state["deployment"]
+        self.assertEqual(exit_status, 1)
+        self.assertEqual(entry["status"], "failed")
+        self.assertIn("collectstatic failed with exit status 1", entry["failure"])
+        self.assertIn("collectstatic failed with exit status 1", "\n".join(self.manager.status_lines(state)))
+        self.assertEqual(entry["pid"], 4242)
+        self.assertEqual(self.stopped, [])
+        self.assertEqual(self.started, [])
+        self.assertIn(4242, self.live_server_pids)
+        self.assertFalse(any(name.startswith("-m pip install") for name in self.command_names()))
+
+    def test_extra_static_files_are_copied_into_the_collect_target(self):
+        extra_static = self.deployment_root / "downloaded-art"
+        (extra_static / "cards").mkdir(parents=True)
+        (extra_static / "woodtextureorangedark2.jpg").write_bytes(b"wood texture")
+        (extra_static / "cards" / "extradeck.png").write_bytes(b"card art")
+        self.manager.EXTRA_STATIC_DIR = extra_static
+        exit_status = self.manager.main(["deploy"])
+        collect_target = self.manager.production_static_root()
+        self.assertEqual(exit_status, 0)
+        self.assertEqual((collect_target / "woodtextureorangedark2.jpg").read_bytes(), b"wood texture")
+        self.assertEqual((collect_target / "cards" / "extradeck.png").read_bytes(), b"card art")
+
+    def test_a_missing_extra_static_directory_warns_and_the_deploy_still_completes(self):
+        self.manager.EXTRA_STATIC_DIR = self.deployment_root / "absent-art"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_status = self.manager.main(["deploy"])
+        entry = self.manager.load_state()["deployment"]
         self.assertEqual(exit_status, 0)
         self.assertEqual(entry["status"], "ready")
-        self.assertIn("collectstatic failed with exit status 1", entry["static_failure"])
-        self.assertIn("collectstatic failed with exit status 1", "\n".join(self.manager.status_lines(state)))
+        self.assertIn("extra static files not found", output.getvalue())
+        self.assertIn(str(self.deployment_root / "absent-art"), output.getvalue())
 
     def test_gunicorn_is_installed_only_when_the_import_fails(self):
         self.manager.main(["deploy"])
