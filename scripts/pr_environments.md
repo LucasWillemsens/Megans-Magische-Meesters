@@ -134,10 +134,11 @@ the proxy and Django see plain HTTP, so no per-PR certificate exists.
    }
    ```
 
-   The `www` block is production's; PR routes never touch it. The manager
-   rewrites `routes.caddy` on every sync, so Caddy needs a reload only when
-   routes change (`caddy reload --config <main Caddyfile>`, or run Caddy with
-   `--watch`).
+   The `www` block is production's — the deployment managed by
+   `scripts/production.py` (see `scripts/production.md`); PR routes never
+   touch it. The manager rewrites `routes.caddy` on every sync, so Caddy
+   needs a reload only when routes change (`caddy reload --config <main
+   Caddyfile>`, or run Caddy with `--watch`).
 
 2. Cloudflare Tunnel (outbound, no port forwarding), one wildcard ingress, no
    per-PR changes ever:
