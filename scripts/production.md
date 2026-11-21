@@ -9,6 +9,12 @@ and `manage.py collectstatic --noinput` must all pass before the server
 process is swapped. A failing gate aborts the deploy, records the failure
 in `state.json`, and leaves the currently running server untouched.
 
+The game itself is mounted at `/MMM/` in the URLconf — identical to local
+development and the PR environments — so production serves the title page at
+`https://www.paintedpillars.com/MMM/title/` and its APIs under
+`/MMM/api/...`; the bare host root redirects to the game mount until the
+band site takes it over.
+
 Everything under `var/deployments/` is gitignored runtime state and must
 never be committed. The manager never writes the working repository and
 never touches its `db.sqlite3`: every gate and the server itself run from
@@ -176,8 +182,10 @@ has Django installed, and pip can install gunicorn.
    untouched.
 3. **Serving and the static tree.**
    `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8200/`
-   must return 200 (the `Host` header is required because
-   `MMM_ALLOWED_HOSTS` holds only `www.paintedpillars.com`).
+   must return 302 (the bare root redirects to the game mount), and
+   `curl -sL -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8200/MMM/`
+   must follow it to the title page and return 200 (the `Host` header is
+   required because `MMM_ALLOWED_HOSTS` holds only `www.paintedpillars.com`).
    `production/staticfiles/` must hold the collected tree: `MMM/profile.jpg`
    from the app static, `cards.css` from `var/www/static/`, and the
    downloaded art from the working repository's `assets/downloaded/` — or

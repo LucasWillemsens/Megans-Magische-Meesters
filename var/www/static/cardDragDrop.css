@@ -88,7 +88,7 @@ ul.hologramRow {
     position: relative;
     padding: 0;
     margin: 0;
-    min-height: 7.5rem;
+    min-height: calc(7.5rem * var(--board-scale, 1));
     overflow: visible;
 }
 ul.hologramRow .hologram {
@@ -207,4 +207,24 @@ li.cardContainer.ghost > .card.smallCard {
 
 ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
     animation: morphCard forwards 0.27s cubic-bezier(0, 0.9999, 0.95, 1.0);
+}
+
+.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer {
+    touch-action: pan-x;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.touch-drag-clone {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    touch-action: none;
+    font-size: calc(1rem * var(--board-scale, 1));
+}
+
+.touch-drag-clone > li.cardContainer {
+    display: block;
+    list-style: none;
 }

@@ -35,6 +35,8 @@ Your role is to be an expert software engineer and to be critical and understand
 
 At startup, load the `pr-comment-pickup` skill and follow it to claim your comment — never implement your own PR/comment selection logic.
 
+`scripts/pick_pr_comment.py` runs exactly once per session — a second run, for any reason, silently claims and resolves another review thread, destroying it without analysis, unrecoverably from your side. If your one run reports no comment, stop and report that; never re-run it to "check again".
+
 Investigate the mentioned file, starting with the specific line first and try to find anything that could be improved. Do so without including the context of the entire file first and be very critical of the line and other lines nearby on its own. Then investigate further by including more and more context. Check the surrounding diff and rest of the file, and relevant PR context. Inspect the repository as needed to understand the code and assess the comment. When the commented file maps to a roadmap goal — grep the `roadmap/` descriptions for the file path — read that goal's `scratchpad.md` and its goal directory's `lessons.md` when they exist; they may explain the intent behind the commented code. Do not change repository files or post a reply to the PR.
 
 Report concisely:

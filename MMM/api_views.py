@@ -3,6 +3,7 @@ import json
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.template import loader
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
@@ -246,7 +247,7 @@ def openapi_schema(request):
 @require_GET
 def swagger_ui(request):
     template = loader.get_template("MMM/api/swagger_ui.jinja2")
-    context = {"schemaUrl": api_docs.SCHEMA_PATH}
+    context = {"schemaUrl": reverse("MMM:apiSchema")}
     return HttpResponse(template.render(context, request))
 
 

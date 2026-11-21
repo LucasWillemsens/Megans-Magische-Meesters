@@ -1,0 +1,14 @@
+Move every MMM page and API below `/MMM/`; keep `/` available to the band site. Objective/end-to-end test: verify root and `/MMM/` route separately, then follow a complete game interaction and exercise representative API and static URLs under the prefix.
+
+Implementation:
+1. Mount `MMM.urls` at `MMM/` in `mysite/urls.py`; keep `MMM.urls` route names and path patterns otherwise intact so Django `reverse()` and Jinja `url()` generate prefixed URLs. Do not use `FORCE_SCRIPT_NAME`: prefix is part of URLconf and must work identically in local development and production.
+2. Search `MMM/views.py`, `MMM/api_docs.py`, `MMM/jinja2/`, and `var/www/static/` for literal game/API/static paths and replace route literals with `reverse()` or request/prefix-aware generated URLs. Preserve game path names and methods. Keep `STATIC_URL='/static/'` root-relative: static remains served at `/static/`, not `/MMM/static/`, because production Caddy matches `/static/*` and serves the collectstatic tree.
+3. Make play-cookie staging and cleanup work with the prefixed board URL. In `MMM/views.py` and `var/www/static/cardDragDrop.js`, derive board-cookie paths from resolved/request paths (including `/MMM/`) rather than hardcoding `/game/...`; retain path-scoping to the board and delete cookies using the exact matching path. Account for `turn_phase` cookies as well as staged GameCard cookies.
+4. Update `scripts/test_production.py` production smoke expectations and `scripts/production.md`; production hostname and CSRF trusted origin remain unchanged. Update PR-environment routing/docs and `scripts/test_pr_environments.py` where root-path smoke expectations or setup are affected; PR environments run the same prefixed app. Add focused URL-resolution and client assertions in `MMM/tests.py` for representative page/API paths and path-scoped cookie behavior.
+
+Acceptance criteria:
+- [ ] Root `/` is no longer an MMM endpoint; `/MMM/`, `/MMM/play/`, representative `/MMM/game/.../`, and representative `/MMM/api/.../` resolve to their intended game views; unprefixed equivalents do not resolve to game views.
+- [ ] Django/Jinja reverse-generated links, redirects, and API documentation expose `/MMM/` game paths, with no stale root-relative game/API literals in first-party templates or JS.
+- [ ] A staged play cookie and `turn_phase` cookie are set, received, and cleared at the matching `/MMM/game/.../board/.../` path; a full game interaction remains functional in dev and deployed smoke tests.
+- [ ] `STATIC_URL` remains `/static/`; production Caddy's existing static route still serves collected app, board, and downloaded assets, and game templates load them from nested `/MMM/` pages.
+- [ ] Production deployment tests/docs and PR test-environment checks use `/MMM/` for game entry while retaining root-host routing and current CSRF/host behavior.

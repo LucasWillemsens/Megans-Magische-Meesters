@@ -330,7 +330,7 @@ def viewGameAsPlayer(request, game_id, player_id):
 
 def createGame(request, player_id):
     if not CardOwnerHistory.objects.filter(cardOwner_id=player_id).exists():
-        return redirect(f"/player/{player_id}/")
+        return redirect(reverse("MMM:viewPlayer", args=(player_id,)))
 
     new_game = Game.createHumanChallenge(player_id=player_id)
     new_game.save()
@@ -348,7 +348,7 @@ def createGame(request, player_id):
 
 def initializeGame(request):
     if request.method != "POST":
-        return redirect("/")
+        return redirect(reverse("MMM:home"))
 
     new_game_id = int(request.POST["newGameIdValue"])
     challenger_id = int(request.POST["challenger"])
@@ -379,16 +379,16 @@ def initializeGame(request):
         game.title = f"{human_participant.player.name} vs {robot_participant.player.name}"
         game.save(update_fields=["title"])
 
-    return redirect(f"/game/{new_game_id}/{challenger_id}/")
+    return redirect(reverse("MMM:viewGameAsPlayer", args=(new_game_id, challenger_id)))
 
 
 def confirmChallenge(request, game_id, player_id):
     if request.method != "POST":
-        return redirect(f"/game/{game_id}/{player_id}/")
+        return redirect(reverse("MMM:viewGameAsPlayer", args=(game_id, player_id)))
 
     game = Game.objects.get(pk=game_id)
     ensure_game_initialized(game)
-    return redirect(f"/game/{game_id}/board/{player_id}/")
+    return redirect(reverse("MMM:viewBoard", args=(game_id, player_id)))
 
 
 def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False, turn_phase=None, action_plays=None, timeline_steps=None):
@@ -397,7 +397,10 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     gameCards = GameCard.objects.filter(game_id=game_id)
 
     if not gameCards.exists():
-        return redirect(f"/game/{game_id}/{player_id}/")
+        return redirect(reverse("MMM:viewGameAsPlayer", args=(game_id, player_id)))
+
+    board_url = reverse("MMM:viewBoard", args=(game.id, player_id))
+    result_url = reverse("MMM:viewResult", args=(game.id, player_id))
         
     action_render = turn_phase is not None
     phase_from_cookie = turn_phase is None
@@ -433,11 +436,9 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
 
     sequence_render = action_render or clear_cookies or turn_phase == "enemy"
     if finished and not sequence_render:
-        response = redirect(f"/game/{game_id}/result/{player_id}/")
+        response = redirect(result_url)
         if TURN_PHASE_COOKIE in request.COOKIES:
-            response.delete_cookie(
-                TURN_PHASE_COOKIE, path=f"/game/{game.id}/board/{player_id}/"
-            )
+            response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
         return response
 
     own_board = context_board(gameCards, current_participant.id)
@@ -478,11 +479,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "turnAllowances": current_participant.getTurnAllowances(),
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
-        "nextUrl": (
-            f"/game/{game_id}/result/{player_id}/"
-            if finished and turn_phase != "playerMoves"
-            else f"/game/{game_id}/board/{player_id}/"
-        ),
+        "nextUrl": result_url if finished and turn_phase != "playerMoves" else board_url,
         "actionPlays": action_plays or [],
         "timelineSteps": timeline_steps or [],
         "cardZoomEnabled": card_zoom_enabled(request),
@@ -490,19 +487,18 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
 
     if phase_from_cookie:
-        cookie_path = f"/game/{game.id}/board/{player_id}/"
         if turn_phase == "enemy":
             if finished:
-                response.delete_cookie(TURN_PHASE_COOKIE, path=cookie_path)
+                response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
             else:
-                response.set_cookie(TURN_PHASE_COOKIE, "player", path=cookie_path)
+                response.set_cookie(TURN_PHASE_COOKIE, "player", path=board_url)
         elif turn_phase == "player":
-            response.delete_cookie(TURN_PHASE_COOKIE, path=cookie_path)
+            response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
     return response
 
 def boardAction(request, game_id, player_id):
     if request.method != "POST":
-        return redirect(f"/game/{game_id}/board/{player_id}/")
+        return redirect(reverse("MMM:viewBoard", args=(game_id, player_id)))
 
     game = Game.objects.get(pk=game_id)
     current_participant = game.history.participants.get(player_id=player_id)
@@ -539,7 +535,8 @@ def boardAction(request, game_id, player_id):
     )
     if end_turn_done:
         response.set_cookie(
-            TURN_PHASE_COOKIE, "enemy", path=f"/game/{game.id}/board/{player_id}/"
+            TURN_PHASE_COOKIE, "enemy",
+            path=reverse("MMM:viewBoard", args=(game.id, player_id)),
         )
     return response
 
@@ -548,7 +545,7 @@ def viewResult(request, game_id, player_id):
     current_participant = game.history.participants.get(player_id=player_id)
     finished, win, last_participants = game_outcome(game)
     if not finished:
-        return redirect(f"/game/{game_id}/board/{player_id}/")
+        return redirect(reverse("MMM:viewBoard", args=(game_id, player_id)))
 
     context = {
         "player": current_participant.player,
@@ -562,7 +559,7 @@ def viewResult(request, game_id, player_id):
 
 def resetGames(request):
     reset_games()
-    return redirect("/")
+    return redirect(reverse("MMM:home"))
 
 def _render(request, template_name, context, clear_cookies=False):
     template = loader.get_template(template_name)

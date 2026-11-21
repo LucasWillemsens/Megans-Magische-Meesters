@@ -234,7 +234,7 @@ Agent loops that apply the rules, PR-analysis and goal frameworks so the user is
 - [ ] Provide the agent-loop dashboard on the test environment, surfacing PR status, decisions, problems, and concise agent-health signals from existing artefacts and integrations.
 - [ ] Agents execute decisions at propose level; a new critic independently challenges each proposal and co-owns outcomes it approves.
 - [ ] Provide read-only outcome and pacing integrations for GitHub, the opencode go console, and Google Calendar free/busy; Calendar scopes remain deferred and are not a prerequisite for other integrations.
-- [ ] Deploy each eligible same-repository PR branch to an isolated playable test environment at https://pr-<number>.paintedpillars.com/. Objective and end-to-end test: open a PR, push a commit, and verify its isolated database, tests, play URL, and status update; a fork PR must never execute on the host.
+- [ ] Deploy each eligible same-repository PR branch to `https://pr-<number>.paintedpillars.com/`. Objective/end-to-end test: push a same-repository PR and verify isolated test/deployment readiness and PR link; verify a fork PR is never executed on the host.
 - [ ] Allow the user to drag and drop goal priorities on the dashboard and dynamically steer agents through the root `STEERING.md`.
 
 ### Battle Interaction
@@ -271,6 +271,22 @@ Turn rules, lane stats, special actions, bot turns, and win detection. Lives in 
 - [x] specialActions(participant) fires when a participant draws their last deck card; the dominant lane stat wins (ties checked int → spd → vis → res). intSpecial plays random hand cards face-up ("master plan"); spdSpecial rushes a lower-power opponent (firing the opponent's specials) or flees from a slower opponent; visSpecial attacks — without a trustable resolve card the attacker is defeated, otherwise a lower-resolve opponent is defeated and a resolve card is trusted; resSpecial trusts up to resCount random revealed cards. Flee/defeat set flags on BattleParticipant.
 - [x] Per-turn counters on BattleParticipant gate actions: draws limited to intCount+1 (shrinks when over-playing speed), face-up flips to spdCount+1 (shrinks when over-playing intelligence), plays to 2+tactics minus cards already drawn/flipped. Exceeding a limit raises an exception that surfaces as an on-board error message. resetTurn() zeroes the counters on end turn.
 - [x] _game_result() ends a free-for-all game when at most one participant is neither fled nor defeated; the last active participant wins, everyone fleeing counts as a draw. viewBoard redirects to viewResult once finished; viewResult (battle/viewResult.jinja2) shows winners/losers/draw, the participant list, and a Play again link back to the player page.
+
+### Mobile Board Experience
+
+Make PR test environments serve downloaded card art and make the battle board usable on mobile.
+
+- [ ] Art Fit
+- [ ] Support touch dragging for staging hand cards into lanes while preserving existing mouse drag, keyboard selection, and action-limit behavior.
+- [ ] Copy the working repository's gitignored `assets/downloaded/` art into every PR checkout's collected static tree.
+- [ ] Make the battle board usable on small mobile screens by showing one board at a time, with enemy targeting above the enemy deck.
+
+### Painted Pillars Site
+
+Restore paintedpillars.com as the Painted Pillars band site and move the card game behind `/MMM/`.
+
+- [ ] Rebuild the archived Painted Pillars band site as static Django/Jinja2 pages at the domain root, alongside the game at `/MMM/`. Scope: the home, music/releases, about, and contact pages plus one page for each archived post (not a frozen four-page scope). Objective/end-to-end test: visit home, follow every news post to its own page, and browse music/releases, about, and contact; verify shared navigation, archived content/style, and the game entry link.
+- [ ] Move every MMM page and API below `/MMM/`; keep `/` available to the band site. Objective/end-to-end test: verify root and `/MMM/` route separately, then follow a complete game interaction and exercise representative API and static URLs under the prefix.
 
 ### Test Coverage
 

@@ -2,6 +2,7 @@
 
 ## 2026-11-20 — Production deployment at www.paintedpillars.com
 - `STATIC_URL` must be root-relative (`'/static/'`): without the leading slash every `{% static %}` URL is page-relative and 404s on any path deeper than one level — the title page masked the bug because `/title/` happens to resolve correctly.
+- `runserver --insecure` serves static URLs through Django's staticfiles finders, not `STATIC_ROOT`; files must be in a finder-visible source such as `STATICFILES_DIRS`, whereas production's Caddy serves the collected static tree (mobile-board-experience).
 - Caddy `file_server` keeps the matched URI prefix: with `handle /static/*` the served path is `<root>/static/<file>`, so a root change to a flat collectstatic tree needs `handle_path` (which strips the prefix) or nothing under `/static/` serves at all.
 - Cloudflare caches static extensions by URL *and* caches their 404s: an origin fix can be invisible for up to ~4 hours (`cf-cache-status: HIT` on a 404), and stale 200s can mask a fully broken origin — always verify with a cache-busting query string and read `cf-cache-status` before trusting a status code.
 - Production static has three sources, not one: `STATICFILES_DIRS` entries (`var/www/static/`, gitignored `assets/downloaded/`) *and* app-level `MMM/static/` — only `collectstatic` into a persistent `STATIC_ROOT` (plus injecting gitignored art at deploy time) covers all of them; serving a single source directory always drops files.
@@ -29,6 +30,9 @@
 - Skills should demand one named style exemplar, not a wholesale read of a whole directory; a distilled bullet list plus "copy the closest role" beats "read every file" (agent skill, PR #28).
 - Broad `resource: "*"` permissions on a narrowly scoped orchestrator let it wander off-protocol; scope subagent launches and edit/read targets to exactly what the workflow touches (pr-investigator.md, PR #28).
 - Converting a per-run delegation worker into a skill breaks its isolation and model routing; only extract stable know-how needed "sometimes", not the agent's core job (pr-comment-analyst.md, PR #28).
+
+## 2026-11-21 — PR #32 review
+- Consequential operational scripts should ship with their platform wiring: an on-demand skill should authorize and point to the `scripts/*.md` source of truth, and judgment-heavy deployment work should have a dedicated agent delegated to by devops. Do not duplicate the script documentation in the skill or agent.
 
 ## 2026-11-17 — PR #28 candidates absorbed into the evolving-agent rule
 - A candidate is ripe for promotion only when no existing rule already covers its substance — check the rule set first and extend the covering rule instead of proposing a near-duplicate. All three PR #28 candidates (point-don't-duplicate, scoped-agent-permissions, delegate-substantive-work) were substance of the agents-evolve-cleverly rule and were absorbed into its v2 description and the .opencode/AGENTS.md implementation (candidates and the PR #28 scratchpad thread cleaned 2026-11-17).

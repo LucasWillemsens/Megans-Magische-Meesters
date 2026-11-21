@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{% block title %}Painted Pillars{% endblock %}</title>
+    <link rel="icon" href="{{ static('band/logo-tile.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ static('band.css') }}">
+</head>
+<body>
+    <header class="bandHeader">
+        <a class="bandLogoLink" href="{{ url('band_home') }}">
+            <img class="bandLogo" src="{{ static('band/logo-header.png') }}" alt="Painted Pillars logo">
+        </a>
+        <nav class="bandNav">
+            <a class="bandNavLink" href="{{ url('band_home') }}">Home</a>
+            <a class="bandNavLink" href="{{ url('band_music') }}">Music</a>
+            <a class="bandNavLink" href="{{ url('band_about') }}">About</a>
+            <a class="bandNavLink" href="{{ url('band_contact') }}">Contact</a>
+            <a class="bandNavLink bandGameLink" href="{{ url('MMM:home') }}">Magical Masters</a>
+        </nav>
+    </header>
+    {% block content %}{% endblock %}
+    <footer class="bandFooter">Copyright &copy; 2026 Painted Pillars</footer>
+</body>
+</html>

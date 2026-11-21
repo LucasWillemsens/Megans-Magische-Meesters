@@ -1,0 +1,16 @@
+Make the battle board usable on small mobile screens by showing one board at a time, with enemy targeting above the enemy deck.
+
+Objective: at narrow mobile viewport sizes, the active board fills the viewport without document-level overflow; the enemy board is reachable through a "show enemy board" control rather than being squeezed alongside the player board; and an enemy targeting system sits just above the enemy deck.
+
+Implementation:
+1. In `var/www/static/cards.css` and, only where interaction overlays require it, `var/www/static/cardDragDrop.css`, use `MMM/jinja2/MMM/battle/viewBoard.jinja2` as the DOM contract (`.enemyBoards`, `.playerBoard`, `ul.lanes`, `.deckHand`, `#turnLimits`): size the active board to the viewport and replace mobile-conflicting fixed/minimum lane sizing and absolute/fixed hand sizing with responsive dimensions bounded by viewport width/height.
+2. Add a "show enemy board" control that switches between the player board and the enemy board, and place the enemy targeting system just above the enemy deck, visible and usable while the enemy board is shown.
+3. Add focused static assertions to `MMM/tests.py` for the board-switching control and targeting placement, and document manual viewport verification at 320×568 and 390×844 CSS pixels.
+
+Acceptance criteria:
+- [ ] At 320×568 and 390×844 mobile viewports, the active board fills the viewport with no horizontal overflow and no persistent vertical scroll fighting.
+- [ ] The "show enemy board" control switches boards without scrolling; both boards' lanes, deck, hand, and end-turn control stay interactable on the shown board.
+- [ ] The enemy targeting system sits just above the enemy deck and is usable there.
+- [ ] Existing desktop board layout remains unchanged.
+
+Priority: deprioritized behind establishing a smooth agent-loop frontend-testing methodology — like all TODO UI/UX goals, this waits for that first.

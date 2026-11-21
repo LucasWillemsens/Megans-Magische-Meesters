@@ -82,7 +82,7 @@
     {% if deckCards %}
     <ul class="basic-mat">
         {% for card in deckCards %}
-        {{ cardMacros.small_card(card, "/card/" ~ card.id ~ "/") }}
+        {{ cardMacros.small_card(card, url('MMM:viewCard', args=[card.id])) }}
         {% endfor %}
     </ul>
     {% endif %}
