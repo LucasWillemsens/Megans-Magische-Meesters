@@ -5,6 +5,7 @@ import re
 import sys
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
+from io import StringIO
 from types import SimpleNamespace
 from datetime import timedelta
 from pathlib import Path
@@ -12,6 +13,10 @@ from unittest import mock
 
 import mysite.settings
 
+from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
+from django.core.management import CommandError, call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.conf import settings
 from django.utils import timezone
@@ -21,6 +26,7 @@ from django.contrib.staticfiles import finders
 from . import views
 from . import battle_services
 from . import api_docs
+from .band_views import NEWS_ITEMS
 from .demo_flow import (
     DEMO_DECK_CARD_COUNT,
     create_demo_scenario,
@@ -46,6 +52,17 @@ from .models import (
 )
 
 STATIC_TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "var", "www", "static")
+
+ADMIN_ACCOUNT_EMAIL = "paintedpillars@gmail.com"
+
+
+def _verified_account(username, email):
+    """Create the rows a completed Google sign-in leaves behind: an auth
+    user with the address the provider verified, and that verified email
+    address itself."""
+    user = get_user_model().objects.create_user(username=username, email=email)
+    EmailAddress.objects.create(user=user, email=email, verified=True, primary=True)
+    return user
 
 FAKE_ELEMENT_NAVIGATION_CORE = r'''const matchPart = (el, part) => {
     if (!el || !el.tagName) return false;
@@ -12952,7 +12969,16 @@ class DemoNavigationTests(TestCase):
     def _deck_card_ids(self, deck):
         return sorted(card.id for card in deck.cards.all())
 
-    def test_current_index_renders_for_anyone_at_the_admin_route(self):
+    def _sign_in_admin(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+
+    def test_admin_route_requires_the_designated_admin_account(self):
+        anonymous_response = self.client.get(reverse("MMM:index"))
+        self.assertRedirects(
+            anonymous_response, f"{reverse('account_login')}?next={reverse('MMM:index')}"
+        )
+
+        self._sign_in_admin()
         response = self.client.get(reverse("MMM:index"))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
@@ -12960,6 +12986,7 @@ class DemoNavigationTests(TestCase):
         self.assertIn("Cards", content)
 
     def test_admin_page_links_lead_to_the_pages_they_name(self):
+        self._sign_in_admin()
         content = self.client.get(reverse("MMM:index")).content.decode()
         player_url = reverse("MMM:viewPlayer", args=[self.lucas.id])
         card_url = reverse("MMM:viewCard", args=[self.lucas_card_ids[0]])
@@ -12977,6 +13004,7 @@ class DemoNavigationTests(TestCase):
         self.assertIn("Game action API", docs_response.content.decode())
 
     def test_settings_page_holds_only_the_card_zoom_preference(self):
+        self._sign_in_admin()
         response = self.client.get(reverse("MMM:demoSettings"))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
@@ -12988,6 +13016,7 @@ class DemoNavigationTests(TestCase):
         self.assertNotIn("cardContainer", content)
 
     def test_settings_page_toggles_card_zoom_from_the_demo_menu(self):
+        self._sign_in_admin()
         settings_url = reverse("MMM:demoSettings")
 
         content = self.client.get(settings_url).content.decode()
@@ -13040,6 +13069,7 @@ class DemoNavigationTests(TestCase):
         self.assertNotIn('class="backlink"', self.client.get(reverse("MMM:titlePage")).content.decode())
 
     def test_back_button_covers_the_admin_pages_too(self):
+        self._sign_in_admin()
         admin_root = self.client.get(reverse("MMM:index")).content.decode()
         self.assertEqual(admin_root.count('class="backlink"'), 1)
         self.assertIn(f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>', admin_root)
@@ -13070,6 +13100,7 @@ class DemoNavigationTests(TestCase):
         admin pages now render the link at the end of the document in normal
         flow; only the demo shell pages keep the floating corner link.
         """
+        self._sign_in_admin()
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'style.css')) as style_file:
             style_css = style_file.read()
@@ -13366,10 +13397,13 @@ class MmmUrlPrefixTests(TestCase):
             reverse("MMM:titlePage"),
             reverse("MMM:apiSchema"),
             reverse("MMM:apiSwaggerUI"),
-            reverse("MMM:index"),
         ):
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200, url)
+        self.assertRedirects(
+            self.client.get(reverse("MMM:index")),
+            f"{reverse('account_login')}?next={reverse('MMM:index')}",
+        )
 
     def test_unprefixed_equivalents_do_not_serve_game_views(self):
         for url in (
@@ -13396,9 +13430,10 @@ class MmmUrlPrefixTests(TestCase):
 
 class BandSiteTests(TestCase):
     """The archived Painted Pillars band site is served at the domain root
-    next to the game at /MMM/: home with the hero and news feed, releases
-    at /music/ with the /songs/ alias, the about biography and the
-    social-links contact page."""
+    next to the game at /MMM/: home links every news card to the post's
+    own archived URL, releases at /music/ with the /songs/ alias, the
+    about biography and the social-links contact page, all with the stage
+    photo as a page background behind black-backed paragraphs."""
 
     BAND_PAGES = {
         "home": "/",
@@ -13408,8 +13443,14 @@ class BandSiteTests(TestCase):
         "contact": "/contact/",
     }
 
+    POST_URLS = ["/" + post["url"] for post in NEWS_ITEMS]
+
     def _page_content(self, page):
         return self.client.get(self.BAND_PAGES[page]).content.decode()
+
+    def _band_urls(self):
+        """Every band page: the five sections and each archived news post."""
+        return list(self.BAND_PAGES.values()) + self.POST_URLS
 
     def test_band_routes_resolve_at_the_domain_root(self):
         self.assertEqual(reverse("band_home"), "/")
@@ -13419,16 +13460,19 @@ class BandSiteTests(TestCase):
         self.assertEqual(reverse("band_contact"), "/contact/")
 
     def test_every_band_page_serves_200_with_shared_navigation_and_game_link(self):
-        for page, url in self.BAND_PAGES.items():
+        for url in self._band_urls():
             response = self.client.get(url)
-            self.assertEqual(response.status_code, 200, page)
+            self.assertEqual(response.status_code, 200, url)
             content = response.content.decode()
             for nav_url in ("/", "/music/", "/about/", "/contact/"):
-                self.assertIn(f'href="{nav_url}"', content, page)
-            self.assertIn('href="/MMM/"', content, page)
-            self.assertNotIn('href="/live/"', content, page)
-            self.assertNotIn('href="/press-kit/"', content, page)
-            self.assertNotIn("wpforms", content, page)
+                self.assertIn(f'href="{nav_url}"', content, url)
+            self.assertIn('href="/MMM/"', content, url)
+            self.assertNotIn('href="/live/"', content, url)
+            self.assertNotIn('href="/press-kit/"', content, url)
+            self.assertNotIn("wpforms", content, url)
+            self.assertNotIn("wp-content", content, url)
+            if url != self.BAND_PAGES["contact"]:
+                self.assertNotIn('href="/accounts/login/"', content, url)
 
     def test_songs_alias_serves_the_releases_page(self):
         for url in (self.BAND_PAGES["music"], self.BAND_PAGES["songs"]):
@@ -13439,9 +13483,93 @@ class BandSiteTests(TestCase):
             self.assertIn("The Stoic", content)
             self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
 
-    def test_home_shows_the_archived_hero_listen_cta_and_news_feed(self):
+    def test_every_archived_post_serves_its_own_page_from_its_home_news_card(self):
+        home = self._page_content("home")
+        for post in NEWS_ITEMS:
+            post_url = "/" + post["url"]
+            self.assertEqual(reverse(post["urlName"]), post_url, post["title"])
+            self.assertIn(f'href="{post_url}"', home, post["title"])
+            response = self.client.get(post_url)
+            self.assertEqual(response.status_code, 200, post["title"])
+            content = response.content.decode()
+            self.assertIn(post["title"], content, post["title"])
+            self.assertIn(post["date"], content, post["title"])
+            self.assertIn(post["categories"][0], content, post["title"])
+
+    def test_post_pages_hold_the_text_the_snapshots_preserved(self):
+        post_texts = {
+            "band_post_noorderlicht": (
+                "Join us for a vibrant mash-up of music and visual art!",
+                "the debut event of Beats &amp; Bites Production",
+                "Our last concert was in Leiden",
+                "https://noorderlichtcafe.nl/beats-bites/",
+                "https://www.patreon.com/user?u=142072920",
+                "we’ll send you a download link ourselves if you include your email.",
+            ),
+            "band_post_juvenile": (
+                "calls for infantile behaviour",
+                "did we mention the track will feature a glockenspiel?",
+                "The whole world is a playground",
+            ),
+            "band_post_new_recordings": (
+                "About two weeks ago we recorded two brand new songs!",
+            ),
+            "band_post_januari_the_27th": (
+                "Curious what kind of song it will be?",
+                "performing the song live at Stukafest Delft last year",
+                "https://open.spotify.com/playlist/4w7Wlfpb9mmfsSikOs5oN1",
+                "https://www.instagram.com/p/Cb8E0CXDxV1/",
+            ),
+            "band_post_collywobbles": (
+                "Get ready to relax and let the day slide away with our new song!",
+                "‘A Portrait of the Artist as Young Man’",
+                "which is of course a pretext to skip class",
+            ),
+            "band_post_mary": (
+                "a mysterious feeling of sickness and a call for help to a divine mother figure",
+                "made by Floris Springintveld",
+            ),
+            "band_post_shop_window": (
+                "At May the 7th we played at the shop window of the Vintage Department Store in Leiden.",
+            ),
+            "band_post_a_drink": (
+                "Best enjoyed in a dark and quiet room.",
+            ),
+            "band_post_new_studio_session": (
+                "recording studio Peggy 51",
+            ),
+            "band_post_first_music_video": (
+                "made in association with student of Grafisch Lyceum Utrecht",
+            ),
+            "band_post_leidscement": (
+                "An interview by Elly Jousma about our first live experience and more.",
+                "https://leidscement.nl/podiumkunsten/painted-pillars-van-studentenkamer-naar-de-studio/",
+            ),
+            "band_post_second_single": (
+                "Check out ‘Lovely’ on Spotify and other streaming services.",
+            ),
+            "band_post_stukafest": (
+                "Our debut live performance at Stukafest Leiden was a blast!",
+                "Photo by Brian Mul/ Video’s by Stephanie Esajas",
+            ),
+            "band_post_mare": (
+                "Our first interview!",
+                "https://www.mareonline.nl/cultuur/de-leden-van-studentenband-painted-pillars-tasten-af-hoe-groot-ze-mogen-dromen/",
+            ),
+            "band_post_debut_single": (
+                "Check out our debut single on Spotify and other streaming services",
+            ),
+        }
+        for url_name, phrases in post_texts.items():
+            content = self.client.get(reverse(url_name)).content.decode()
+            for phrase in phrases:
+                self.assertIn(phrase, content, url_name)
+        for_a_while = self.client.get(reverse("band_post_for_a_while")).content.decode()
+        self.assertIn("‘For A While’ is out now!", for_a_while)
+        self.assertNotIn("bandPostParagraph", for_a_while)
+
+    def test_home_shows_the_listen_cta_and_links_every_archived_news_card(self):
         content = self._page_content("home")
-        self.assertIn("band/stage-photo.jpg", content)
         self.assertIn("Listen to us here!", content)
         self.assertIn('href="/music/"', content)
         self.assertIn("News", content)
@@ -13449,9 +13577,25 @@ class BandSiteTests(TestCase):
         self.assertIn("A celebration of childishness", content)
         self.assertIn("New studio session", content)
         self.assertIn("We rocked the shop window!", content)
+        self.assertIn("Our first music video!", content)
+        self.assertIn("Our first interview!", content)
         self.assertIn("band/news/pay.jpg", content)
         self.assertIn("band/news/collywobbles.jpg", content)
         self.assertIn("band/news/a-drink.jpg", content)
+        self.assertIn("band/news/first-music-video.jpg", content)
+        self.assertIn("band/news/leidscement.png", content)
+        self.assertIn("band/news/second-single.jpg", content)
+        self.assertIn("band/news/mare.png", content)
+
+    def test_the_stage_photo_is_a_page_background_and_paragraphs_get_black_backings(self):
+        home = self._page_content("home")
+        self.assertNotIn("bandHeroPhoto", home)
+        self.assertNotIn("stage-photo", home)
+        with open(os.path.join(STATIC_TEST_DIR, "band.css")) as style_file:
+            band_css = style_file.read()
+        self.assertNotIn("bandHeroPhoto", band_css)
+        self.assertRegex(band_css, r"body::before\s*\{[^}]*url\(\"band/stage-photo.jpg\"\)")
+        self.assertRegex(band_css, r"\.bandContent p,\s*\.bandContent li\s*\{[^}]*background-color: var\(--band-background\)")
 
     def test_music_links_streaming_platforms_and_lists_archived_releases(self):
         content = self._page_content("music")
@@ -13490,8 +13634,8 @@ class BandSiteTests(TestCase):
         self.assertNotIn("<input", content)
 
     def test_band_styling_and_assets_are_served_from_the_local_static_files(self):
-        for page in self.BAND_PAGES:
-            self.assertIn('href="/static/band.css"', self._page_content(page))
+        for url in self._band_urls():
+            self.assertIn('href="/static/band.css"', self.client.get(url).content.decode(), url)
         for asset in (
             "band.css",
             "band/logo-tile.png",
@@ -13509,6 +13653,10 @@ class BandSiteTests(TestCase):
             "band/news/a-drink.jpg",
             "band/news/studio-session.jpg",
             "band/news/for-a-while.jpg",
+            "band/news/first-music-video.jpg",
+            "band/news/leidscement.png",
+            "band/news/second-single.jpg",
+            "band/news/mare.png",
         ):
             self.assertIsNotNone(finders.find(asset), asset)
 
@@ -13517,6 +13665,233 @@ class BandSiteTests(TestCase):
         response = self.client.get(reverse("MMM:titlePage"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Magical Masters")
+
+
+def _link_account(email, player_name):
+    """Run the controlled account-to-player link operation the way the
+    operator does, and return what it reported."""
+    output = StringIO()
+    call_command("link_account", email, player_name, stdout=output)
+    return output.getvalue()
+
+
+class AccountRoutesTests(TestCase):
+    """The allauth account routes are served at the domain root next to the
+    band site and the game at /MMM/: the login page offers Google sign-in,
+    and local signups and password logins stay off."""
+
+    def test_account_routes_resolve_at_the_domain_root(self):
+        self.assertEqual(reverse("account_login"), "/accounts/login/")
+
+    def test_the_login_page_offers_the_google_provider(self):
+        response = self.client.get(reverse("account_login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('href="/accounts/google/login/', response.content.decode())
+
+    def test_local_signup_and_password_routes_stay_off(self):
+        for url in ("/accounts/signup/", "/accounts/password/change/"):
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+
+    def test_the_game_and_the_band_site_keep_their_routes_next_to_the_accounts(self):
+        self.assertEqual(reverse("band_home"), "/")
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        self.assertEqual(self.client.get(reverse("MMM:titlePage")).status_code, 200)
+
+
+class AccountPlayerLinkingTests(TestCase):
+    """The one-to-one link between an authenticated account and a player is
+    established only by the controlled linking operation: it refuses
+    accounts that never signed in and players that do not exist, creates
+    neither, and never lets either side of the link be taken twice."""
+
+    def setUp(self):
+        self.admin = _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        self.lucas = Player.objects.create(name="Lucas")
+
+    def test_the_operation_links_a_signed_in_account_to_an_existing_player(self):
+        output = _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+
+        self.assertIn("Lucas", output)
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+        self.assertEqual(self.admin.player, self.lucas)
+
+    def test_the_operation_matches_email_and_player_name_case_insensitively(self):
+        _link_account("PAINTEDpillars@GMAIL.com", "lucas")
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_linking_an_existing_link_again_reports_it_and_changes_nothing(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        output = _link_account(ADMIN_ACCOUNT_EMAIL, "Lucas")
+
+        self.assertIn("already linked", output)
+        self.assertEqual(Player.objects.filter(name="Lucas").count(), 1)
+
+    def test_an_account_that_never_signed_in_cannot_claim_a_player(self):
+        with self.assertRaises(CommandError):
+            _link_account("stranger@gmail.com", "lucas")
+        self.assertEqual(get_user_model().objects.count(), 1)
+        self.lucas.refresh_from_db()
+        self.assertIsNone(self.lucas.account)
+
+    def test_an_unknown_player_is_never_created(self):
+        with self.assertRaises(CommandError):
+            _link_account(ADMIN_ACCOUNT_EMAIL, "Nobody")
+        self.assertFalse(Player.objects.exclude(id=self.lucas.id).exists())
+
+    def test_a_linked_player_cannot_be_linked_to_another_account(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        _verified_account("someone.else", "someone.else@gmail.com")
+
+        with self.assertRaises(CommandError):
+            _link_account("someone.else@gmail.com", "Lucas")
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_a_linked_account_cannot_be_linked_to_another_player(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        ruben = Player.objects.create(name="Ruben")
+
+        with self.assertRaises(CommandError):
+            _link_account(ADMIN_ACCOUNT_EMAIL, "Ruben")
+        ruben.refresh_from_db()
+        self.assertIsNone(ruben.account)
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_the_database_rejects_a_second_player_on_one_account(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Player.objects.create(name="Annabel", account=self.admin)
+        self.assertEqual(Player.objects.filter(account=self.admin).count(), 1)
+
+
+class AdminAccessTests(TestCase):
+    """Only the account with the verified designated admin email may enter
+    the game's admin pages: anonymous visitors are sent to the login first,
+    any other signed-in account is denied on the server, and the admin entry
+    stays out of every navigation that account cannot use."""
+
+    def _admin_link(self):
+        return f'href="{reverse("MMM:index")}"'
+
+    def test_anonymous_admin_visits_are_sent_to_the_login(self):
+        self.assertRedirects(
+            self.client.get(reverse("MMM:index")),
+            f"{reverse('account_login')}?next={reverse('MMM:index')}",
+        )
+
+    def test_any_other_signed_in_account_is_denied(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 403)
+
+    def test_an_unverified_copy_of_the_admin_email_is_denied(self):
+        copycat = get_user_model().objects.create_user(
+            username="copycat", email=ADMIN_ACCOUNT_EMAIL
+        )
+        EmailAddress.objects.create(
+            user=copycat, email=ADMIN_ACCOUNT_EMAIL, verified=False, primary=True
+        )
+        self.client.force_login(copycat)
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 403)
+
+    def test_the_verified_admin_account_is_granted(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 200)
+
+    def test_the_band_navigation_admin_entry_appears_only_for_the_admin(self):
+        band_pages = (reverse("band_home"), reverse("band_music"), reverse("band_about"))
+        for page_url in band_pages:
+            self.assertNotIn(self._admin_link(), self.client.get(page_url).content.decode())
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        for page_url in band_pages:
+            self.assertNotIn(self._admin_link(), self.client.get(page_url).content.decode())
+        self.client.logout()
+
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        for page_url in band_pages:
+            self.assertIn(self._admin_link(), self.client.get(page_url).content.decode())
+
+    def test_the_demo_menu_admin_entry_appears_only_for_the_admin(self):
+        settings_page = reverse("MMM:demoSettings")
+        self.assertNotIn(self._admin_link(), self.client.get(settings_page).content.decode())
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        self.assertNotIn(self._admin_link(), self.client.get(settings_page).content.decode())
+        self.client.logout()
+
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        self.assertIn(self._admin_link(), self.client.get(settings_page).content.decode())
+
+    def test_the_band_navigation_has_no_sign_in_entry(self):
+        for page_url in (reverse("band_home"), reverse("band_music"), reverse("band_about")):
+            content = self.client.get(page_url).content.decode()
+            self.assertNotIn(reverse("account_login"), content)
+
+    def test_the_contact_page_links_anonymous_visitors_to_the_login(self):
+        contact = self.client.get(reverse("band_contact"))
+        self.assertEqual(contact.status_code, 200)
+        content = contact.content.decode()
+        self.assertIn(f'href="{reverse("account_login")}"', content)
+        self.assertEqual(self.client.get(reverse("account_login")).status_code, 200)
+
+    def test_the_contact_page_sign_in_link_stays_away_from_signed_in_accounts(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        contact = self.client.get(reverse("band_contact"))
+        self.assertNotIn(f'href="{reverse("account_login")}"', contact.content.decode())
+
+
+class GoogleAccountEndToEndTests(TestCase):
+    """The end-to-end account story: a visitor follows the sign-in link on
+    the contact page, the designated admin's Google account lands in the
+    game linked to the existing Lucas player and reaches the admin pages,
+    while a different signed-in account is denied there and never even sees
+    the admin link."""
+
+    def test_the_designated_admin_signs_in_and_reaches_the_admin_pages(self):
+        lucas = Player.objects.create(name="Lucas")
+
+        contact = self.client.get(reverse("band_contact"))
+        self.assertIn(f'href="{reverse("account_login")}"', contact.content.decode())
+        login_page = self.client.get(reverse("account_login"))
+        self.assertEqual(login_page.status_code, 200)
+        self.assertIn('href="/accounts/google/login/', login_page.content.decode())
+
+        # The handshake itself runs on Google's pages; what it returns to the
+        # site is the account Google verified. The one-time operation then
+        # links that account to the existing Lucas player, creating nothing.
+        admin = _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        link_output = _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        self.assertIn("Lucas", link_output)
+        lucas.refresh_from_db()
+        self.assertEqual(lucas.account, admin)
+        self.assertEqual(Player.objects.filter(name="Lucas").count(), 1)
+
+        self.client.force_login(admin)
+        home = self.client.get(reverse("band_home"))
+        self.assertIn(f'href="{reverse("MMM:index")}"', home.content.decode())
+        admin_page = self.client.get(reverse("MMM:index"))
+        self.assertEqual(admin_page.status_code, 200)
+        self.assertIn("Lucas", admin_page.content.decode())
+
+    def test_a_different_signed_in_account_is_denied_everywhere(self):
+        Player.objects.create(name="Lucas")
+        _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        other = _verified_account("someone.else", "someone.else@gmail.com")
+        self.client.force_login(other)
+
+        for page_url in (reverse("band_home"), reverse("band_contact")):
+            content = self.client.get(page_url).content.decode()
+            self.assertNotIn(f'href="{reverse("MMM:index")}"', content)
+        admin_page = self.client.get(reverse("MMM:index"))
+        self.assertEqual(admin_page.status_code, 403)
+        self.assertNotIn("Lucas", admin_page.content.decode())
+
 
 
 def _run_node_harness(harness, label):
@@ -14386,6 +14761,10 @@ class SettingsDeploymentEnvironmentTests(TestCase):
         "MMM_CSRF_TRUSTED_ORIGINS": "https://pr-12.paintedpillars.com",
         "MMM_SECURE_COOKIES": "true",
         "MMM_DB_PATH": "/tmp/opencode/settings-tests-pr-12.sqlite3",
+        "MMM_GOOGLE_CLIENT_ID": "settings-test-google-client-id",
+        "MMM_GOOGLE_CLIENT_SECRET": "settings-test-google-client-secret",
+        "MMM_ADMIN_EMAIL": "bandadmin@example.com",
+        "MMM_ACCOUNT_HTTP_PROTOCOL": "http",
     }
     development_secret_key = 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
 
@@ -14411,6 +14790,11 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             "/tmp/opencode/settings-tests-pr-12.sqlite3",
         )
         self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "settings-test-google-client-id")
+        self.assertEqual(google_app["secret"], "settings-test-google-client-secret")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "bandadmin@example.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "http")
 
     def test_local_development_defaults_without_environment(self):
         settings_module = self.reload_settings({})
@@ -14426,6 +14810,11 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             settings_module.BASE_DIR / "db.sqlite3",
         )
         self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "")
+        self.assertEqual(google_app["secret"], "")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "paintedpillars@gmail.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "https")
 
     def test_empty_environment_values_fall_back_to_the_defaults(self):
         settings_module = self.reload_settings(
@@ -14439,6 +14828,10 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             settings_module.DATABASES["default"]["NAME"],
             settings_module.BASE_DIR / "db.sqlite3",
         )
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "paintedpillars@gmail.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "https")
 
     def tearDown(self):
         self.reload_settings({})

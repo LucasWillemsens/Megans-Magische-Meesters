@@ -1,8 +1,11 @@
 from django.db.models import Max
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
+from django.contrib.auth.views import redirect_to_login
 from django.shortcuts import redirect
 from django.template import loader
 from django.urls import reverse
+
+from .account_access import is_admin_account
 
 from .battle_services import (
     chunk_hand_cards,
@@ -136,6 +139,12 @@ def toggleCardZoom(request):
 
 
 def index(request):
+    if not request.user.is_authenticated:
+        return redirect_to_login(reverse("MMM:index"))
+    if not is_admin_account(request.user):
+        return HttpResponseForbidden(
+            "The admin area is accessible only to the designated admin account."
+        )
     context = {
         "latest_cards_list": Card.objects.order_by("title")[:5],
         "players": Player.objects.order_by("name"),

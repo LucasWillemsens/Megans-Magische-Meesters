@@ -1,0 +1,26 @@
+Add Google/Gmail account sign-in for MMM, securely link authenticated accounts to existing MMM players, and grant admin pages only to the account linked with `paintedpillars@gmail.com`. End-to-end user story: visit the contact-page login link, sign in, and verify player access; the designated admin can reach admin pages while a different signed-in account is denied.
+
+## Decisions (user-approved 2026-11-21)
+- Authentication approach: `django-allauth` with the Google provider. A custom OAuth implementation may replace it later if more freedom is needed.
+- Login URL placement: at the domain root (e.g. `/login/`, `/accounts/`), alongside the band site — accounts will later also matter on the band website (contact, mailing lists, products), not only for the game.
+- Band-site navigation gets **no** login link; instead, the contact page links to the login (user decision 2026-11-21).
+- Each Gmail account is linked to a player in the MMM production database. Example: the player "lucas" can be linked with the admin account `paintedpillars@gmail.com`.
+- The admin-linked account is the **only** account with access to admin pages; for other accounts those pages are inaccessible (enforced server-side, not merely hidden) and do not appear in the navigation.
+
+Implementation:
+1. Add `django-allauth` and its Google provider, required Django apps/middleware/auth backends, root-level allauth URLs in `mysite/urls.py` (not under `/MMM/`), and OAuth settings/secrets sourced from deployment environment in `mysite/settings.py`; configure the provider/site using allauth's supported settings or `SocialApp` configuration. Keep `/MMM/` game URLs intact.
+2. Add a durable one-to-one link between Django auth users and `MMM.models.Player`, with migrations and a secure, non-user-selectable account-linking path. Do not infer a player solely from a submitted player ID/name or allow self-linking to an already-linked player. Keep this authentication-provider mapping distinct from the separate account-link security work in `roadmap/multiplayer-account/secure-account-links/`.
+3. Restrict the existing admin view at `MMM/urls.py` (`/MMM/admin/`) on the server using the authenticated user’s linked player and the configured admin email `paintedpillars@gmail.com`; unauthenticated users must authenticate, and all other accounts must be denied. Do not treat Django `is_staff` or a hidden link as sufficient authorization.
+4. Add a login link only to the band contact page (`MMM/jinja2/MMM/band/contact.jinja2`); add no login entry to `MMM/jinja2/MMM/band/base.jinja2` navigation. Show the `/MMM/admin/` navigation entry only for the authorized admin account.
+5. Add Django tests for allauth/root routes, account-player linking constraints, contact-page login link, and admin access denial/grant. Include the primary end-to-end test in `MMM/tests.py`.
+6. Make the one-time production player link using a controlled management/deployment operation that targets the persistent database at `var/deployments/production/db.sqlite3`; link existing `lucas` to the verified Google account `paintedpillars@gmail.com`, do not create a duplicate player, and do not commit credentials. Update `scripts/production.md` with the environment/configuration and operational linking procedure as needed.
+
+Acceptance criteria:
+- [x] `/accounts/login/` (or the allauth equivalent) is served at the domain root, Google login is configured, and game routes remain under `/MMM/`.
+- [x] Each auth user can link to at most one `Player`, and each player can link to at most one auth user; linking cannot be claimed by supplying another player's identifier.
+- [x] Only a signed-in user whose linked account email is `paintedpillars@gmail.com` can access `/MMM/admin/`; anonymous requests require login and other signed-in users receive HTTP 403.
+- [x] The admin navigation entry is absent for anonymous and non-admin accounts and present for the authorized admin; the band-site navigation has no login link.
+- [x] The contact page includes a working root-level login link.
+- [ ] Production data can link the existing `lucas` player to `paintedpillars@gmail.com` without creating another player. (Procedure ready and scratch-DB-verified; awaiting the production deploy and the Google OAuth client prerequisite.)
+
+External prerequisites: create a Google OAuth client using the `paintedpillars@gmail.com` account; add the production callback URI (and any required PR/test callback URIs) to its authorized redirects, then provide the client ID/secret through deployment configuration. Configure allauth's Google provider for the production site/domain.

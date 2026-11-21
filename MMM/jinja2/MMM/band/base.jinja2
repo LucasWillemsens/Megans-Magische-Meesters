@@ -17,6 +17,7 @@
             <a class="bandNavLink" href="{{ url('band_music') }}">Music</a>
             <a class="bandNavLink" href="{{ url('band_about') }}">About</a>
             <a class="bandNavLink" href="{{ url('band_contact') }}">Contact</a>
+            {% if isAdminAccount %}<a class="bandNavLink" href="{{ url('MMM:index') }}">Admin</a>{% endif %}
             <a class="bandNavLink bandGameLink" href="{{ url('MMM:home') }}">Magical Masters</a>
         </nav>
     </header>

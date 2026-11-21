@@ -188,9 +188,10 @@ the proxy and Django see plain HTTP, so no per-PR certificate exists.
 
 Run this on the Windows machine inside the WSL workspace. Every step lists
 what must be observed before moving on. Prerequisites: `gh auth status` is
-authenticated, pushes to the canonical repo work, the host Python has Django
-installed (the same interpreter the loop uses), Caddy and `cloudflared` are
-installed in WSL.
+authenticated, pushes to the canonical repo work, the host Python has
+Django and `django-allauth` installed (the same interpreter the loop
+uses; the production deploy manager installs django-allauth on demand —
+PR builds do not), Caddy and `cloudflared` are installed in WSL.
 
 1. **Local build.** With one open same-repository PR (create a throwaway PR
    with a trivial change if none exists), run
@@ -245,6 +246,15 @@ installed in WSL.
 
 ## Limitations
 
+- Google sign-in exists in the URLconf at `/accounts/`, but PR
+  environments never receive OAuth client credentials: their checkouts run
+  unmerged code, and the production secret store
+  (`var/deployments/production/env.json`) is deliberately not read here.
+  A PR environment's login page renders with the Google provider
+  unconfigured, so a live Google hop fails there by design. The account
+  and admin-access behavior is covered by the `manage.py test` gate
+  without real credentials; live Google sign-in is exercised on local
+  checkouts and production only (see `scripts/production.md`).
 - Environments are served by `runserver --noreload --insecure`. That is
   single-host, loop-owned serving of a test environment; production serving is
   a separate concern.

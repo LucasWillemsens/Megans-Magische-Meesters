@@ -1,0 +1,18 @@
+{% extends 'MMM/band/base.jinja2' %}
+{% block title %}{{ post.title }} &ndash; Painted Pillars{% endblock %}
+
+{% block content %}
+<main class="bandContent">
+    <article class="bandPost">
+        <p class="bandNewsCategories">{{ post.categories|join(' / ') }}</p>
+        <h1 class="bandPageTitle">{{ post.title }}</h1>
+        <p class="bandNewsMeta">{{ post.date }} &mdash; Painted Pillars</p>
+        {% if post.image %}
+        <img class="bandNewsPhoto" src="{{ static(post.image) }}" alt="">
+        {% endif %}
+        {% for paragraph in post.content %}
+        <p class="bandPostParagraph">{% for runKind, runText, runUrl in paragraph %}{% if runKind == 'link' %}<a href="{{ runUrl }}" target="_blank" rel="noopener">{{ runText }}</a>{% elif runKind == 'strong' %}<strong>{{ runText }}</strong>{% else %}{{ runText }}{% endif %}{% endfor %}</p>
+        {% endfor %}
+    </article>
+</main>
+{% endblock %}

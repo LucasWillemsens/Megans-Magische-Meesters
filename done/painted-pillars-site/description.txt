@@ -1,0 +1,10 @@
+Restore paintedpillars.com as the Painted Pillars band site and move the card game behind `/MMM/`.
+
+Subgoals, in dependency order:
+- [x] mmm-url-prefix — route game pages and APIs below `/MMM/`, reserving `/` for the band site.
+- [ ] band-site-rebuild — serve the archived band site at root paths: home, music/releases, about, and contact, plus one page for each archived post, with the stage photo as the page background.
+- [ ] google-accounts — add an MMM account system supporting Google/Gmail sign-in, with `paintedpillars@gmail.com` designated as the admin account. Independent of `band-site-rebuild`; either can proceed first.
+
+## Decisions (user-approved 2026-11-20)
+- The `/MMM/` prefix applies **everywhere** — in the URLconf itself, so local dev, PR environments and production all match. No `FORCE_SCRIPT_NAME`.
+- Contact page uses social links only (no email form; the archived WordPress form is not reproduced).

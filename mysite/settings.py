@@ -17,23 +17,30 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def env_flag(name, default):
+def env_value(name, default):
     value = os.environ.get(name)
     if value is None or not value.strip():
         return default
-    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return value.strip()
+
+
+def env_flag(name, default):
+    value = env_value(name, None)
+    if value is None:
+        return default
+    return value.lower() in {'1', 'true', 'yes', 'on'}
 
 
 def env_csv(name, default):
-    value = os.environ.get(name)
-    if value is None or not value.strip():
+    value = env_value(name, None)
+    if value is None:
         return list(default)
     return [item.strip() for item in value.split(',') if item.strip()]
 
 
 def env_path(name, default):
-    value = os.environ.get(name)
-    if value is None or not value.strip():
+    value = env_value(name, None)
+    if value is None:
         return default
     return Path(value).expanduser()
 
@@ -56,9 +63,14 @@ INSTALLED_APPS = [
     "MMM.apps.MMMConfig",
     'django.contrib.auth',
     'django.contrib.contenttypes',
+    'django.contrib.sites',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
 ]
 
 MIDDLEWARE = [
@@ -67,9 +79,47 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Accounts
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+SITE_ID = 1
+
+# Google/Gmail sign-in is the only way to get an account: local signups and
+# password logins stay off, and the Google provider's client credentials come
+# from the deployment environment. The site runs without them (Google login
+# then errors until configured), so tests and unconfigured deployments work.
+SOCIALACCOUNT_ONLY = True
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': env_value('MMM_GOOGLE_CLIENT_ID', ''),
+            'secret': env_value('MMM_GOOGLE_CLIENT_SECRET', ''),
+        },
+    },
+}
+
+LOGIN_URL = 'account_login'
+LOGIN_REDIRECT_URL = 'band_home'
+ACCOUNT_LOGOUT_REDIRECT_URL = 'band_home'
+
+# Public TLS ends at Cloudflare while Django sees plain HTTP from the
+# proxy, so allauth builds its OAuth callback URI with the public scheme,
+# not the request's. Local live-OAuth testing on 127.0.0.1 overrides this
+# to http (Google accepts http only for loopback redirect URIs).
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = env_value('MMM_ACCOUNT_HTTP_PROTOCOL', 'https')
+
+# The one account whose linked email is allowed into the game's admin pages.
+ADMIN_EMAIL = env_value('MMM_ADMIN_EMAIL', 'paintedpillars@gmail.com')
 
 SESSION_COOKIE_SECURE = env_flag('MMM_SECURE_COOKIES', False)
 SESSION_COOKIE_HTTPONLY = False  # Set to True to prevent JavaScript access to cookies
@@ -88,6 +138,23 @@ TEMPLATES = [
             'environment': 'mysite.jinja2.environment',
             'context_processors': [
                 'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+                'MMM.context_processors.band_navigation',
+            ],
+        },
+    },
+    {
+        # Renders the allauth account/socialaccount templates, which use
+        # Django template syntax. The Jinja2 backend stays first, so the
+        # MMM game and band templates resolve exactly as before.
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.template.context_processors.csrf',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],

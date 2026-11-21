@@ -1,8 +1,9 @@
 """Root URL configuration for mysite.
 
 The Painted Pillars band site owns the domain root (/, /music/, /songs/,
-/about/ and /contact/) and the game application owns every route below
-/MMM/.
+/about/, /contact/ and every archived news post's historical path),
+allauth owns the account routes below /accounts/, and the game
+application owns every route below /MMM/.
 """
 from django.urls import include, path
 
@@ -14,5 +15,7 @@ urlpatterns = [
     path("songs/", band_views.band_music, name="band_songs"),
     path("about/", band_views.band_about, name="band_about"),
     path("contact/", band_views.band_contact, name="band_contact"),
+    *band_views.band_post_urlpatterns(),
+    path("accounts/", include("allauth.urls")),
     path("MMM/", include("MMM.urls")),
 ]

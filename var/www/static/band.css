@@ -25,6 +25,21 @@
 
 html {
     background-color: var(--band-background);
+    background-image: url("band/logo-tile.png");
+    background-position: left top;
+    background-repeat: repeat;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image: url("band/stage-photo.jpg");
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: 0.4;
 }
 
 body {
@@ -32,10 +47,6 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: var(--band-background);
-    background-image: url("band/logo-tile.png");
-    background-position: left top;
-    background-repeat: repeat;
     color: var(--band-ink);
     font-family: var(--band-font-body);
     line-height: 1.6;
@@ -88,24 +99,20 @@ a {
     color: var(--band-accent);
 }
 
-.bandHero {
-    position: relative;
-}
-
-.bandHeroPhoto {
-    display: block;
-    width: 100%;
-    height: auto;
+.bandContent p,
+.bandContent li {
+    background-color: var(--band-background);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    padding: 0.25rem 0.5rem;
 }
 
 .bandListenLink {
-    position: absolute;
-    left: 50%;
-    bottom: 1.5rem;
-    transform: translateX(-50%);
+    display: inline-block;
+    margin: 0 0 2.5rem;
     padding: 0.75rem 1.5rem;
     border: 2px solid var(--band-accent);
-    background-color: rgba(0, 0, 0, 0.7);
+    background-color: rgba(0, 0, 0, 0.85);
     font-family: var(--band-font-heading);
     font-size: 1.4rem;
     text-decoration: none;
@@ -152,6 +159,20 @@ a {
     max-width: 61.875rem;
 }
 
+.bandNewsPhotoLink {
+    display: block;
+    line-height: 0;
+}
+
+.bandNewsLink {
+    color: var(--band-ink);
+    text-decoration: none;
+}
+
+.bandNewsLink:hover {
+    color: var(--band-accent);
+}
+
 .bandNewsPhoto {
     display: block;
     width: 100%;
@@ -181,6 +202,16 @@ a {
     margin: 0.5rem 0 0;
     color: var(--band-muted);
     font-size: 0.9rem;
+}
+
+.bandPost {
+    max-width: 46rem;
+    margin: 0 auto;
+}
+
+.bandPostParagraph {
+    margin: 0.75rem auto;
+    max-width: 46rem;
 }
 
 .bandStreaming {
@@ -266,6 +297,11 @@ a {
 
 .bandContactLink a {
     font-size: 1.3rem;
+}
+
+.bandContactLogin {
+    margin: 2rem auto 0;
+    max-width: 46rem;
 }
 
 .bandFooter {
