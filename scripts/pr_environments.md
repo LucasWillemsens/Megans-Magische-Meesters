@@ -134,12 +134,22 @@ Production stays at `https://www.paintedpillars.com/` and PR environments sit
 one level below at `pr-<n>.paintedpillars.com`. Public TLS ends at Cloudflare;
 the proxy and Django see plain HTTP, so no per-PR certificate exists.
 
-1. Caddy in WSL, listening on localhost:80, with a main Caddyfile like:
+1. Caddy in WSL, listening on localhost:8080, with a main Caddyfile like:
 
    ```
+   {
+       admin off
+       auto_https off
+       http_port 8080
+   }
+
    import /home/<user>/MMM/repo/var/deployments/routes.caddy
 
    http://www.paintedpillars.com {
+       handle_path /static/* {
+           root * /home/<user>/MMM/repo/var/deployments/production/staticfiles
+           file_server
+       }
        reverse_proxy 127.0.0.1:8000
    }
    ```
@@ -158,7 +168,7 @@ the proxy and Django see plain HTTP, so no per-PR certificate exists.
    credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
    ingress:
      - hostname: "*.paintedpillars.com"
-       service: http://localhost:80
+       service: http://localhost:8080
      - service: http_status:404
    ```
 
@@ -190,9 +200,9 @@ installed in WSL.
 2. **Direct server.** `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/MMM/title/`
    must return 200 (the PR environment binds its own port; the bare `/`
    redirects to the game mount).
-3. **Proxy routing.** `curl -s -H "Host: pr-<n>.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80/MMM/title/`
+3. **Proxy routing.** `curl -s -H "Host: pr-<n>.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/MMM/title/`
    must return 200 through Caddy, served by the PR environment's port, while
-   `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80/MMM/title/`
+   `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/MMM/title/`
    stays on production's block. No Caddy or tunnel change was made per PR.
 4. **Tunnel end to end.** On a phone or another network, open
    `https://pr-<n>.paintedpillars.com/MMM/`: the title page renders with its

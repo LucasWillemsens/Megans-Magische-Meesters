@@ -279,7 +279,7 @@ Make PR test environments serve downloaded card art and make the battle board us
 - [ ] Art Fit
 - [ ] Support touch dragging for staging hand cards into lanes while preserving existing mouse drag, keyboard selection, and action-limit behavior.
 - [ ] Copy the working repository's gitignored `assets/downloaded/` art into every PR checkout's collected static tree.
-- [ ] Make the battle board fit mobile viewport width and height without horizontal overflow or persistent vertical scroll fighting.
+- [ ] Make the battle board usable on small mobile screens by showing one board at a time, with enemy targeting above the enemy deck.
 
 ### Painted Pillars Site
 

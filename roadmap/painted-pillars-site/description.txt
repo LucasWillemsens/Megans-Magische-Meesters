@@ -2,7 +2,7 @@ Restore paintedpillars.com as the Painted Pillars band site and move the card ga
 
 Subgoals, in dependency order:
 - [x] mmm-url-prefix — route game pages and APIs below `/MMM/`, reserving `/` for the band site.
-- [x] band-site-rebuild — serve the four archived band pages at root paths.
+- [ ] band-site-rebuild — serve the archived band site at root paths: home, music/releases, about, and contact, plus one page for each archived post, with the stage photo as the page background.
 
 ## Decisions (user-approved 2026-11-20)
 - The `/MMM/` prefix applies **everywhere** — in the URLconf itself, so local dev, PR environments and production all match. No `FORCE_SCRIPT_NAME`.

@@ -11,3 +11,4 @@
 
 ## 2026-11-21 — PR #32 review
 - Planning must preserve user intent rather than turn an agent's assumptions into narrower specifications: archive research should follow the full snapshot history and linked post pages, page scope should not be frozen without instruction, and visual descriptions should not reinterpret the requested composition.
+- Once a roadmap subgoal is materially planned but implementation remains outstanding, reopen its parent checkbox and state the new scope; leave implementation actions visible as the next thread rather than marking the work complete.
