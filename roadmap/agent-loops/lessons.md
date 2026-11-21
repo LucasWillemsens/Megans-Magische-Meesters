@@ -2,6 +2,7 @@
 
 ## 2026-11-20 — Production deployment at www.paintedpillars.com
 - `STATIC_URL` must be root-relative (`'/static/'`): without the leading slash every `{% static %}` URL is page-relative and 404s on any path deeper than one level — the title page masked the bug because `/title/` happens to resolve correctly.
+- `runserver --insecure` serves static URLs through Django's staticfiles finders, not `STATIC_ROOT`; files must be in a finder-visible source such as `STATICFILES_DIRS`, whereas production's Caddy serves the collected static tree (mobile-board-experience).
 - Caddy `file_server` keeps the matched URI prefix: with `handle /static/*` the served path is `<root>/static/<file>`, so a root change to a flat collectstatic tree needs `handle_path` (which strips the prefix) or nothing under `/static/` serves at all.
 - Cloudflare caches static extensions by URL *and* caches their 404s: an origin fix can be invisible for up to ~4 hours (`cf-cache-status: HIT` on a 404), and stale 200s can mask a fully broken origin — always verify with a cache-busting query string and read `cf-cache-status` before trusting a status code.
 - Production static has three sources, not one: `STATICFILES_DIRS` entries (`var/www/static/`, gitignored `assets/downloaded/`) *and* app-level `MMM/static/` — only `collectstatic` into a persistent `STATIC_ROOT` (plus injecting gitignored art at deploy time) covers all of them; serving a single source directory always drops files.

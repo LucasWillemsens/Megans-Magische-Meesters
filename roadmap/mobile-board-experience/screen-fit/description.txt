@@ -1,0 +1,13 @@
+Make the battle board fit mobile viewport width and height without horizontal overflow or persistent vertical scroll fighting.
+
+Objective: at narrow mobile viewport sizes, both enemy and player board regions, lane columns, deck, hand, and end-turn control remain visible and interactable without document-level overflow.
+
+Implementation:
+1. Adjust board layout rules in `var/www/static/cards.css` and, only where interaction overlays require it, `var/www/static/cardDragDrop.css`; use `MMM/jinja2/MMM/battle/viewBoard.jinja2` as the DOM contract (`.enemyBoards`, `.playerBoard`, `ul.lanes`, `.deckHand`, `#turnLimits`).
+2. Replace mobile-conflicting fixed/minimum lane sizing and absolute/fixed hand sizing with responsive dimensions bounded by viewport width/height; keep hand's own horizontal scrolling available for multiple cards.
+3. Add a browser-level responsive layout check if an existing browser test harness is available; otherwise add focused static assertions to `MMM/tests.py` and document manual viewport verification at 320×568 and 390×844 CSS pixels.
+
+Acceptance criteria:
+- [ ] At 320×568 and 390×844 mobile viewports, the document has no horizontal overflow, and all four lanes plus the draw/end-turn controls fit within the viewport width.
+- [ ] Enemy board, player lanes, and hand are simultaneously visible without the hand obscuring the active player lanes; excess hand cards scroll within the hand region.
+- [ ] Existing desktop board layout remains usable.

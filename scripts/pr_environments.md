@@ -54,10 +54,15 @@ One sync does, in order:
    environments; a slot needed by a planned rebuild is never taken from it.
 6. Build each planned PR: clone/update the checkout, then
    `manage.py migrate` → `manage.py add_deck_cards` (the deterministic seed of
-   Lucas's 52-card playing deck) → `manage.py check` → `manage.py test`, and
-   only then start `manage.py runserver --noreload --insecure` on the PR's
-   port. A failing gate records status `failed` with the failure message and
-   never starts the server.
+   Lucas's 52-card playing deck) → `manage.py check` → `manage.py test` →
+   `manage.py collectstatic --noinput` into `pr-<n>/staticfiles/`, then copy
+   the working repository's gitignored downloaded art into the checkout's
+   `assets/downloaded/` (the static directory runserver serves) and merge it
+   into the same collected tree, and only then start
+   `manage.py runserver --noreload --insecure` on the PR's port. A failing
+   gate records status `failed` with the failure message and never starts the
+   server; a missing art directory warns and builds the CSS-cards
+   environment, while a copy error fails the build.
 7. Publish one PR comment per newly built push: the ready URL plus a
    diff-derived "what to play and look at" note, or a failure note without an
    environment URL.
@@ -89,6 +94,7 @@ local development defaults; unset variables behave exactly as before.
 | `MMM_CSRF_TRUSTED_ORIGINS` | empty | `https://pr-<n>.<domain>` |
 | `MMM_SECURE_COOKIES` | `false` | `Secure` session + CSRF cookies |
 | `MMM_DB_PATH` | `BASE_DIR/db.sqlite3` | per-PR database file |
+| `MMM_STATIC_ROOT` | `BASE_DIR/staticfiles` | per-PR collected static tree |
 
 The manager itself reads:
 
@@ -99,6 +105,7 @@ The manager itself reads:
 | `MMM_PR_PORT_START` | `8100` |
 | `MMM_PR_MAX_RUNNING` | `3` |
 | `MMM_PR_DEPLOYMENTS_DIR` | `<repo>/var/deployments` |
+| `MMM_PR_EXTRA_STATIC` | `<repo>/assets/downloaded` |
 | `MMM_PR_ORIGIN_URL` | the loop checkout's `origin` remote |
 
 `MMM_PR_ORIGIN_URL` exists for smoke tests against a local mirror; production
@@ -116,6 +123,7 @@ var/deployments/
   routes.caddy         # generated Caddy site blocks importing into the main Caddyfile
   pr-<n>/
     repo/              # isolated checkout of the PR head
+    staticfiles/       # per-PR collectstatic target beside the checkout, merged with the downloaded art
     db.sqlite3         # isolated, deterministically seeded database
     server.log         # runserver output; its mtime is the last-activity signal
 ```
@@ -187,9 +195,11 @@ installed in WSL.
    `curl -s -H "Host: www.paintedpillars.com" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:80/MMM/title/`
    stays on production's block. No Caddy or tunnel change was made per PR.
 4. **Tunnel end to end.** On a phone or another network, open
-   `https://pr-<n>.paintedpillars.com/MMM/`: the title page renders, static CSS
-   and JS load, and starting the demo battle works. In the browser devtools
-   the `sessionid` Set-Cookie has no `Domain` attribute and carries `Secure`.
+   `https://pr-<n>.paintedpillars.com/MMM/`: the title page renders with its
+   downloaded background art (`/static/woodtextureorangedark2.jpg` returns
+   200), static CSS and JS load, and starting the demo battle works. In the
+   browser devtools the `sessionid` Set-Cookie has no `Domain` attribute and
+   carries `Secure`.
    `https://www.paintedpillars.com/MMM/` (or its 502 while production is absent)
    is unaffected by PR environments.
 5. **Isolation.** Open a second PR and sync. `status` shows two distinct
@@ -229,14 +239,19 @@ installed in WSL.
   single-host, loop-owned serving of a test environment; production serving is
   a separate concern.
 - `assets/downloaded/` is untracked, so a fresh PR checkout does not contain
-  it. The deterministic seed creates the 52 CSS playing cards, which render
-  without downloaded assets; copy `assets/downloaded/` into a PR checkout by
-  hand when a PR specifically needs the downloaded art.
+  it. Every build therefore copies the working repository's downloaded art
+  (`MMM_PR_EXTRA_STATIC`) into the checkout's `assets/downloaded/`, which
+  runserver serves through its static finders, and merges it into
+  `pr-<n>/staticfiles/`, which `git clean -fdx` cannot touch. When the art
+  directory is absent the build warns and the 52 seeded CSS playing cards
+  render instead.
 - A PR whose head predates the settings parameterization (old branches) does
-  not read `MMM_DB_PATH`: such an environment keeps its database inside its
-  own checkout instead of under `pr-<n>/db.sqlite3`. It is still fully isolated
-  per PR, and `git clean` on the next rebuild resets it to a freshly seeded
-  database, which matches the "seeded fresh" rule.
+  not read `MMM_DB_PATH` or `MMM_STATIC_ROOT`: such an environment keeps its
+  database inside its own checkout and collects static into it as well. It is
+  still fully isolated per PR, and `git clean` on the next rebuild resets both
+  to a freshly seeded state, which matches the "seeded fresh" rule. The art
+  copies still land in the checkout and in `pr-<n>/staticfiles/`; whether
+  that revision serves them depends on its own static configuration.
 - A recorded pid is verified against `/proc/<pid>/cmdline` before any signal
   is sent, so a reused pid after a host reboot is never killed; the stale
   environment is simply rebuilt on the next sync.

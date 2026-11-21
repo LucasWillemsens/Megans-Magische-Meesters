@@ -4,9 +4,15 @@
 Each open pull request whose head repository is the configured canonical
 repository gets its own checkout, SQLite database, and runtime port under
 var/deployments/, gated by migrate, a deterministic seed, manage.py check,
-and manage.py test. Pull requests from any other repository (forks) are
-recorded as rejected before their code is ever checked out or executed, so
-no GitHub runner or fork code ever runs on this host.
+manage.py test, and collectstatic. Pull requests from any other repository
+(forks) are recorded as rejected before their code is ever checked out or
+executed, so no GitHub runner or fork code ever runs on this host.
+
+Every build also injects the working repository's gitignored downloaded art
+(MMM_PR_EXTRA_STATIC) into the checkout's assets/downloaded/ — the static
+directory runserver serves — and merges it into the per-PR collected static
+tree beside the checkout, which git clean cannot destroy. Missing art warns
+and builds a CSS-cards environment; a copy error fails the build.
 
 The loop calls `sync` periodically; every push (new head commit) rebuilds
 that PR's environment. Builds are serialized by a file lock, results are
@@ -26,6 +32,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -40,6 +47,7 @@ BASE_DOMAIN = os.environ.get("MMM_PR_BASE_DOMAIN", "paintedpillars.com")
 PORT_START = int(os.environ.get("MMM_PR_PORT_START", "8100"))
 MAX_RUNNING_ENVIRONMENTS = int(os.environ.get("MMM_PR_MAX_RUNNING", "3"))
 DEPLOYMENTS_DIR = Path(os.environ.get("MMM_PR_DEPLOYMENTS_DIR", REPO_ROOT / "var" / "deployments"))
+EXTRA_STATIC_DIR = Path(os.environ.get("MMM_PR_EXTRA_STATIC", REPO_ROOT / "assets" / "downloaded"))
 
 PR_FIELDS = "number,title,url,headRefName,headRepositoryOwner,headRepository"
 GATES = (
@@ -47,6 +55,7 @@ GATES = (
     ("manage.py", "add_deck_cards"),
     ("manage.py", "check"),
     ("manage.py", "test"),
+    ("manage.py", "collectstatic", "--noinput"),
 )
 
 
@@ -72,6 +81,10 @@ def pr_database(number):
 
 def pr_log_path(number):
     return pr_directory(number) / "server.log"
+
+
+def pr_static_root(number):
+    return pr_directory(number) / "staticfiles"
 
 
 def environment_url(number):
@@ -279,7 +292,7 @@ def ready_play_note(pull, environment_address, areas):
         "",
         f"Built from {pull.get('headRefName')} at {short_sha(pull.get('head_sha'))}. "
         "The database is isolated and deterministically seeded; "
-        "manage.py migrate, seed, check and test all passed.",
+        "manage.py migrate, seed, check, test and collectstatic all passed.",
     ]
     if areas:
         lines.append("")
@@ -337,6 +350,7 @@ def deployment_environment(entry):
         "MMM_CSRF_TRUSTED_ORIGINS": f"https://{hostname}",
         "MMM_SECURE_COOKIES": "true",
         "MMM_DB_PATH": str(pr_database(number)),
+        "MMM_STATIC_ROOT": str(pr_static_root(number)),
     }
 
 
@@ -434,6 +448,14 @@ def build_environment(state, pull):
             exit_status, output = run_command((sys.executable, *command), cwd=checkout, env=gate_environment)
             if exit_status:
                 raise BuildFailure(f"{command[1]} failed with exit status {exit_status}\n{output_tail(output)}")
+        if not EXTRA_STATIC_DIR.is_dir():
+            print(f"PR {number}: extra static files not found at {EXTRA_STATIC_DIR}; building without them")
+        else:
+            try:
+                shutil.copytree(EXTRA_STATIC_DIR, checkout / "assets" / "downloaded", dirs_exist_ok=True)
+                shutil.copytree(EXTRA_STATIC_DIR, pr_static_root(number), dirs_exist_ok=True)
+            except OSError as error:
+                raise BuildFailure(f"copying extra static files from {EXTRA_STATIC_DIR} failed\n{error}") from error
         entry.update(
             status="ready",
             built_at=utc_now_iso(),

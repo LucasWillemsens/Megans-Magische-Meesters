@@ -1,0 +1,13 @@
+Constrain card artwork to card faces without distortion or overflow in board, hand, and small-card layouts.
+
+Objective: rendered card art remains fully inside each card face at its intrinsic aspect ratio, including card artwork in lanes, hand cards, and compact/small-card variants.
+
+Implementation:
+1. In `var/www/static/cards.css`, replace the fixed `.fit-picture` sizing and `object-fit: cover` behavior with box-aware width/height constraints and `object-fit: contain`; constrain the image within `.card`/`.smallCard` content box while reserving space for title/type overlays.
+2. Verify affected markup in `MMM/jinja2/MMM/battle/viewBoard.jinja2` and ensure rules cover board cards, hand cards, enemy/trusted cards, and small-card layouts without changing static playing-card ranks/suits.
+3. Add frontend contract assertions in `MMM/tests.py` for image-fit selectors/declarations; visually verify landscape, portrait, and square artwork in full and small cards.
+
+Acceptance criteria:
+- [ ] Card art in hand, board, and small-card layouts is not stretched, cropped, or painted outside the card face.
+- [ ] Portrait, landscape, and square images preserve aspect ratio and fit within the available image area.
+- [ ] Static rank/suit cards and text/type overlays remain visible and legible.

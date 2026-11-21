@@ -1,6 +1,8 @@
 """Offline checks for the per-PR test-environment manager."""
 
+import contextlib
 import importlib.util
+import io
 import json
 import shutil
 import tempfile
@@ -224,11 +226,13 @@ class ManagerHarness(unittest.TestCase):
         self.addCleanup(shutil.rmtree, deployment_root, ignore_errors=True)
         self.deployment_root = deployment_root
         self.manager.DEPLOYMENTS_DIR = deployment_root
+        self.manager.EXTRA_STATIC_DIR = deployment_root / "extra-static"
         self.manager.time = SimpleNamespace(sleep=lambda seconds: None)
         self.pulls = []
         self.gate_calls = []
         self.gate_exit_statuses = {}
         self.started = []
+        self.started_environments = []
         self.stopped = []
         self.published = []
         self.manager.open_pull_requests = lambda: self.pulls
@@ -253,6 +257,7 @@ class ManagerHarness(unittest.TestCase):
 
     def record_start(self, entry):
         self.started.append(entry["number"])
+        self.started_environments.append(self.manager.deployment_environment(entry))
         return 4242
 
     def record_stop(self, entry):
@@ -286,15 +291,19 @@ class SyncFlowTests(ManagerHarness):
         self.assertEqual(state["environments"]["10"]["port"], 8101)
         manage_gate_names = [command[2] for command, _ in self.gate_calls if "manage.py" in command]
         self.assertEqual(
-            manage_gate_names, ["migrate", "add_deck_cards", "check", "test"] * 2
+            manage_gate_names, ["migrate", "add_deck_cards", "check", "test", "collectstatic"] * 2
         )
         gate_environments = [env for _, env in self.gate_calls if env]
         db_paths = {env["MMM_DB_PATH"] for env in gate_environments}
         allowed_hosts = {env["MMM_ALLOWED_HOSTS"] for env in gate_environments}
+        static_roots = {env["MMM_STATIC_ROOT"] for env in gate_environments}
         self.assertEqual(len(db_paths), 2)
         self.assertEqual(len(allowed_hosts), 2)
+        self.assertEqual(len(static_roots), 2)
         for env in gate_environments:
             self.assertTrue(env["MMM_DB_PATH"].startswith(str(self.deployment_root)))
+            self.assertTrue(env["MMM_STATIC_ROOT"].startswith(str(self.deployment_root)))
+            self.assertNotIn("repo", Path(env["MMM_STATIC_ROOT"]).parts)
             self.assertEqual(env["MMM_DEBUG"], "false")
             self.assertEqual(env["MMM_SECURE_COOKIES"], "true")
             self.assertTrue(env["MMM_SECRET_KEY"])
@@ -444,6 +453,77 @@ class SyncFlowTests(ManagerHarness):
         self.manager.sync()
         self.assertEqual(len(self.gate_calls), first_gate_call_count)
         self.assertEqual(len(self.published), first_publish_count)
+
+
+class DownloadedArtInjectionTests(ManagerHarness):
+    def written_art(self, name, content=b"card art"):
+        art_directory = self.manager.EXTRA_STATIC_DIR
+        art_directory.mkdir(parents=True, exist_ok=True)
+        (art_directory / name).parent.mkdir(parents=True, exist_ok=True)
+        (art_directory / name).write_bytes(content)
+
+    def test_nested_art_files_are_injected_into_the_checkout_and_the_static_root(self):
+        self.written_art("woodtextureorangedark2.jpg", b"wood texture")
+        self.written_art("cards/extradeck.png")
+        self.pulls = [pull(number=9)]
+        self.manager.sync()
+        state = self.manager.load_state()
+        self.assertEqual(state["environments"]["9"]["status"], "ready")
+        checkout_art = self.deployment_root / "pr-9" / "repo" / "assets" / "downloaded"
+        self.assertEqual((checkout_art / "woodtextureorangedark2.jpg").read_bytes(), b"wood texture")
+        self.assertEqual((checkout_art / "cards" / "extradeck.png").read_bytes(), b"card art")
+        static_root = self.deployment_root / "pr-9" / "staticfiles"
+        self.assertEqual((static_root / "woodtextureorangedark2.jpg").read_bytes(), b"wood texture")
+        self.assertEqual((static_root / "cards" / "extradeck.png").read_bytes(), b"card art")
+
+    def test_the_serving_runserver_receives_the_static_root_of_the_build_gates(self):
+        self.pulls = [pull(number=9)]
+        self.manager.sync()
+        gate_static_roots = {env["MMM_STATIC_ROOT"] for _, env in self.gate_calls if env}
+        self.assertEqual(gate_static_roots, {str(self.deployment_root / "pr-9" / "staticfiles")})
+        for environment in self.started_environments:
+            self.assertEqual(environment["MMM_STATIC_ROOT"], str(self.deployment_root / "pr-9" / "staticfiles"))
+
+    def test_missing_download_art_warns_and_the_environment_still_comes_ready(self):
+        self.manager.EXTRA_STATIC_DIR = self.deployment_root / "absent-art"
+        self.pulls = [pull(number=9)]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.manager.sync()
+        state = self.manager.load_state()
+        entry = state["environments"]["9"]
+        self.assertEqual(entry["status"], "ready")
+        self.assertIn("extra static files not found", output.getvalue())
+        self.assertIn(str(self.deployment_root / "absent-art"), output.getvalue())
+        self.assertIn("https://pr-9.paintedpillars.com/MMM/", self.published[0][1])
+        self.assertEqual(self.started, [9])
+
+    def test_a_copy_failure_fails_the_build_before_it_is_marked_ready(self):
+        self.written_art("extradeck.png")
+        (self.deployment_root / "pr-9").write_text("in the way of the checkout")
+        self.pulls = [pull(number=9)]
+        self.manager.sync()
+        state = self.manager.load_state()
+        entry = state["environments"]["9"]
+        self.assertEqual(entry["status"], "failed")
+        self.assertIn("copying extra static files", entry["failure"])
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.started_environments, [])
+        self.assertIn("no playable environment", self.published[0][1])
+        routes = json.loads((self.deployment_root / "proxy_routes.json").read_text())
+        self.assertEqual(routes, {})
+
+    def test_a_collectstatic_failure_blocks_ready(self):
+        self.pulls = [pull(number=9)]
+        self.gate_exit_statuses["collectstatic"] = 1
+        self.manager.sync()
+        state = self.manager.load_state()
+        entry = state["environments"]["9"]
+        self.assertEqual(entry["status"], "failed")
+        self.assertIn("collectstatic failed with exit status 1", entry["failure"])
+        self.assertEqual(self.started, [])
+        routes = json.loads((self.deployment_root / "proxy_routes.json").read_text())
+        self.assertEqual(routes, {})
 
 
 class RebuildCommandTests(ManagerHarness):

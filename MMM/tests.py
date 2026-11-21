@@ -2706,6 +2706,440 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn("ghostCard.classList.add('keyboard-selected')", mirror_helper_code)
         self.assertIn("ghostCard.classList.remove('keyboard-selected')", mirror_helper_code)
 
+    def test_touch_drag_contract_reuses_staging_and_guards(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+
+        self.assertIn(
+            "card.addEventListener('dragstart', this.onCardDragStart.bind(this));",
+            drag_js,
+        )
+        self.assertIn(
+            "card.addEventListener('touchstart', this.onCardTouchStart.bind(this), { passive: true });",
+            drag_js,
+        )
+        self.assertIn(
+            "document.addEventListener('touchmove', this._touchMoveHandler, { passive: false });",
+            drag_js,
+        )
+
+        touch_code = drag_js[
+            drag_js.index('    onCardTouchStart(event)'):
+            drag_js.index('    _stagePlay(')
+        ]
+        self.assertIn('remainingAllowances().plays <= 0', touch_code)
+        self.assertIn('_keyboardTransitionActive()', touch_code)
+        self.assertIn('_isPlayableKeyboardCard(card)', touch_code)
+        self.assertIn('TOUCH_DRAG_SLOP_PX', touch_code)
+        self.assertIn('Math.abs(dx) > Math.abs(dy)', touch_code)
+        self.assertIn('this.cancelCardTouchDrag();', touch_code)
+        self.assertIn('highlightAllDropZones(true)', touch_code)
+        self.assertIn('highlightAllDropZones(false)', touch_code)
+        self.assertIn("drag.clone.classList.add('touch-drag-clone')", touch_code)
+        self.assertIn('document.elementFromPoint', touch_code)
+        self.assertIn('this._laneValueForCard(lane)', touch_code)
+        self.assertIn('dropZones.has(laneValue)', touch_code)
+        self.assertIn('this.onDropZoneDrop({', touch_code)
+        self.assertIn('currentTarget: this.dropZones.get(laneValue).element', touch_code)
+        self.assertIn('this.onHandZoneDrop({', touch_code)
+        self.assertIn('button: 0', touch_code)
+        self.assertIn('if (drag.lifted) this.lastDragEndedAt = Date.now();', touch_code)
+        self.assertNotIn('createupdateCookie', touch_code)
+        self.assertNotIn('_buildPlayHologram', touch_code)
+
+        setup_code = drag_js[
+            drag_js.index('    setupKeyboardSelection()'):
+            drag_js.index('    _hasPlayerBoard()')
+        ]
+        self.assertIn('this.cancelCardTouchDrag();', setup_code)
+        destroy_code = drag_js[
+            drag_js.index('    destroy() {'):
+            drag_js.index('document.addEventListener(\'DOMContentLoaded\'')
+        ]
+        self.assertIn('this.cancelCardTouchDrag();', destroy_code)
+
+        self.assertIn(
+            '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer {\n'
+            '    touch-action: pan-x;',
+            drag_css,
+        )
+        self.assertIn('-webkit-touch-callout: none', drag_css)
+        self.assertIn('user-select: none', drag_css)
+        clone_rule = drag_css[drag_css.index('.touch-drag-clone {'):]
+        clone_rule = clone_rule[:clone_rule.index('}')]
+        self.assertIn('position: fixed', clone_rule)
+        self.assertIn('pointer-events: none', clone_rule)
+        self.assertIn('touch-action: none', clone_rule)
+        self.assertEqual(drag_css.count('touch-action:'), 2)
+
+    def test_touch_drag_stages_and_returns_cards_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r"""
+const documentListeners = {};
+const windowListeners = {};
+const holdTimers = [];
+let nextTimerId = 1;
+let nowMs = 1000;
+Date.now = () => nowMs;
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+matTable.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+['Intelligence', 'Speed', 'Visciousness', 'Resolve'].forEach((laneName) => {
+    const lane = new FakeElement('li', `lane ${laneName}`);
+    lane.classList[1] = laneName;
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, cardLane, sourceOrdinal) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(cardLane);
+    card.dataset.sourceLane = '0';
+    card.dataset.sourceOrdinal = String(sourceOrdinal);
+    const cardFace = new FakeElement('div', 'card smallCard');
+    card.appendChild(cardFace);
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(301, 1, 1);
+const handB = makeHandCard(302, 3, 2);
+const handC = makeHandCard(303, 2, 3);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+let pointElement = null;
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    elementFromPoint() { return pointElement; },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, handA, handB, handC, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener(event, handler) {
+        (windowListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        windowListeners[event] = (windowListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    cardDragDrop: null,
+    location: { pathname: '/MMM/game/1/board/1/action/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.Element = function Element() {};
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const zoneFor = (laneValue) => fakeDocument.getElementById(`drop-zone-${laneValue}`);
+const cloneInBody = () => descendantsInOrder(body).find(
+    (el) => el.classList.contains('touch-drag-clone')
+);
+const zoneHighlighted = () => [1, 2, 3, 4].every(
+    (laneValue) => zoneFor(laneValue).classList.contains('drop-zone-highlight')
+);
+const stagedHologramFor = (cardId) => holoRows.flatMap((row) => row.children).find(
+    (el) => el.dataset.stagedForCardId === String(cardId)
+);
+
+const touchEvent = (type, touch) => {
+    let prevented = false;
+    return {
+        type,
+        changedTouches: [touch],
+        touches: type === 'touchend' || type === 'touchcancel' ? [] : [touch],
+        preventDefault() { prevented = true; },
+        get prevented() { return prevented; },
+    };
+};
+const cardTouchStart = (card, touch) => {
+    const event = touchEvent('touchstart', touch);
+    event.currentTarget = card;
+    (card.eventHandlers['touchstart'] ?? []).forEach((handler) => handler(event));
+    return event;
+};
+const documentTouch = (type, touch) => {
+    const event = touchEvent(type, touch);
+    (documentListeners[type] ?? []).forEach((handler) => handler(event));
+    return event;
+};
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+pointElement = handList;
+
+cardTouchStart(handA, { identifier: 7, clientX: 120, clientY: 400 });
+assert('touching a playable hand card tracks the gesture',
+    system.touchDrag !== null && (documentListeners['touchmove'] ?? []).length === 1);
+const creep = documentTouch('touchmove', { identifier: 7, clientX: 123, clientY: 397 });
+assert('a small finger wiggle below the slop neither lifts nor prevents panning',
+    !creep.prevented && !system.touchDrag.lifted);
+const lift = documentTouch('touchmove', { identifier: 7, clientX: 122, clientY: 330 });
+assert('moving up lifts the card into a drag that suppresses touch panning',
+    lift.prevented && system.touchDrag.lifted && handA.classList.contains('dragging') &&
+    system.draggedCard === handA && zoneHighlighted());
+const liftedClone = cloneInBody();
+assert('the lifted card shows a clone that follows the finger without the dimmed dragging state',
+    Boolean(liftedClone) && liftedClone.classList.contains('cardContainer') &&
+    !liftedClone.classList.contains('dragging'));
+documentTouch('touchmove', { identifier: 7, clientX: 300, clientY: 200 });
+pointElement = zoneFor(2);
+const overLane = documentTouch('touchmove', { identifier: 7, clientX: 305, clientY: 205 });
+assert('moving over a lane lights up that lane drop zone only',
+    overLane.prevented && zoneFor(2).classList.contains('drop-zone-active') &&
+    !zoneFor(1).classList.contains('drop-zone-active') &&
+    cloneInBody().style.left === '185px');
+const stageEnd = documentTouch('touchend', { identifier: 7, clientX: 305, clientY: 205 });
+assert('releasing over a lane stages the play with the existing ghost and hologram state',
+    stageEnd.prevented && handA.classList.contains('ghost') &&
+    handA.getAttribute('draggable') === 'false' && handA.dataset.stagedLane === '2');
+const stagedHologram = stagedHologramFor(301);
+assert('the staged hologram lands face down in the target lane',
+    Boolean(stagedHologram) && holoRows[1].children.includes(stagedHologram) &&
+    stagedHologram.querySelector('.cardContainer').classList.contains('faceDown'));
+assert('the staged play keeps the card-id keyed cookie shape',
+    cookieWrites.length === 1 && cookieWrites[0].startsWith('301=') &&
+    cookieWrites[0].endsWith(';path=/MMM/game/1/board/1/'));
+const stagedPair = cookieWrites[0].split(';')[0];
+const stagedPayload = JSON.parse(decodeURIComponent(stagedPair.split('=').slice(1).join('=')));
+assert('the staged payload preserves lane, source and flip fields',
+    stagedPayload.laneValue === '2' && stagedPayload.sourceLane === '0' &&
+    stagedPayload.sourceOrdinal === '1' && stagedPayload.flipFaceUp === false);
+assert('a finished drag clears every gesture trace',
+    system.touchDrag === null && system.draggedCard === null &&
+    !handA.classList.contains('dragging') && !cloneInBody() && !zoneHighlighted() &&
+    !zoneFor(2).classList.contains('drop-zone-active') &&
+    (documentListeners['touchmove'] ?? []).length === 0);
+assert('staging consumed one play allowance',
+    system.staged.plays === 1 && system.remainingAllowances().plays === 1);
+
+nowMs += 1000;
+pointElement = handList;
+cardTouchStart(handB, { identifier: 8, clientX: 60, clientY: 380 });
+documentTouch('touchmove', { identifier: 8, clientX: 62, clientY: 300 });
+pointElement = handB;
+const returnEnd = documentTouch('touchend', { identifier: 8, clientX: 61, clientY: 305 });
+assert('dropping back on the hand zone suppresses the ghost click and stages nothing',
+    returnEnd.prevented && cookieWrites.length === 1 && !handB.classList.contains('ghost'));
+assert('dropping back on the hand follows the existing hand card selection interaction',
+    system.keyboardSelection.selectedCard === handB &&
+    system.keyboardSelection.mouseSelecting === true &&
+    fakeDocument.getElementById('mousePreviewCursor') !== null &&
+    (documentListeners['touchmove'] ?? []).length === 0);
+
+nowMs += 1000;
+system.turnAllowances.played = 2;
+cardTouchStart(handC, { identifier: 9, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 9, clientX: 40, clientY: 300 });
+documentTouch('touchend', { identifier: 9, clientX: 40, clientY: 300 });
+assert('an exhausted play allowance never starts a touch drag nor stages a play',
+    system.touchDrag === null && (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1 && !handC.classList.contains('ghost'));
+
+nowMs += 1000;
+system.turnAllowances.played = 0;
+cardTouchStart(handC, { identifier: 10, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 10, clientX: 42, clientY: 300 });
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', 'enemy');
+turnPhaseEl.dataset.phase = 'enemy';
+body.appendChild(turnPhaseEl);
+pointElement = zoneFor(4);
+const enemyEnd = documentTouch('touchend', { identifier: 10, clientX: 350, clientY: 150 });
+assert('a lane drop during the enemy phase stages nothing and clears the gesture',
+    enemyEnd.prevented && cookieWrites.length === 1 &&
+    !handC.classList.contains('ghost') && !handC.classList.contains('dragging') &&
+    system.touchDrag === null && !cloneInBody());
+turnPhaseEl.remove();
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 11, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 11, clientX: 42, clientY: 300 });
+documentTouch('touchcancel', { identifier: 11, clientX: 44, clientY: 290 });
+assert('a cancelled gesture cleans up styling and listeners without staging',
+    system.touchDrag === null && !handC.classList.contains('dragging') &&
+    !cloneInBody() && !zoneHighlighted() &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 12, clientX: 40, clientY: 380 });
+const swipe = documentTouch('touchmove', { identifier: 12, clientX: 140, clientY: 379 });
+documentTouch('touchend', { identifier: 12, clientX: 150, clientY: 379 });
+assert('a sideways swipe releases the card so the hand keeps its native scrolling',
+    !swipe.prevented && system.touchDrag === null &&
+    !handC.classList.contains('dragging') &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 13, clientX: 40, clientY: 380 });
+const tapEnd = documentTouch('touchend', { identifier: 13, clientX: 40, clientY: 380 });
+assert('a plain tap keeps the default click path so the existing selection flow still runs',
+    !tapEnd.prevented && system.touchDrag === null);
+const clickEvent = {
+    button: 0,
+    target: handC,
+    clientX: 40,
+    clientY: 380,
+    preventDefault() {},
+};
+(documentListeners['click'] ?? []).forEach((handler) => handler(clickEvent));
+assert('the tap-then-click interaction selects the hand card exactly as on desktop',
+    system.keyboardSelection.selectedCard === handC &&
+    system.keyboardSelection.mouseSelecting === true);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 14, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 14, clientX: 42, clientY: 300 });
+(windowListeners['pagehide'] ?? []).forEach((handler) => handler());
+assert('hiding the page mid-drag clears the gesture completely',
+    system.touchDrag === null && !handC.classList.contains('dragging') &&
+    !cloneInBody() && !zoneHighlighted() && !zoneFor(4).classList.contains('drop-zone-active') &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+console.log('touch drag staging ok');
+""".replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping touch drag staging DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping touch drag staging DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'touch drag staging harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('touch drag staging ok', completed.stdout)
+
     def test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently(self):
         import os
 
@@ -4202,6 +4636,288 @@ console.log('space draw focus round trip ok');
             re.search(r'--hand-row-height\s*:', cards_css),
             "cards.css must declare --hand-row-height so deckHand rows keep a "
             "fixed visible size"
+        )
+
+    def test_board_fits_mobile_viewport_without_overflow(self):
+        """The board fits phone screens with no overflow and no scroll fighting.
+
+        User story: open the board on a 320×568 or 390×844 phone; the enemy
+        board, the four lanes, the deck, the hand and the end-turn control all
+        stay inside the viewport. Lanes may not force a 536px minimum row, the
+        fixed player table may not park itself on top of the enemy board, and
+        excess hand cards scroll inside the hand region instead of spilling
+        over the document. A desktop window keeps the original 82vw layout,
+        the fixed player table, and the unclipped hand row.
+
+        The board shrinks on short narrow screens through a single
+        --board-scale lever: the board font drives every em-based offset while
+        the rem-sized card geometry multiplies by the same lever, so the
+        stacked-card look survives at any scale.
+        """
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as css_file:
+            demo_nav_css = css_file.read()
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        player_screen_rule = re.search(r'div\.playerScreen\s*\{[^}]*\}', cards_css)
+        self.assertIn('--board-scale: 1', player_screen_rule.group(0))
+        self.assertIn(
+            'font-size: calc(1rem * var(--board-scale))', player_screen_rule.group(0),
+            "the board font is the em-side of the scale lever"
+        )
+
+        card_rule = re.search(r'\.playingCards \.card\s*\{[^}]*\}', cards_css)
+        self.assertIn('width: calc(4.25rem * var(--board-scale, 1))', card_rule.group(0))
+        self.assertIn('height: calc(6rem * var(--board-scale, 1))', card_rule.group(0))
+        card_container_rule = re.search(r'\nli\.cardContainer\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'calc((4.75rem + 6px) * var(--board-scale, 1))', card_container_rule.group(0)
+        )
+        card_row_rule = re.search(r'\nul\.cardRow\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'min-height: calc(7.5rem * var(--board-scale, 1))', card_row_rule.group(0)
+        )
+        end_turn_rule = re.search(r'\nbutton\.end-turn\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'width: calc(4.25rem * var(--board-scale, 1))', end_turn_rule.group(0)
+        )
+        hologram_row_rule = re.search(r'\nul\.hologramRow\s*\{[^}]*\}', drag_css)
+        self.assertIn(
+            'min-height: calc(7.5rem * var(--board-scale, 1))',
+            hologram_row_rule.group(0),
+            "the drop-preview row is an interaction overlay and must scale with "
+            "the cards it previews"
+        )
+
+        mobile_block = css_block(cards_css, '@media (max-width: 41rem) {')
+        self.assertIn('height: 100dvh', mobile_block)
+        self.assertIn('position: static', mobile_block)
+        self.assertIn('flex: 1 1 0', mobile_block)
+        self.assertIn('min-height: 0', mobile_block)
+        self.assertIn('overflow-y: auto', mobile_block)
+        self.assertIn('width: 100%', mobile_block)
+        self.assertIn('min-width: 0', mobile_block)
+        self.assertIn('overflow-x: auto', mobile_block)
+        self.assertIn(
+            'padding-top: 1.25em', mobile_block,
+            "rotated hand-fan cards must lift into the scroll box's padding "
+            "instead of being clipped by it"
+        )
+        tier_block = css_block(
+            cards_css, '@media (max-width: 41rem) and (max-height: 49.375rem) {'
+        )
+        self.assertIn('--board-scale: .7', tier_block)
+        short_tier_block = css_block(
+            cards_css, '@media (max-width: 41rem) and (max-height: 34rem) {'
+        )
+        self.assertIn('--board-scale: .58', short_tier_block)
+
+        deck_hand_rule = re.search(r'\.playerScreen \.deckHand\s*\{[^}]*\}', cards_css)
+        self.assertIn('--hand-row-height: 8em', deck_hand_rule.group(0))
+        self.assertNotIn('position: absolute', deck_hand_rule.group(0))
+        self.assertNotIn('.playerScreen > .deckHand', cards_css)
+        self.assertNotIn('height: 25%', cards_css)
+        board_hand_scroll_rule = re.search(
+            r'\.playerScreen \.deckHand > \.hand-scroll\s*\{[^}]*\}', cards_css
+        )
+        self.assertIn('overflow: visible', board_hand_scroll_rule.group(0))
+
+        lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
+        self.assertIn('width: 82vw', lanes_rule.group(0))
+        player_table_rule = re.search(
+            r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
+        )
+        self.assertIn('position: fixed', player_table_rule.group(0))
+        self.assertIn('bottom: 0', player_table_rule.group(0))
+
+        demo_nav_block = css_block(demo_nav_css, '@media (max-width: 41rem) {')
+        self.assertIn('max-width: 40%', demo_nav_block)
+        self.assertIn('.demoNav .playerInfo', demo_nav_block)
+        self.assertIn('text-overflow: ellipsis', demo_nav_block)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 64)
+        self._replace_deck_with_count(self.bot_participant, 64)
+        content = self.client.get(board_url).content.decode()
+        self.assertIsNotNone(
+            re.search(r'--deck-indicator-offset: -\d+(\.\d+)?em;"', content),
+            "deck indicator offsets must follow the board font (em) so the "
+            "fanned indicator piles track the scaled deck on phones"
+        )
+
+    def test_card_art_fits_face_without_cropping_or_overflow(self):
+        """Card artwork stays whole and inside every card face.
+
+        User story: a card with portrait, landscape or square art —
+        downloaded art or the no-art fallback picture — shows the complete
+        image on the board lanes, in the hand, in collections and on the
+        card details page. The art is never cropped to a fixed square,
+        never stretched, and never painted past the card border: card
+        faces give the picture a width/height box of their own content
+        minus the title/type footer, compact small-card boxes contain it
+        in their square, and the full-art spotlight contains it in its
+        14rem showcase box. Decorative full-page backgrounds still fill
+        their viewport, and the CSS playing-card faces keep their
+        rank/suit look untouched.
+        """
+        import os
+        import re
+        from mysite.jinja2 import (
+            playing_card_rank_class,
+            playing_card_rank_display,
+            playing_card_suit_class,
+            playing_card_suit_display,
+        )
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as css_file:
+            demo_nav_css = css_file.read()
+        with open(os.path.join(static_dir, 'title.css')) as css_file:
+            title_css = css_file.read()
+        with open(os.path.join(static_dir, 'style.css')) as css_file:
+            style_css = css_file.read()
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        base_picture_rule = css_block(cards_css, '.fit-picture{')
+        self.assertIn(
+            'object-fit: contain', base_picture_rule,
+            "every fit-picture defaults to contain so no image is ever "
+            "stretched by the leftover fill default"
+        )
+        self.assertNotIn('cover', base_picture_rule)
+
+        board_face_rule = re.search(
+            r'\.playingCards \.card\.smallCard > \.fit-picture\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            board_face_rule,
+            "card faces need their own fit-picture rule to give art a "
+            "box-aware area inside the face"
+        )
+        self.assertIn('object-fit: contain', board_face_rule.group(0))
+        self.assertIn(
+            'width: 100%', board_face_rule.group(0),
+            "art spans the card content width instead of a fixed square"
+        )
+        self.assertIn(
+            'height: calc(100% - 2.5rem)', board_face_rule.group(0),
+            "art yields the bottom strip of the face to the title/type "
+            "footer so neither the art nor the footer leaves the card"
+        )
+
+        option_picture_rule = re.search(r'\n\.smallCard \.fit-picture\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(
+            option_picture_rule,
+            "compact small-card boxes (deck/player pickers) keep a "
+            "bounded square art area"
+        )
+        self.assertIn(
+            'width: calc(4rem * var(--board-scale, 1))', option_picture_rule.group(0)
+        )
+        self.assertIn(
+            'height: calc(4rem * var(--board-scale, 1))', option_picture_rule.group(0)
+        )
+
+        spotlight_rule = re.search(r'\n\.spotlight\{[^}]*\}', style_css)
+        self.assertIsNotNone(spotlight_rule, "spotlight art box rule missing from style.css")
+        self.assertIn('width: 14rem', spotlight_rule.group(0))
+        self.assertIn('height: 14rem', spotlight_rule.group(0))
+
+        for opener, source, name in (
+            ('.fullpage-background{', demo_nav_css, 'demo page backdrop'),
+            ('.title-background{', title_css, 'title page backdrop'),
+        ):
+            self.assertIn(
+                'object-fit: cover', css_block(source, opener),
+                f"the {name} must keep cover now that the fit-picture base "
+                "rule no longer crops decorative backgrounds"
+            )
+
+        self.assertIn(
+            '.playingCards .card.smallCard[class*="rank-"] .smallCardInfo', cards_css,
+            "the static playing-card footer anchoring must stay as is"
+        )
+        self.assertIn(
+            '.playingCards .card.staticCard .smallCardInfo .cardType', cards_css
+        )
+        self.assertIn('margin-bottom: -1px', cards_css)
+        self.assertIn('margin-bottom: -2.75rem', cards_css)
+        self.assertIn('font-size: 7px', cards_css)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        static_card = Card.objects.create(
+            title="Board static card", artSource="static", cardType=1
+        )
+        static_game_card = GameCard.create(static_card.id, self.game.id, self.human_participant.id)
+        static_game_card.save()
+        static_game_card.state.draw()
+        static_game_card.state.updateOrdinal(50)
+        static_game_card.state.save()
+
+        content = self.client.get(board_url).content.decode()
+        self.assertIsNotNone(
+            re.search(
+                r'<div class="card smallCard">\s*'
+                r'<img draggable="false" class="fit-picture" '
+                r'src="/static/MMM/1flubeltje\.jpg"',
+                content,
+            ),
+            "art cards must render their picture inside the card face div"
+        )
+        self.assertIsNotNone(
+            re.search(
+                r'class="card smallCard staticCard '
+                + re.escape(playing_card_rank_class(static_card))
+                + r'\s+'
+                + re.escape(playing_card_suit_class(static_card)),
+                content,
+            ),
+            "static playing-card faces must keep their rank/suit classes on "
+            "the board"
+        )
+        self.assertIn(
+            f'<span class="rank">{playing_card_rank_display(static_card)}</span>', content
+        )
+        self.assertIn(
+            f'<span class="suit">{playing_card_suit_display(static_card)}</span>', content
+        )
+
+        card_page = self.client.get(reverse("MMM:viewCard", args=[self.human_cards[0].id]))
+        self.assertContains(
+            card_page, '<img class="fit-picture spotlight" '
+            'src="/static/MMM/1flubeltje.jpg"'
         )
 
     def test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope(self):
