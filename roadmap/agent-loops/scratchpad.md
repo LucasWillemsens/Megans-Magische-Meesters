@@ -1,5 +1,11 @@
 # agent-loops scratchpad
 
+## 2026-11-21 — PR #32 review
+- State: `scripts/production.md` operational guidance exists; reviewer requested platform wiring, but no implementation has been applied.
+- Discovered: Required work belongs to the Agent engineer: create `.opencode/skills/deployment/SKILL.md` authorizing `production.py` deploy `[--force]` / status / stop and `pr_environments.py` sync / status / rebuild / stop; point to `scripts/production.md` and `scripts/pr_environments.md` as source of truth.
+- Decided: Add `.opencode/agents/deployment.md` in `mode: all`, with no edit permission and a cheap model, for “deploy production” / “PR environments” requests; add a delegation bullet to `.opencode/agents/devops.md`.
+- Next: Delegate this platform wiring to agent-engineer; keep script documentation canonical and avoid duplicating it in the skill or agent.
+
 ## 2026-11-20 — production live at www.paintedpillars.com
 - State: production serving on gunicorn :8000 (head 0b9b9e8) via `scripts/production.py`; Caddy (user binary, port 8080, `~/.config/caddy/Caddyfile`) routes `www` + `handle_path /static/*` → collected static; cloudflared tunnel `mmm-production` (22f2fa20-…) routes `*.paintedpillars.com` → :8080; first deploy done, static gate green.
 - Discovered: lessons recorded 2026-11-20 cover STATIC_URL, Caddy prefix stripping, Cloudflare negative caching, and the three static sources; Cloudflare still holds cached 404s for `/static/MMM/profile.jpg` and `/static/woodtextureorangedark2.jpg` until TTL or purge.

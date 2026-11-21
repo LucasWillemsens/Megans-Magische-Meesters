@@ -7,3 +7,6 @@
 - For a constrained board layout, scale both em-based offsets and layout-critical rem dimensions from one board-scale variable; otherwise card art, rows, and controls drift relative to one another on short screens.
 - Mobile CSS overrides must match the specificity of the base rules they replace; placing an equal-specificity override at the end of the stylesheet avoids later base rules undoing it.
 - Card artwork should preserve intrinsic aspect ratio with `object-fit: contain`; reserve an explicit height for the card footer so its label remains within the clipped face at scaled sizes. Viewport-filling decorative backgrounds are the exception and should retain `cover`.
+
+## 2026-11-21 — PR #32 review
+- Moving a cloned element to `document.body` removes ancestor-scoped styles and custom properties. Wrap it in a carrier that recreates the styling context or copies computed custom properties; otherwise drag appearance, scale, and offset calculations can diverge.

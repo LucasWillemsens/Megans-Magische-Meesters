@@ -219,8 +219,12 @@ ul.hand li.cardContainer:not(.blocked).card-hover > .card.smallCard{
 .touch-drag-clone {
     position: fixed;
     z-index: 1000;
-    display: block;
-    list-style: none;
     pointer-events: none;
     touch-action: none;
+    font-size: calc(1rem * var(--board-scale, 1));
+}
+
+.touch-drag-clone > li.cardContainer {
+    display: block;
+    list-style: none;
 }

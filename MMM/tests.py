@@ -2740,7 +2740,9 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('this.cancelCardTouchDrag();', touch_code)
         self.assertIn('highlightAllDropZones(true)', touch_code)
         self.assertIn('highlightAllDropZones(false)', touch_code)
-        self.assertIn("drag.clone.classList.add('touch-drag-clone')", touch_code)
+        self.assertIn("wrap.classList.add('playingCards', 'touch-drag-clone')", touch_code)
+        self.assertIn("wrap.style.setProperty('--board-scale'", touch_code)
+        self.assertIn('drag.clone = wrap', touch_code)
         self.assertIn('document.elementFromPoint', touch_code)
         self.assertIn('this._laneValueForCard(lane)', touch_code)
         self.assertIn('dropZones.has(laneValue)', touch_code)
@@ -2775,7 +2777,12 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn('position: fixed', clone_rule)
         self.assertIn('pointer-events: none', clone_rule)
         self.assertIn('touch-action: none', clone_rule)
+        self.assertIn('font-size: calc(1rem * var(--board-scale, 1))', clone_rule)
         self.assertEqual(drag_css.count('touch-action:'), 2)
+        clone_li_rule = drag_css[drag_css.index('.touch-drag-clone > li.cardContainer {'):]
+        clone_li_rule = clone_li_rule[:clone_li_rule.index('}')]
+        self.assertIn('display: block', clone_li_rule)
+        self.assertIn('list-style: none', clone_li_rule)
 
     def test_touch_drag_stages_and_returns_cards_via_dom(self):
         import os
@@ -2922,6 +2929,7 @@ global.window = {
     },
 };
 global.CSS = { escape: (value) => String(value) };
+global.getComputedStyle = () => ({ getPropertyValue: () => '1' });
 global.Element = function Element() {};
 global.MutationObserver = function (handler) {
     this.observe = () => {};
@@ -2984,9 +2992,13 @@ const lift = documentTouch('touchmove', { identifier: 7, clientX: 122, clientY: 
 assert('moving up lifts the card into a drag that suppresses touch panning',
     lift.prevented && system.touchDrag.lifted && handA.classList.contains('dragging') &&
     system.draggedCard === handA && zoneHighlighted());
-const liftedClone = cloneInBody();
+const liftedCarrier = cloneInBody();
+const liftedClone = liftedCarrier.querySelector('.cardContainer');
+assert('the lifted card rides a playingCards carrier so the clone keeps the card styling',
+    Boolean(liftedCarrier) && liftedCarrier.classList.contains('playingCards') &&
+    Boolean(liftedClone));
 assert('the lifted card shows a clone that follows the finger without the dimmed dragging state',
-    Boolean(liftedClone) && liftedClone.classList.contains('cardContainer') &&
+    liftedClone.classList.contains('cardContainer') &&
     !liftedClone.classList.contains('dragging'));
 documentTouch('touchmove', { identifier: 7, clientX: 300, clientY: 200 });
 pointElement = zoneFor(2);

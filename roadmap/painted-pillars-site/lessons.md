@@ -8,3 +8,6 @@
 - When restoring an archived site, distinguish captured content from unavailable archive assets and make missing imagery explicit; use local minimal recreations for missing service icons rather than silently referencing broken remote URLs.
 - Preserve distinct archived routes such as `/music/` and `/songs/` when both existed; serving the same releases content on both routes avoids a needless redirect and keeps historical links usable.
 - A static social-links contact page is preferable to presenting a nonfunctional archived third-party form when no working submission destination has been supplied.
+
+## 2026-11-21 — PR #32 review
+- Planning must preserve user intent rather than turn an agent's assumptions into narrower specifications: archive research should follow the full snapshot history and linked post pages, page scope should not be frozen without instruction, and visual descriptions should not reinterpret the requested composition.

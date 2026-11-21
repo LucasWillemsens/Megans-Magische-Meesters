@@ -2107,10 +2107,14 @@ class CardDragDropSystem {
         const rect = drag.card.getBoundingClientRect();
         drag.cloneOffsetX = drag.startClientX - rect.left;
         drag.cloneOffsetY = drag.startClientY - rect.top;
-        drag.clone = drag.card.cloneNode(true);
-        drag.clone.classList.remove('dragging');
-        drag.clone.classList.add('touch-drag-clone');
-        document.body.appendChild(drag.clone);
+        const cardClone = drag.card.cloneNode(true);
+        cardClone.classList.remove('dragging');
+        const wrap = document.createElement('div');
+        wrap.classList.add('playingCards', 'touch-drag-clone');
+        wrap.style.setProperty('--board-scale', getComputedStyle(drag.card).getPropertyValue('--board-scale') || '1');
+        wrap.appendChild(cardClone);
+        document.body.appendChild(wrap);
+        drag.clone = wrap;
         this.moveTouchDragClone(drag);
     }
 

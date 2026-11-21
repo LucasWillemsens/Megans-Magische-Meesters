@@ -272,11 +272,20 @@ Turn rules, lane stats, special actions, bot turns, and win detection. Lives in 
 - [x] Per-turn counters on BattleParticipant gate actions: draws limited to intCount+1 (shrinks when over-playing speed), face-up flips to spdCount+1 (shrinks when over-playing intelligence), plays to 2+tactics minus cards already drawn/flipped. Exceeding a limit raises an exception that surfaces as an on-board error message. resetTurn() zeroes the counters on end turn.
 - [x] _game_result() ends a free-for-all game when at most one participant is neither fled nor defeated; the last active participant wins, everyone fleeing counts as a draw. viewBoard redirects to viewResult once finished; viewResult (battle/viewResult.jinja2) shows winners/losers/draw, the participant list, and a Play again link back to the player page.
 
+### Mobile Board Experience
+
+Make PR test environments serve downloaded card art and make the battle board usable on mobile.
+
+- [ ] Art Fit
+- [ ] Support touch dragging for staging hand cards into lanes while preserving existing mouse drag, keyboard selection, and action-limit behavior.
+- [ ] Copy the working repository's gitignored `assets/downloaded/` art into every PR checkout's collected static tree.
+- [ ] Make the battle board fit mobile viewport width and height without horizontal overflow or persistent vertical scroll fighting.
+
 ### Painted Pillars Site
 
 Restore paintedpillars.com as the Painted Pillars band site and move the card game behind `/MMM/`.
 
-- [ ] Rebuild the archived Painted Pillars band site as static Django/Jinja2 pages at the domain root, alongside the game at `/MMM/`. Objective/end-to-end test: visit home, music/releases, about, and contact; verify shared navigation, archived content/style, and the game entry link.
+- [ ] Rebuild the archived Painted Pillars band site as static Django/Jinja2 pages at the domain root, alongside the game at `/MMM/`. Scope: the home, music/releases, about, and contact pages plus one page for each archived post (not a frozen four-page scope). Objective/end-to-end test: visit home, follow every news post to its own page, and browse music/releases, about, and contact; verify shared navigation, archived content/style, and the game entry link.
 - [ ] Move every MMM page and API below `/MMM/`; keep `/` available to the band site. Objective/end-to-end test: verify root and `/MMM/` route separately, then follow a complete game interaction and exercise representative API and static URLs under the prefix.
 
 ### Test Coverage
