@@ -23,13 +23,6 @@
     --band-font-heading: "Lobster", cursive;
 }
 
-html {
-    background-color: var(--band-background);
-    background-image: url("band/logo-tile.png");
-    background-position: left top;
-    background-repeat: repeat;
-}
-
 body::before {
     content: "";
     position: fixed;
