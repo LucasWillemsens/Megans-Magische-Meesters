@@ -80,7 +80,7 @@
         <p>{{player.name|e}} has never challenged anyone.</p>
         {% endif %}
         <div class="createButton">
-            <a href="{{returnURL}}game/create/{{player.id}}" draggable="false">
+            <a href="{{ url('MMM:createGame', args=[player.id]) }}" draggable="false">
                 Create challenge
             </a>
         </div>
@@ -96,13 +96,13 @@
                     <nav class="collection-sort-controls" aria-label="Sort owned cards">
                         <span class="collection-sort-label">Sort by:</span>
                         <a class="collection-sort-control{% if activeSort == "default" %} is-active{% endif %}"
-                            href="{{returnURL}}player/{{player.id}}/"{% if activeSort == "default" %} aria-current="true"{% endif %}>Default</a>
+                            href="{{ url('MMM:viewPlayer', args=[player.id]) }}"{% if activeSort == "default" %} aria-current="true"{% endif %}>Default</a>
                         <a class="collection-sort-control{% if activeSort == "name" %} is-active{% endif %}"
-                            href="{{returnURL}}player/{{player.id}}/?sort=name"{% if activeSort == "name" %} aria-current="true"{% endif %}>Name</a>
+                            href="{{ url('MMM:viewPlayer', args=[player.id]) }}?sort=name"{% if activeSort == "name" %} aria-current="true"{% endif %}>Name</a>
                         <a class="collection-sort-control{% if activeSort == "type" %} is-active{% endif %}"
-                            href="{{returnURL}}player/{{player.id}}/?sort=type"{% if activeSort == "type" %} aria-current="true"{% endif %}>Type</a>
+                            href="{{ url('MMM:viewPlayer', args=[player.id]) }}?sort=type"{% if activeSort == "type" %} aria-current="true"{% endif %}>Type</a>
                         <a class="collection-sort-control{% if activeSort == "date" %} is-active{% endif %}"
-                            href="{{returnURL}}player/{{player.id}}/?sort=date"{% if activeSort == "date" %} aria-current="true"{% endif %}>Date achieved</a>
+                            href="{{ url('MMM:viewPlayer', args=[player.id]) }}?sort=date"{% if activeSort == "date" %} aria-current="true"{% endif %}>Date achieved</a>
                     </nav>
                 </div>
                 <p>
@@ -112,7 +112,7 @@
             {% if ownedCards %}
             <ul class="basic-mat">
                 {% for card in ownedCards %}
-                {{ collectionMacros.small_card(card, returnURL ~ 'card/' ~ card.id ~ '/', assestsDir) }}
+                {{ collectionMacros.small_card(card, url('MMM:viewCard', args=[card.id]), assestsDir) }}
                 {% endfor %}
             </ul>
             {% else %}

@@ -1,0 +1,14 @@
+Support touch dragging for staging hand cards into lanes while preserving existing mouse drag, keyboard selection, and action-limit behavior.
+
+Objective: on touch devices, a player can select a playable hand card, drag it to a lane to stage a play, or return it to the hand zone; invalid/blocked actions remain rejected.
+
+Implementation:
+1. In `var/www/static/cardDragDrop.js`, add touch/pointer interaction for hand cards and lane/hand drop zones. Reuse `_buildPlayHologram`, `_stagePlay`, `createupdateCookie`, and existing allowance/transition guards; provide touch-position lane targeting and cancel/cleanup on touch cancellation, page hiding, or invalid transitions.
+2. In `var/www/static/cardDragDrop.css`, disable browser touch panning only for the active drag surface as needed, without preventing normal hand scrolling or unrelated page gestures.
+3. Add/extend frontend contract assertions in `MMM/tests.py` for the touch/pointer event path and ensure generated staged payload remains the existing card-ID keyed shape.
+
+Acceptance criteria:
+- [ ] Touching and moving a playable hand card over each lane stages it into that lane with the existing staged-action payload and ghost/hologram state.
+- [ ] Dropping back on the hand zone follows the existing hand interaction rather than staging a lane play.
+- [ ] A blocked allowance or enemy/loading/timeline phase cannot stage a play; interrupted gestures clear drag styling/listeners.
+- [ ] Mouse drag-drop and keyboard selection behavior remain available.

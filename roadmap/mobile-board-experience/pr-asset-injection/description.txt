@@ -1,0 +1,13 @@
+Copy the working repository's gitignored `assets/downloaded/` art into every PR checkout's collected static tree.
+
+Objective: a PR build should serve downloaded art files from `/static/`, despite the PR checkout not containing those files.
+
+Implementation:
+1. In `scripts/pr_environments.py`, configure an extra-static source analogously to `scripts/production.py:EXTRA_STATIC_DIR` (default to `REPO_ROOT/assets/downloaded/`, with an environment override).
+2. Add `manage.py collectstatic --noinput` to the PR build gates and set `MMM_STATIC_ROOT` to an environment-specific persistent path outside `repo`; after successful collection, merge the extra-static directory into that static root using the production copy behavior. Warn and continue if source art is absent; record copy failures as build failures.
+3. Update `scripts/test_pr_environments.py` to isolate static root and extra-art paths and exercise successful nested-file injection, missing-source warning, and copy-failure handling. Preserve per-PR isolation and ensure the serving runserver receives the same static-root environment as build gates.
+
+Acceptance criteria:
+- [ ] A simulated PR build collects static files and copies a nested downloaded-art file into the per-PR static root.
+- [ ] `MMM_STATIC_ROOT` is set for both build commands and runserver to a path outside the PR checkout and unique to that PR.
+- [ ] Missing optional art warns but does not prevent a ready environment; copy errors fail the build before it is marked ready.

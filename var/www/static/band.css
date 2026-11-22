@@ -1,0 +1,316 @@
+@font-face {
+    font-family: "Lobster";
+    src: url("band/fonts/lobster.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Special Elite";
+    src: url("band/fonts/special-elite.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --band-background: #000000;
+    --band-ink: #ffffff;
+    --band-accent: #c0b283;
+    --band-muted: rgba(255, 255, 255, 0.75);
+    --band-font-body: "Special Elite", "Courier New", monospace;
+    --band-font-heading: "Lobster", cursive;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image: url("band/stage-photo.jpg");
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: 0.4;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    color: var(--band-ink);
+    font-family: var(--band-font-body);
+    line-height: 1.6;
+}
+
+a {
+    color: var(--band-accent);
+}
+
+.bandHeader {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 2rem;
+    padding: 1rem clamp(1rem, 4vw, 3rem);
+    background-color: rgba(0, 0, 0, 0.85);
+}
+
+.bandLogoLink {
+    display: inline-flex;
+    line-height: 0;
+}
+
+.bandLogo {
+    display: block;
+    height: clamp(64px, 12vw, 120px);
+    width: auto;
+}
+
+.bandNav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem 1.75rem;
+}
+
+.bandNavLink {
+    font-family: var(--band-font-heading);
+    font-size: 1.35rem;
+    text-decoration: none;
+    color: var(--band-ink);
+}
+
+.bandNavLink:hover {
+    color: var(--band-accent);
+}
+
+.bandGameLink {
+    color: var(--band-accent);
+}
+
+.bandContent p,
+.bandContent li {
+    background-color: var(--band-background);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    padding: 0.25rem 0.5rem;
+}
+
+.bandListenLink {
+    display: inline-block;
+    margin: 0 0 2.5rem;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid var(--band-accent);
+    background-color: rgba(0, 0, 0, 0.85);
+    font-family: var(--band-font-heading);
+    font-size: 1.4rem;
+    text-decoration: none;
+    color: var(--band-ink);
+    white-space: nowrap;
+}
+
+.bandListenLink:hover {
+    background-color: var(--band-accent);
+    color: var(--band-background);
+}
+
+.bandContent {
+    flex: 1;
+    width: auto;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 2.5rem 1rem;
+    text-align: center;
+}
+
+.bandPageTitle {
+    margin: 0 0 2.5rem;
+    font-family: var(--band-font-heading);
+    font-weight: 400;
+    font-size: clamp(2.25rem, 6vw, 3.5rem);
+}
+
+.bandSectionTitle {
+    margin: 0 0 1.5rem;
+    font-family: var(--band-font-heading);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 4vw, 2.25rem);
+}
+
+.bandNewsGrid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3rem;
+}
+
+.bandNewsCard {
+    max-width: 61.875rem;
+}
+
+.bandNewsPhotoLink {
+    display: block;
+    line-height: 0;
+}
+
+.bandNewsLink {
+    color: var(--band-ink);
+    text-decoration: none;
+}
+
+.bandNewsLink:hover {
+    color: var(--band-accent);
+}
+
+.bandNewsPhoto {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.bandNewsCategories {
+    margin: 1rem 0 0;
+    color: var(--band-accent);
+    letter-spacing: 0.08em;
+    font-size: 0.9rem;
+}
+
+.bandNewsTitle {
+    margin: 0.5rem 0;
+    font-family: var(--band-font-heading);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 4vw, 2.25rem);
+}
+
+.bandNewsExcerpt {
+    margin: 0.5rem auto;
+    max-width: 46rem;
+}
+
+.bandNewsMeta {
+    margin: 0.5rem 0 0;
+    color: var(--band-muted);
+    font-size: 0.9rem;
+}
+
+.bandPost {
+    max-width: 46rem;
+    margin: 0 auto;
+}
+
+.bandPostParagraph {
+    margin: 0.75rem auto;
+    max-width: 46rem;
+}
+
+.bandStreaming {
+    margin-bottom: 3.5rem;
+}
+
+.bandStreamingLinks {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2rem;
+}
+
+.bandStreamingLink {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    color: var(--band-ink);
+}
+
+.bandStreamingLink:hover {
+    color: var(--band-accent);
+}
+
+.bandStreamingIcon {
+    width: clamp(4.5rem, 10vw, 7rem);
+    height: auto;
+}
+
+.bandReleaseList {
+    margin: 0 auto;
+    padding: 0;
+    max-width: 30rem;
+    list-style: none;
+}
+
+.bandRelease + .bandRelease {
+    margin-top: 0.75rem;
+}
+
+.bandRelease a {
+    font-size: 1.2rem;
+}
+
+.bandBio {
+    margin: 0 auto 2.5rem;
+    max-width: 46rem;
+}
+
+.bandPhoto {
+    display: block;
+    margin: 0 auto 2.5rem;
+    width: min(40rem, 100%);
+    height: auto;
+}
+
+.bandMembers {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bandMember + .bandMember {
+    margin-top: 1rem;
+}
+
+.bandContactIntro {
+    margin: 0 auto;
+    max-width: 46rem;
+}
+
+.bandContactLinks {
+    margin: 2rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bandContactLink + .bandContactLink {
+    margin-top: 1rem;
+}
+
+.bandContactLink a {
+    font-size: 1.3rem;
+}
+
+.bandContactLogin {
+    margin: 2rem auto 0;
+    max-width: 46rem;
+}
+
+.bandFooter {
+    padding: 1.5rem 1rem;
+    border-top: 1px solid rgba(192, 178, 131, 0.5);
+    text-align: center;
+    color: var(--band-muted);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 640px) {
+    .bandHeader {
+        justify-content: center;
+    }
+
+    .bandNavLink {
+        font-size: 1.1rem;
+    }
+}

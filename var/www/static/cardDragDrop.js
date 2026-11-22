@@ -1,5 +1,10 @@
 const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
 
+const TOUCH_DRAG_SLOP_PX = 8;
+
+const touchWithIdentifier = (touchList, identifier) =>
+    Array.from(touchList ?? []).find(touch => touch.identifier === identifier) ?? null;
+
 class ShortcutHoldAction {
     constructor({duration = 1000, loadingClass = 'shortcut-hold-loading'} = {}) {
         this.duration = duration;
@@ -748,6 +753,7 @@ class CardDragDropSystem {
         this.keyboardListenersBound = false;
         this.keyboardObserver = null;
         this.lastDragEndedAt = 0;
+        this.touchDrag = null;
         this.endTurnHold = new ShortcutHoldAction();
         this.drawHold = new ShortcutHoldAction();
         this.init();
@@ -982,6 +988,7 @@ class CardDragDropSystem {
         draggableCards.forEach((card, index) => {
             card.addEventListener('dragstart', this.onCardDragStart.bind(this));
             card.addEventListener('dragend', this.onCardDragEnd.bind(this));
+            card.addEventListener('touchstart', this.onCardTouchStart.bind(this), { passive: true });
         });
     }
 
@@ -1065,12 +1072,14 @@ class CardDragDropSystem {
         this.keyboardVisibilityHandler = () => {
             if (document.hidden || document.visibilityState === 'hidden') {
                 this.clearKeyboardSelection();
+                this.cancelCardTouchDrag();
                 this.cancelShortcutHolds();
             }
         };
         this.keyboardBlurHandler = () => this.cancelShortcutHolds();
         this.keyboardPageHideHandler = () => {
             this.clearKeyboardSelection();
+            this.cancelCardTouchDrag();
             this.cancelShortcutHolds();
         };
         this.keyboardMutationHandler = () => {
@@ -1083,6 +1092,9 @@ class CardDragDropSystem {
             }
             if (this.drawHold.isActive() && !this._drawActionAllowed()) {
                 this.drawHold.cancel();
+            }
+            if (this.touchDrag?.lifted && this._keyboardTransitionActive()) {
+                this.cancelCardTouchDrag();
             }
             const selection = this.keyboardSelection;
             if (
@@ -1989,6 +2001,172 @@ class CardDragDropSystem {
         return false;
     }
 
+    onCardTouchStart(event) {
+        if (this.touchDrag || !this._hasPlayerBoard()) return;
+        const card = event.currentTarget;
+        const touch = event.changedTouches?.[0];
+        if (!card || !touch) return;
+        if (this.remainingAllowances().plays <= 0) return;
+        if (this._keyboardTransitionActive()) return;
+        if (!this._isPlayableKeyboardCard(card)) return;
+
+        this.touchDrag = {
+            card,
+            identifier: touch.identifier,
+            startClientX: touch.clientX,
+            startClientY: touch.clientY,
+            currentClientX: touch.clientX,
+            currentClientY: touch.clientY,
+            lifted: false,
+            hoveredLaneValue: null,
+            clone: null,
+            cloneOffsetX: 0,
+            cloneOffsetY: 0,
+        };
+        this._touchMoveHandler = (moveEvent) => this.onCardTouchMove(moveEvent);
+        this._touchEndHandler = (endEvent) => this.onCardTouchEnd(endEvent);
+        this._touchCancelHandler = (cancelEvent) => this.onCardTouchCancel(cancelEvent);
+        this._touchContextMenuHandler = (menuEvent) => {
+            if (this.touchDrag) menuEvent.preventDefault();
+        };
+        document.addEventListener('touchmove', this._touchMoveHandler, { passive: false });
+        document.addEventListener('touchend', this._touchEndHandler);
+        document.addEventListener('touchcancel', this._touchCancelHandler);
+        document.addEventListener('contextmenu', this._touchContextMenuHandler);
+    }
+
+    onCardTouchMove(event) {
+        const drag = this.touchDrag;
+        if (!drag) return;
+        const touch = touchWithIdentifier(event.touches, drag.identifier);
+        if (!touch) return;
+        if (!drag.lifted) {
+            const dx = touch.clientX - drag.startClientX;
+            const dy = touch.clientY - drag.startClientY;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < TOUCH_DRAG_SLOP_PX) return;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                this.cancelCardTouchDrag();
+                return;
+            }
+            this.liftTouchDragCard(drag);
+        }
+        event.preventDefault();
+        drag.currentClientX = touch.clientX;
+        drag.currentClientY = touch.clientY;
+        this.moveTouchDragClone(drag);
+        this.updateTouchDropHighlight(
+            this.laneValueForTouchElement(this.elementForTouchPoint(drag))
+        );
+    }
+
+    onCardTouchEnd(event) {
+        const drag = this.touchDrag;
+        if (!drag) return;
+        const touch = touchWithIdentifier(event.changedTouches, drag.identifier);
+        if (!drag.lifted) {
+            this.cancelCardTouchDrag();
+            return;
+        }
+        event.preventDefault();
+        if (touch) {
+            drag.currentClientX = touch.clientX;
+            drag.currentClientY = touch.clientY;
+        }
+        const element = this.elementForTouchPoint(drag);
+        const laneValue = this.laneValueForTouchElement(element);
+        if (laneValue && !this._keyboardTransitionActive() && this.remainingAllowances().plays > 0) {
+            this.onDropZoneDrop({
+                currentTarget: this.dropZones.get(laneValue).element,
+                preventDefault() {},
+                stopPropagation() {},
+            });
+        } else if (this.handZone?.contains(element)) {
+            this.onHandZoneDrop({
+                target: element,
+                button: 0,
+                clientX: drag.currentClientX,
+                clientY: drag.currentClientY,
+                preventDefault() {},
+                stopPropagation() {},
+            });
+        }
+        this.cancelCardTouchDrag();
+    }
+
+    onCardTouchCancel() {
+        if (!this.touchDrag) return;
+        this.cancelCardTouchDrag();
+    }
+
+    liftTouchDragCard(drag) {
+        this.clearKeyboardSelection();
+        drag.lifted = true;
+        this.draggedCard = drag.card;
+        drag.card.classList.add('dragging');
+        this.highlightAllDropZones(true);
+        const rect = drag.card.getBoundingClientRect();
+        drag.cloneOffsetX = drag.startClientX - rect.left;
+        drag.cloneOffsetY = drag.startClientY - rect.top;
+        const cardClone = drag.card.cloneNode(true);
+        cardClone.classList.remove('dragging');
+        const wrap = document.createElement('div');
+        wrap.classList.add('playingCards', 'touch-drag-clone');
+        wrap.style.setProperty('--board-scale', getComputedStyle(drag.card).getPropertyValue('--board-scale') || '1');
+        wrap.appendChild(cardClone);
+        document.body.appendChild(wrap);
+        drag.clone = wrap;
+        this.moveTouchDragClone(drag);
+    }
+
+    moveTouchDragClone(drag) {
+        if (!drag.clone) return;
+        drag.clone.style.left = `${drag.currentClientX - drag.cloneOffsetX}px`;
+        drag.clone.style.top = `${drag.currentClientY - drag.cloneOffsetY}px`;
+    }
+
+    elementForTouchPoint(drag) {
+        return document.elementFromPoint(drag.currentClientX, drag.currentClientY);
+    }
+
+    laneValueForTouchElement(element) {
+        if (!element || typeof element.closest !== 'function') return null;
+        const lane = element.closest('li.lane');
+        if (!lane || !this.playerBoard?.contains(lane)) return null;
+        const laneValue = this._laneValueForCard(lane);
+        return this.dropZones.has(laneValue) ? laneValue : null;
+    }
+
+    updateTouchDropHighlight(laneValue) {
+        const drag = this.touchDrag;
+        if (!drag || drag.hoveredLaneValue === laneValue) return;
+        if (drag.hoveredLaneValue) {
+            this.dropZones.get(drag.hoveredLaneValue)?.element.classList.remove('drop-zone-active');
+        }
+        if (laneValue) {
+            this.dropZones.get(laneValue)?.element.classList.add('drop-zone-active');
+        }
+        drag.hoveredLaneValue = laneValue;
+    }
+
+    cancelCardTouchDrag() {
+        const drag = this.touchDrag;
+        if (!drag) return;
+        drag.card.classList.remove('dragging');
+        if (drag.clone?.parentNode) drag.clone.remove();
+        this.highlightAllDropZones(false);
+        document.removeEventListener('touchmove', this._touchMoveHandler);
+        document.removeEventListener('touchend', this._touchEndHandler);
+        document.removeEventListener('touchcancel', this._touchCancelHandler);
+        document.removeEventListener('contextmenu', this._touchContextMenuHandler);
+        this._touchMoveHandler = null;
+        this._touchEndHandler = null;
+        this._touchCancelHandler = null;
+        this._touchContextMenuHandler = null;
+        if (this.draggedCard === drag.card) this.draggedCard = null;
+        this.touchDrag = null;
+        if (drag.lifted) this.lastDragEndedAt = Date.now();
+    }
+
     _stagePlay(card, laneValue, hologram, preserveKeyboardPreview = false, sourceState = null) {
         const cardIdInput = this._cardIdInput(card);
         if (!cardIdInput?.value || !hologram) return false;
@@ -2312,6 +2490,7 @@ class CardDragDropSystem {
 
     destroy() {
         this.clearKeyboardSelection();
+        this.cancelCardTouchDrag();
         this.cancelShortcutHolds();
         if (this.keyboardListenersBound) {
             document.removeEventListener('keydown', this.keyboardKeydownHandler, true);

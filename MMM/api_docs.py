@@ -3,13 +3,13 @@ LANE_RANGE = [1, 2, 3, 4]
 REQUEST_PHASES = ["player", "playerMoves", "enemy"]
 BOARD_PHASES = ["", "player", "playerMoves", "enemy"]
 
-SCHEMA_PATH = "/api/schema/"
-DOCS_PATH = "/api/docs/"
-RESET_PATH = "/api/games/reset/"
-BOARD_PATH = "/api/games/{gameId}/board/{playerId}/"
-PLAY_PATH = "/api/games/{gameId}/board/{playerId}/play/"
-DRAW_PATH = "/api/games/{gameId}/board/{playerId}/draw/"
-END_TURN_PATH = "/api/games/{gameId}/board/{playerId}/end-turn/"
+SCHEMA_PATH = "/MMM/api/schema/"
+DOCS_PATH = "/MMM/api/docs/"
+RESET_PATH = "/MMM/api/games/reset/"
+BOARD_PATH = "/MMM/api/games/{gameId}/board/{playerId}/"
+PLAY_PATH = "/MMM/api/games/{gameId}/board/{playerId}/play/"
+DRAW_PATH = "/MMM/api/games/{gameId}/board/{playerId}/draw/"
+END_TURN_PATH = "/MMM/api/games/{gameId}/board/{playerId}/end-turn/"
 
 _JSON_CONTENT = "application/json"
 _HTML_CONTENT = "text/html"
@@ -138,7 +138,7 @@ def openapi_schema():
                     "tags": ["demo"],
                     "summary": "Reset every demo game",
                     "description": (
-                        "Same destructive service as the browser /game/reset/ route: every Game, "
+                        "Same destructive service as the browser /MMM/game/reset/ route: every Game, "
                         "BattleHistory, BattleParticipant, GameCard, CardState and Deck is deleted."
                     ),
                     "responses": {
@@ -160,7 +160,7 @@ def openapi_schema():
                         "200": _json_response("BoardState", "Current board with participant, lanes and allowances."),
                         "400": _error_response("Unsupported phase value."),
                         "404": _error_response("No such game or participant."),
-                        "409": _error_response("Game has no GameCards yet; confirm the challenge (browser /game/<id>/<player>/confirm) first."),
+                        "409": _error_response("Game has no GameCards yet; confirm the challenge (browser /MMM/game/<id>/<player>/confirm) first."),
                     },
                 }
             },

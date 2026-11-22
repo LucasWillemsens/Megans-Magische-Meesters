@@ -19,7 +19,7 @@
         <a href="{{ url('MMM:titlePage') }}">Title</a>
         <a href="{{ url('MMM:deckPage') }}">Deck</a>
         <a href="{{ url('MMM:demoSettings') }}">Settings</a>
-        <a href="{{ url('MMM:index') }}">Admin</a>
+        {% if isAdminAccount %}<a href="{{ url('MMM:index') }}">Admin</a>{% endif %}
     </details>
     
     {% if player %}

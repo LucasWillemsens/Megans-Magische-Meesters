@@ -1,0 +1,9 @@
+Make PR test environments serve downloaded card art and make the battle board usable on mobile.
+
+Implement and verify each independently actionable subgoal:
+- `pr-asset-injection`
+- `mobile-drag-drop`
+- `screen-fit`
+- `art-fit`
+
+All TODO UI/UX goals are deprioritized behind establishing a smooth agent-loop frontend-testing methodology first.

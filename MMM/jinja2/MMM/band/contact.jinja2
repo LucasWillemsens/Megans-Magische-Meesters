@@ -1,0 +1,17 @@
+{% extends 'MMM/band/base.jinja2' %}
+{% block title %}Contact &ndash; Painted Pillars{% endblock %}
+
+{% block content %}
+<main class="bandContent">
+    <h1 class="bandPageTitle">Contact</h1>
+    <p class="bandContactIntro">Want to book us, ask us something or just say hi? Reach us through our channels:</p>
+    <ul class="bandContactLinks">
+        {% for label, contactUrl in contactLinks %}
+        <li class="bandContactLink"><a href="{{ contactUrl }}" target="_blank" rel="noopener">{{ label }}</a></li>
+        {% endfor %}
+    </ul>
+    {% if not user.is_authenticated %}
+    <p class="bandContactLogin">Got a Painted Pillars account? <a href="{{ url('account_login') }}">Sign in</a></p>
+    {% endif %}
+</main>
+{% endblock %}

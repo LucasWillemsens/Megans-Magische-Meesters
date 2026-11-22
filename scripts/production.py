@@ -9,9 +9,10 @@ touched and records the failure in state.json. The collectstatic gate builds
 the served static tree in production/staticfiles/ from the checkout, and the
 working repository's gitignored downloaded art (MMM_PRODUCTION_EXTRA_STATIC)
 is copied in after it, so the tree never depends on untracked files inside
-the checkout. The production database and the Django secret key live beside
-the checkout, never inside it, so both survive every rebuild. The manager
-never writes the working repository and never touches its db.sqlite3;
+the checkout. The production database, the Django secret key, and the
+optional Google OAuth client credentials live beside the checkout, never
+inside it, so all of them survive every rebuild. The manager never writes
+the working repository and never touches its db.sqlite3;
 beyond resolving its origin remote it only reads from the extra static
 directory.
 
@@ -177,28 +178,37 @@ def update_checkout(checkout):
     git_in_checkout(("clean", "-fdx"), checkout)
 
 
-def load_or_create_secret_key():
+def load_or_create_env_config():
     """The production secret key is generated once into gitignored env.json
     beside the database and reused by every later deploy, so sessions
-    survive rebuilds; it is never printed."""
+    survive rebuilds; it is never printed. The same file holds the Google
+    OAuth client credentials when live Google sign-in is configured: the
+    operator stores them there once, they are never generated, and they
+    reach Django only through the deployment environment."""
     env_path = production_env_path()
+    config = {}
     if env_path.exists():
-        secret_key = json.loads(env_path.read_text()).get("secret_key")
-        if secret_key:
-            return secret_key
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-    secret_key = secrets.token_urlsafe(50)
-    temp_path = env_path.with_name("env.json.tmp")
-    temp_path.write_text(json.dumps({"secret_key": secret_key}, indent=2) + "\n")
-    temp_path.replace(env_path)
-    return secret_key
+        config = json.loads(env_path.read_text())
+    if not config.get("secret_key"):
+        config["secret_key"] = secrets.token_urlsafe(50)
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = env_path.with_name("env.json.tmp")
+        temp_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+        temp_path.replace(env_path)
+    return config
 
 
-def deployment_environment(secret_key):
-    return {
+GOOGLE_CREDENTIAL_ENV_NAMES = {
+    "google_client_id": "MMM_GOOGLE_CLIENT_ID",
+    "google_client_secret": "MMM_GOOGLE_CLIENT_SECRET",
+}
+
+
+def deployment_environment(env_config):
+    environment = {
         **os.environ,
         "DJANGO_SETTINGS_MODULE": "mysite.settings",
-        "MMM_SECRET_KEY": secret_key,
+        "MMM_SECRET_KEY": env_config["secret_key"],
         "MMM_DEBUG": "false",
         "MMM_ALLOWED_HOSTS": PRODUCTION_HOSTNAME,
         "MMM_CSRF_TRUSTED_ORIGINS": f"https://{PRODUCTION_HOSTNAME}",
@@ -206,6 +216,11 @@ def deployment_environment(secret_key):
         "MMM_DB_PATH": str(production_database()),
         "MMM_STATIC_ROOT": str(production_static_root()),
     }
+    for config_name, env_name in GOOGLE_CREDENTIAL_ENV_NAMES.items():
+        value = env_config.get(config_name)
+        if value:
+            environment[env_name] = value
+    return environment
 
 
 def process_command_line(pid):
@@ -246,16 +261,24 @@ def production_server_running(entry):
     )
 
 
-def ensure_gunicorn():
-    exit_status, _ = run_command((sys.executable, "-c", "import gunicorn"), cwd=REPO_ROOT)
+def ensure_package(import_name, distribution):
+    exit_status, _ = run_command((sys.executable, "-c", f"import {import_name}"), cwd=REPO_ROOT)
     if not exit_status:
         return
-    exit_status, output = run_command((sys.executable, "-m", "pip", "install", "gunicorn"), cwd=REPO_ROOT)
+    exit_status, output = run_command((sys.executable, "-m", "pip", "install", distribution), cwd=REPO_ROOT)
     if exit_status:
-        raise BuildFailure(f"pip install gunicorn failed with exit status {exit_status}\n{output_tail(output)}")
+        raise BuildFailure(f"pip install {distribution} failed with exit status {exit_status}\n{output_tail(output)}")
 
 
-def start_server(secret_key):
+def ensure_django_allauth():
+    ensure_package("allauth", "django-allauth")
+
+
+def ensure_gunicorn():
+    ensure_package("gunicorn", "gunicorn")
+
+
+def start_server(env_config):
     log_handle = open(production_log_path(), "ab")
     try:
         process = subprocess.Popen(
@@ -265,7 +288,7 @@ def start_server(secret_key):
                 GUNICORN_APPLICATION,
             ),
             cwd=production_checkout(),
-            env=deployment_environment(secret_key),
+            env=deployment_environment(env_config),
             stdout=log_handle,
             stderr=log_handle,
             start_new_session=True,
@@ -303,8 +326,14 @@ def deploy_production(state, head_sha):
     checkout = production_checkout()
     try:
         update_checkout(checkout)
-        secret_key = load_or_create_secret_key()
-        gate_environment = deployment_environment(secret_key)
+        env_config = load_or_create_env_config()
+        if not env_config.get("google_client_id"):
+            print(
+                "production: google oauth credentials not found in env.json; "
+                "deploying without live google sign-in"
+            )
+        ensure_django_allauth()
+        gate_environment = deployment_environment(env_config)
         for command in GATES:
             exit_status, output = run_command((sys.executable, *command), cwd=checkout, env=gate_environment)
             if exit_status:
@@ -318,7 +347,7 @@ def deploy_production(state, head_sha):
                 raise BuildFailure(f"copying extra static files from {EXTRA_STATIC_DIR} failed\n{error}") from error
         ensure_gunicorn()
         stop_server(entry)
-        entry.update(status="ready", built_at=utc_now_iso(), pid=start_server(secret_key))
+        entry.update(status="ready", built_at=utc_now_iso(), pid=start_server(env_config))
         time.sleep(1)
         if not production_server_running(entry):
             entry["pid"] = None

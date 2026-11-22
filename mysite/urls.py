@@ -1,22 +1,21 @@
-"""
-URL configuration for mysite project.
+"""Root URL configuration for mysite.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+The Painted Pillars band site owns the domain root (/, /music/, /songs/,
+/about/, /contact/ and every archived news post's historical path),
+allauth owns the account routes below /accounts/, and the game
+application owns every route below /MMM/.
 """
-# from django.contrib import admin
 from django.urls import include, path
 
+from MMM import band_views
+
 urlpatterns = [
-    path("", include("MMM.urls")),
+    path("", band_views.band_home, name="band_home"),
+    path("music/", band_views.band_music, name="band_music"),
+    path("songs/", band_views.band_music, name="band_songs"),
+    path("about/", band_views.band_about, name="band_about"),
+    path("contact/", band_views.band_contact, name="band_contact"),
+    *band_views.band_post_urlpatterns(),
+    path("accounts/", include("allauth.urls")),
+    path("MMM/", include("MMM.urls")),
 ]

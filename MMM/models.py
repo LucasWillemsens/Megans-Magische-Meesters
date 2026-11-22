@@ -1,5 +1,6 @@
 import datetime
 import enum
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -19,6 +20,12 @@ laneTypes = [lane.name for lane in CardType]
 class Player(models.Model):
     name = models.CharField(max_length=200)
     profilePictureSource = models.CharField(max_length=200, default="")
+    account = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="player",
+        null=True,
+    )
 
     #get a list of all cards this player ever owned
     def getKnownCards(self):

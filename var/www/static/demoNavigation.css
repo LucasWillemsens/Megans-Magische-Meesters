@@ -11,6 +11,7 @@
     user-select: none;
     pointer-events: none;
     z-index: -1;
+    object-fit: cover;
 }
 
 body.demoPage a.backlink{
@@ -92,6 +93,25 @@ body.demoPage a.backlink{
 
 .demoNav .playerInfo{
     margin-right: -3rem;
+}
+
+@media (max-width: 41rem) {
+    .demoNav {
+        max-width: 40%;
+    }
+
+    .demoNav .playerInfo{
+        margin-right: 0;
+        width: auto;
+        max-width: 100%;
+    }
+
+    .demoNav .playerInfo h2{
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 }
 
 .demoGreeting{

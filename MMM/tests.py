@@ -5,6 +5,7 @@ import re
 import sys
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
+from io import StringIO
 from types import SimpleNamespace
 from datetime import timedelta
 from pathlib import Path
@@ -12,6 +13,10 @@ from unittest import mock
 
 import mysite.settings
 
+from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
+from django.core.management import CommandError, call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.conf import settings
 from django.utils import timezone
@@ -20,6 +25,8 @@ from django.contrib.staticfiles import finders
 
 from . import views
 from . import battle_services
+from . import api_docs
+from .band_views import NEWS_ITEMS
 from .demo_flow import (
     DEMO_DECK_CARD_COUNT,
     create_demo_scenario,
@@ -45,6 +52,17 @@ from .models import (
 )
 
 STATIC_TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "var", "www", "static")
+
+ADMIN_ACCOUNT_EMAIL = "paintedpillars@gmail.com"
+
+
+def _verified_account(username, email):
+    """Create the rows a completed Google sign-in leaves behind: an auth
+    user with the address the provider verified, and that verified email
+    address itself."""
+    user = get_user_model().objects.create_user(username=username, email=email)
+    EmailAddress.objects.create(user=user, email=email, verified=True, primary=True)
+    return user
 
 FAKE_ELEMENT_NAVIGATION_CORE = r'''const matchPart = (el, part) => {
     if (!el || !el.tagName) return false;
@@ -1554,10 +1572,7 @@ class BattleFlowTests(BattleBoardFixture):
 
         self.assertContains(response, 'data-phase="playerMoves"')
         self.assertEqual(response.cookies["turn_phase"].value, "enemy")
-        self.assertEqual(
-            response.cookies["turn_phase"]["path"],
-            f"/game/{self.game.id}/board/{self.human.id}/",
-        )
+        self.assertEqual(response.cookies["turn_phase"]["path"], board_url)
 
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
@@ -2055,10 +2070,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertRedirects(response, result_url)
         self.assertEqual(response.cookies["turn_phase"].value, "")
         self.assertEqual(response.cookies["turn_phase"]["max-age"], 0)
-        self.assertEqual(
-            response.cookies["turn_phase"]["path"],
-            f"/game/{self.game.id}/board/{self.human.id}/",
-        )
+        self.assertEqual(response.cookies["turn_phase"]["path"], board_url)
 
     def test_result_redirects_back_to_board_when_unfinished(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -2710,6 +2722,452 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn("'focusout'", mirror_helper_code)
         self.assertIn("ghostCard.classList.add('keyboard-selected')", mirror_helper_code)
         self.assertIn("ghostCard.classList.remove('keyboard-selected')", mirror_helper_code)
+
+    def test_touch_drag_contract_reuses_staging_and_guards(self):
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+
+        self.assertIn(
+            "card.addEventListener('dragstart', this.onCardDragStart.bind(this));",
+            drag_js,
+        )
+        self.assertIn(
+            "card.addEventListener('touchstart', this.onCardTouchStart.bind(this), { passive: true });",
+            drag_js,
+        )
+        self.assertIn(
+            "document.addEventListener('touchmove', this._touchMoveHandler, { passive: false });",
+            drag_js,
+        )
+
+        touch_code = drag_js[
+            drag_js.index('    onCardTouchStart(event)'):
+            drag_js.index('    _stagePlay(')
+        ]
+        self.assertIn('remainingAllowances().plays <= 0', touch_code)
+        self.assertIn('_keyboardTransitionActive()', touch_code)
+        self.assertIn('_isPlayableKeyboardCard(card)', touch_code)
+        self.assertIn('TOUCH_DRAG_SLOP_PX', touch_code)
+        self.assertIn('Math.abs(dx) > Math.abs(dy)', touch_code)
+        self.assertIn('this.cancelCardTouchDrag();', touch_code)
+        self.assertIn('highlightAllDropZones(true)', touch_code)
+        self.assertIn('highlightAllDropZones(false)', touch_code)
+        self.assertIn("wrap.classList.add('playingCards', 'touch-drag-clone')", touch_code)
+        self.assertIn("wrap.style.setProperty('--board-scale'", touch_code)
+        self.assertIn('drag.clone = wrap', touch_code)
+        self.assertIn('document.elementFromPoint', touch_code)
+        self.assertIn('this._laneValueForCard(lane)', touch_code)
+        self.assertIn('dropZones.has(laneValue)', touch_code)
+        self.assertIn('this.onDropZoneDrop({', touch_code)
+        self.assertIn('currentTarget: this.dropZones.get(laneValue).element', touch_code)
+        self.assertIn('this.onHandZoneDrop({', touch_code)
+        self.assertIn('button: 0', touch_code)
+        self.assertIn('if (drag.lifted) this.lastDragEndedAt = Date.now();', touch_code)
+        self.assertNotIn('createupdateCookie', touch_code)
+        self.assertNotIn('_buildPlayHologram', touch_code)
+
+        setup_code = drag_js[
+            drag_js.index('    setupKeyboardSelection()'):
+            drag_js.index('    _hasPlayerBoard()')
+        ]
+        self.assertIn('this.cancelCardTouchDrag();', setup_code)
+        destroy_code = drag_js[
+            drag_js.index('    destroy() {'):
+            drag_js.index('document.addEventListener(\'DOMContentLoaded\'')
+        ]
+        self.assertIn('this.cancelCardTouchDrag();', destroy_code)
+
+        self.assertIn(
+            '.playerScreen .deckHand .hand-scroll ul.hand li.cardContainer {\n'
+            '    touch-action: pan-x;',
+            drag_css,
+        )
+        self.assertIn('-webkit-touch-callout: none', drag_css)
+        self.assertIn('user-select: none', drag_css)
+        clone_rule = drag_css[drag_css.index('.touch-drag-clone {'):]
+        clone_rule = clone_rule[:clone_rule.index('}')]
+        self.assertIn('position: fixed', clone_rule)
+        self.assertIn('pointer-events: none', clone_rule)
+        self.assertIn('touch-action: none', clone_rule)
+        self.assertIn('font-size: calc(1rem * var(--board-scale, 1))', clone_rule)
+        self.assertEqual(drag_css.count('touch-action:'), 2)
+        clone_li_rule = drag_css[drag_css.index('.touch-drag-clone > li.cardContainer {'):]
+        clone_li_rule = clone_li_rule[:clone_li_rule.index('}')]
+        self.assertIn('display: block', clone_li_rule)
+        self.assertIn('list-style: none', clone_li_rule)
+
+    def test_touch_drag_stages_and_returns_cards_via_dom(self):
+        import os
+        import subprocess
+        import tempfile
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r"""
+const documentListeners = {};
+const windowListeners = {};
+const holdTimers = [];
+let nextTimerId = 1;
+let nowMs = 1000;
+Date.now = () => nowMs;
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen');
+body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+matTable.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+['Intelligence', 'Speed', 'Visciousness', 'Resolve'].forEach((laneName) => {
+    const lane = new FakeElement('li', `lane ${laneName}`);
+    lane.classList[1] = laneName;
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, cardLane, sourceOrdinal) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(cardLane);
+    card.dataset.sourceLane = '0';
+    card.dataset.sourceOrdinal = String(sourceOrdinal);
+    const cardFace = new FakeElement('div', 'card smallCard');
+    card.appendChild(cardFace);
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(301, 1, 1);
+const handB = makeHandCard(302, 3, 2);
+const handC = makeHandCard(303, 2, 3);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+let pointElement = null;
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    elementFromPoint() { return pointElement; },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+for (const el of [body, playerScreen, playerBoard, endTurnForm, endTurnButton, handA, handB, handC, ...holoRows]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener(event, handler) {
+        (windowListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        windowListeners[event] = (windowListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    cardDragDrop: null,
+    location: { pathname: '/MMM/game/1/board/1/action/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.getComputedStyle = () => ({ getPropertyValue: () => '1' });
+global.Element = function Element() {};
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const zoneFor = (laneValue) => fakeDocument.getElementById(`drop-zone-${laneValue}`);
+const cloneInBody = () => descendantsInOrder(body).find(
+    (el) => el.classList.contains('touch-drag-clone')
+);
+const zoneHighlighted = () => [1, 2, 3, 4].every(
+    (laneValue) => zoneFor(laneValue).classList.contains('drop-zone-highlight')
+);
+const stagedHologramFor = (cardId) => holoRows.flatMap((row) => row.children).find(
+    (el) => el.dataset.stagedForCardId === String(cardId)
+);
+
+const touchEvent = (type, touch) => {
+    let prevented = false;
+    return {
+        type,
+        changedTouches: [touch],
+        touches: type === 'touchend' || type === 'touchcancel' ? [] : [touch],
+        preventDefault() { prevented = true; },
+        get prevented() { return prevented; },
+    };
+};
+const cardTouchStart = (card, touch) => {
+    const event = touchEvent('touchstart', touch);
+    event.currentTarget = card;
+    (card.eventHandlers['touchstart'] ?? []).forEach((handler) => handler(event));
+    return event;
+};
+const documentTouch = (type, touch) => {
+    const event = touchEvent(type, touch);
+    (documentListeners[type] ?? []).forEach((handler) => handler(event));
+    return event;
+};
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+pointElement = handList;
+
+cardTouchStart(handA, { identifier: 7, clientX: 120, clientY: 400 });
+assert('touching a playable hand card tracks the gesture',
+    system.touchDrag !== null && (documentListeners['touchmove'] ?? []).length === 1);
+const creep = documentTouch('touchmove', { identifier: 7, clientX: 123, clientY: 397 });
+assert('a small finger wiggle below the slop neither lifts nor prevents panning',
+    !creep.prevented && !system.touchDrag.lifted);
+const lift = documentTouch('touchmove', { identifier: 7, clientX: 122, clientY: 330 });
+assert('moving up lifts the card into a drag that suppresses touch panning',
+    lift.prevented && system.touchDrag.lifted && handA.classList.contains('dragging') &&
+    system.draggedCard === handA && zoneHighlighted());
+const liftedCarrier = cloneInBody();
+const liftedClone = liftedCarrier.querySelector('.cardContainer');
+assert('the lifted card rides a playingCards carrier so the clone keeps the card styling',
+    Boolean(liftedCarrier) && liftedCarrier.classList.contains('playingCards') &&
+    Boolean(liftedClone));
+assert('the lifted card shows a clone that follows the finger without the dimmed dragging state',
+    liftedClone.classList.contains('cardContainer') &&
+    !liftedClone.classList.contains('dragging'));
+documentTouch('touchmove', { identifier: 7, clientX: 300, clientY: 200 });
+pointElement = zoneFor(2);
+const overLane = documentTouch('touchmove', { identifier: 7, clientX: 305, clientY: 205 });
+assert('moving over a lane lights up that lane drop zone only',
+    overLane.prevented && zoneFor(2).classList.contains('drop-zone-active') &&
+    !zoneFor(1).classList.contains('drop-zone-active') &&
+    cloneInBody().style.left === '185px');
+const stageEnd = documentTouch('touchend', { identifier: 7, clientX: 305, clientY: 205 });
+assert('releasing over a lane stages the play with the existing ghost and hologram state',
+    stageEnd.prevented && handA.classList.contains('ghost') &&
+    handA.getAttribute('draggable') === 'false' && handA.dataset.stagedLane === '2');
+const stagedHologram = stagedHologramFor(301);
+assert('the staged hologram lands face down in the target lane',
+    Boolean(stagedHologram) && holoRows[1].children.includes(stagedHologram) &&
+    stagedHologram.querySelector('.cardContainer').classList.contains('faceDown'));
+assert('the staged play keeps the card-id keyed cookie shape',
+    cookieWrites.length === 1 && cookieWrites[0].startsWith('301=') &&
+    cookieWrites[0].endsWith(';path=/MMM/game/1/board/1/'));
+const stagedPair = cookieWrites[0].split(';')[0];
+const stagedPayload = JSON.parse(decodeURIComponent(stagedPair.split('=').slice(1).join('=')));
+assert('the staged payload preserves lane, source and flip fields',
+    stagedPayload.laneValue === '2' && stagedPayload.sourceLane === '0' &&
+    stagedPayload.sourceOrdinal === '1' && stagedPayload.flipFaceUp === false);
+assert('a finished drag clears every gesture trace',
+    system.touchDrag === null && system.draggedCard === null &&
+    !handA.classList.contains('dragging') && !cloneInBody() && !zoneHighlighted() &&
+    !zoneFor(2).classList.contains('drop-zone-active') &&
+    (documentListeners['touchmove'] ?? []).length === 0);
+assert('staging consumed one play allowance',
+    system.staged.plays === 1 && system.remainingAllowances().plays === 1);
+
+nowMs += 1000;
+pointElement = handList;
+cardTouchStart(handB, { identifier: 8, clientX: 60, clientY: 380 });
+documentTouch('touchmove', { identifier: 8, clientX: 62, clientY: 300 });
+pointElement = handB;
+const returnEnd = documentTouch('touchend', { identifier: 8, clientX: 61, clientY: 305 });
+assert('dropping back on the hand zone suppresses the ghost click and stages nothing',
+    returnEnd.prevented && cookieWrites.length === 1 && !handB.classList.contains('ghost'));
+assert('dropping back on the hand follows the existing hand card selection interaction',
+    system.keyboardSelection.selectedCard === handB &&
+    system.keyboardSelection.mouseSelecting === true &&
+    fakeDocument.getElementById('mousePreviewCursor') !== null &&
+    (documentListeners['touchmove'] ?? []).length === 0);
+
+nowMs += 1000;
+system.turnAllowances.played = 2;
+cardTouchStart(handC, { identifier: 9, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 9, clientX: 40, clientY: 300 });
+documentTouch('touchend', { identifier: 9, clientX: 40, clientY: 300 });
+assert('an exhausted play allowance never starts a touch drag nor stages a play',
+    system.touchDrag === null && (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1 && !handC.classList.contains('ghost'));
+
+nowMs += 1000;
+system.turnAllowances.played = 0;
+cardTouchStart(handC, { identifier: 10, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 10, clientX: 42, clientY: 300 });
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', 'enemy');
+turnPhaseEl.dataset.phase = 'enemy';
+body.appendChild(turnPhaseEl);
+pointElement = zoneFor(4);
+const enemyEnd = documentTouch('touchend', { identifier: 10, clientX: 350, clientY: 150 });
+assert('a lane drop during the enemy phase stages nothing and clears the gesture',
+    enemyEnd.prevented && cookieWrites.length === 1 &&
+    !handC.classList.contains('ghost') && !handC.classList.contains('dragging') &&
+    system.touchDrag === null && !cloneInBody());
+turnPhaseEl.remove();
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 11, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 11, clientX: 42, clientY: 300 });
+documentTouch('touchcancel', { identifier: 11, clientX: 44, clientY: 290 });
+assert('a cancelled gesture cleans up styling and listeners without staging',
+    system.touchDrag === null && !handC.classList.contains('dragging') &&
+    !cloneInBody() && !zoneHighlighted() &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 12, clientX: 40, clientY: 380 });
+const swipe = documentTouch('touchmove', { identifier: 12, clientX: 140, clientY: 379 });
+documentTouch('touchend', { identifier: 12, clientX: 150, clientY: 379 });
+assert('a sideways swipe releases the card so the hand keeps its native scrolling',
+    !swipe.prevented && system.touchDrag === null &&
+    !handC.classList.contains('dragging') &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 13, clientX: 40, clientY: 380 });
+const tapEnd = documentTouch('touchend', { identifier: 13, clientX: 40, clientY: 380 });
+assert('a plain tap keeps the default click path so the existing selection flow still runs',
+    !tapEnd.prevented && system.touchDrag === null);
+const clickEvent = {
+    button: 0,
+    target: handC,
+    clientX: 40,
+    clientY: 380,
+    preventDefault() {},
+};
+(documentListeners['click'] ?? []).forEach((handler) => handler(clickEvent));
+assert('the tap-then-click interaction selects the hand card exactly as on desktop',
+    system.keyboardSelection.selectedCard === handC &&
+    system.keyboardSelection.mouseSelecting === true);
+
+nowMs += 1000;
+cardTouchStart(handC, { identifier: 14, clientX: 40, clientY: 380 });
+documentTouch('touchmove', { identifier: 14, clientX: 42, clientY: 300 });
+(windowListeners['pagehide'] ?? []).forEach((handler) => handler());
+assert('hiding the page mid-drag clears the gesture completely',
+    system.touchDrag === null && !handC.classList.contains('dragging') &&
+    !cloneInBody() && !zoneHighlighted() && !zoneFor(4).classList.contains('drop-zone-active') &&
+    (documentListeners['touchmove'] ?? []).length === 0 &&
+    cookieWrites.length === 1);
+
+console.log('touch drag staging ok');
+""".replace('__DRAG_JS__', repr(drag_js))
+
+        try:
+            node_binary = subprocess.run(
+                ['node', '--version'],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.skipTest('node binary unavailable; skipping touch drag staging DOM test')
+        if node_binary.returncode != 0:
+            self.skipTest('node binary unavailable; skipping touch drag staging DOM test')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+            handle.write(harness)
+            temp_path = handle.name
+        try:
+            completed = subprocess.run(
+                ['node', temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            os.unlink(temp_path)
+        if completed.returncode != 0:
+            self.fail(
+                'touch drag staging harness failed:\n'
+                f'stdout={completed.stdout}\nstderr={completed.stderr}'
+            )
+        self.assertIn('touch drag staging ok', completed.stdout)
 
     def test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently(self):
         import os
@@ -3482,7 +3940,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
     setTimeout(callback) {
         const id = nextTimerId++;
         holdTimers.push({ id, callback });
@@ -3736,7 +4194,7 @@ global.window = {
     removeEventListener() {},
     cardDragDrop: null,
     loadingAnimations: null,
-    location: { pathname: '/game/1/board/2/' },
+    location: { pathname: '/MMM/game/1/board/2/' },
     setTimeout(callback) {
         const id = 1000 + holdTimers.length;
         holdTimers.push({ id, callback });
@@ -3826,7 +4284,7 @@ const flushTick = () => {
     for (const callback of rafCallbacks.splice(0)) callback();
 };
 
-const boardPath = '/game/1/board/2/';
+const boardPath = '/MMM/game/1/board/2/';
 const drawFocusKey = 'mmmDrawFocusReturn';
 
 resetActiveFocus();
@@ -3852,7 +4310,7 @@ const instantiateLoading = () => {
 
 clearBoardAreas();
 resetActiveFocus();
-window.location.pathname = '/game/1/board/2/action/';
+window.location.pathname = '/MMM/game/1/board/2/action/';
 const flightCard = new FakeElement('li', 'cardContainer loading');
 flightCard.setAttribute('data-source-lane', '-2');
 flightCard.setAttribute('data-source-ordinal', '0');
@@ -3902,7 +4360,7 @@ assert('a depleted deck consumes the pending return safely',
 
 clearBoardAreas();
 resetActiveFocus();
-window.location.pathname = '/game/7/board/3/';
+window.location.pathname = '/MMM/game/7/board/3/';
 const otherGameDrawButton = buildDeckArea('open');
 sessionStorage.setItem(drawFocusKey, boardPath);
 instantiateLoading();
@@ -4207,6 +4665,288 @@ console.log('space draw focus round trip ok');
             re.search(r'--hand-row-height\s*:', cards_css),
             "cards.css must declare --hand-row-height so deckHand rows keep a "
             "fixed visible size"
+        )
+
+    def test_board_fits_mobile_viewport_without_overflow(self):
+        """The board fits phone screens with no overflow and no scroll fighting.
+
+        User story: open the board on a 320×568 or 390×844 phone; the enemy
+        board, the four lanes, the deck, the hand and the end-turn control all
+        stay inside the viewport. Lanes may not force a 536px minimum row, the
+        fixed player table may not park itself on top of the enemy board, and
+        excess hand cards scroll inside the hand region instead of spilling
+        over the document. A desktop window keeps the original 82vw layout,
+        the fixed player table, and the unclipped hand row.
+
+        The board shrinks on short narrow screens through a single
+        --board-scale lever: the board font drives every em-based offset while
+        the rem-sized card geometry multiplies by the same lever, so the
+        stacked-card look survives at any scale.
+        """
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as css_file:
+            demo_nav_css = css_file.read()
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        player_screen_rule = re.search(r'div\.playerScreen\s*\{[^}]*\}', cards_css)
+        self.assertIn('--board-scale: 1', player_screen_rule.group(0))
+        self.assertIn(
+            'font-size: calc(1rem * var(--board-scale))', player_screen_rule.group(0),
+            "the board font is the em-side of the scale lever"
+        )
+
+        card_rule = re.search(r'\.playingCards \.card\s*\{[^}]*\}', cards_css)
+        self.assertIn('width: calc(4.25rem * var(--board-scale, 1))', card_rule.group(0))
+        self.assertIn('height: calc(6rem * var(--board-scale, 1))', card_rule.group(0))
+        card_container_rule = re.search(r'\nli\.cardContainer\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'calc((4.75rem + 6px) * var(--board-scale, 1))', card_container_rule.group(0)
+        )
+        card_row_rule = re.search(r'\nul\.cardRow\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'min-height: calc(7.5rem * var(--board-scale, 1))', card_row_rule.group(0)
+        )
+        end_turn_rule = re.search(r'\nbutton\.end-turn\s*\{[^}]*\}', cards_css)
+        self.assertIn(
+            'width: calc(4.25rem * var(--board-scale, 1))', end_turn_rule.group(0)
+        )
+        hologram_row_rule = re.search(r'\nul\.hologramRow\s*\{[^}]*\}', drag_css)
+        self.assertIn(
+            'min-height: calc(7.5rem * var(--board-scale, 1))',
+            hologram_row_rule.group(0),
+            "the drop-preview row is an interaction overlay and must scale with "
+            "the cards it previews"
+        )
+
+        mobile_block = css_block(cards_css, '@media (max-width: 41rem) {')
+        self.assertIn('height: 100dvh', mobile_block)
+        self.assertIn('position: static', mobile_block)
+        self.assertIn('flex: 1 1 0', mobile_block)
+        self.assertIn('min-height: 0', mobile_block)
+        self.assertIn('overflow-y: auto', mobile_block)
+        self.assertIn('width: 100%', mobile_block)
+        self.assertIn('min-width: 0', mobile_block)
+        self.assertIn('overflow-x: auto', mobile_block)
+        self.assertIn(
+            'padding-top: 1.25em', mobile_block,
+            "rotated hand-fan cards must lift into the scroll box's padding "
+            "instead of being clipped by it"
+        )
+        tier_block = css_block(
+            cards_css, '@media (max-width: 41rem) and (max-height: 49.375rem) {'
+        )
+        self.assertIn('--board-scale: .7', tier_block)
+        short_tier_block = css_block(
+            cards_css, '@media (max-width: 41rem) and (max-height: 34rem) {'
+        )
+        self.assertIn('--board-scale: .58', short_tier_block)
+
+        deck_hand_rule = re.search(r'\.playerScreen \.deckHand\s*\{[^}]*\}', cards_css)
+        self.assertIn('--hand-row-height: 8em', deck_hand_rule.group(0))
+        self.assertNotIn('position: absolute', deck_hand_rule.group(0))
+        self.assertNotIn('.playerScreen > .deckHand', cards_css)
+        self.assertNotIn('height: 25%', cards_css)
+        board_hand_scroll_rule = re.search(
+            r'\.playerScreen \.deckHand > \.hand-scroll\s*\{[^}]*\}', cards_css
+        )
+        self.assertIn('overflow: visible', board_hand_scroll_rule.group(0))
+
+        lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
+        self.assertIn('width: 82vw', lanes_rule.group(0))
+        player_table_rule = re.search(
+            r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
+        )
+        self.assertIn('position: fixed', player_table_rule.group(0))
+        self.assertIn('bottom: 0', player_table_rule.group(0))
+
+        demo_nav_block = css_block(demo_nav_css, '@media (max-width: 41rem) {')
+        self.assertIn('max-width: 40%', demo_nav_block)
+        self.assertIn('.demoNav .playerInfo', demo_nav_block)
+        self.assertIn('text-overflow: ellipsis', demo_nav_block)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 64)
+        self._replace_deck_with_count(self.bot_participant, 64)
+        content = self.client.get(board_url).content.decode()
+        self.assertIsNotNone(
+            re.search(r'--deck-indicator-offset: -\d+(\.\d+)?em;"', content),
+            "deck indicator offsets must follow the board font (em) so the "
+            "fanned indicator piles track the scaled deck on phones"
+        )
+
+    def test_card_art_fits_face_without_cropping_or_overflow(self):
+        """Card artwork stays whole and inside every card face.
+
+        User story: a card with portrait, landscape or square art —
+        downloaded art or the no-art fallback picture — shows the complete
+        image on the board lanes, in the hand, in collections and on the
+        card details page. The art is never cropped to a fixed square,
+        never stretched, and never painted past the card border: card
+        faces give the picture a width/height box of their own content
+        minus the title/type footer, compact small-card boxes contain it
+        in their square, and the full-art spotlight contains it in its
+        14rem showcase box. Decorative full-page backgrounds still fill
+        their viewport, and the CSS playing-card faces keep their
+        rank/suit look untouched.
+        """
+        import os
+        import re
+        from mysite.jinja2 import (
+            playing_card_rank_class,
+            playing_card_rank_display,
+            playing_card_suit_class,
+            playing_card_suit_display,
+        )
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'demoNavigation.css')) as css_file:
+            demo_nav_css = css_file.read()
+        with open(os.path.join(static_dir, 'title.css')) as css_file:
+            title_css = css_file.read()
+        with open(os.path.join(static_dir, 'style.css')) as css_file:
+            style_css = css_file.read()
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        base_picture_rule = css_block(cards_css, '.fit-picture{')
+        self.assertIn(
+            'object-fit: contain', base_picture_rule,
+            "every fit-picture defaults to contain so no image is ever "
+            "stretched by the leftover fill default"
+        )
+        self.assertNotIn('cover', base_picture_rule)
+
+        board_face_rule = re.search(
+            r'\.playingCards \.card\.smallCard > \.fit-picture\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(
+            board_face_rule,
+            "card faces need their own fit-picture rule to give art a "
+            "box-aware area inside the face"
+        )
+        self.assertIn('object-fit: contain', board_face_rule.group(0))
+        self.assertIn(
+            'width: 100%', board_face_rule.group(0),
+            "art spans the card content width instead of a fixed square"
+        )
+        self.assertIn(
+            'height: calc(100% - 2.5rem)', board_face_rule.group(0),
+            "art yields the bottom strip of the face to the title/type "
+            "footer so neither the art nor the footer leaves the card"
+        )
+
+        option_picture_rule = re.search(r'\n\.smallCard \.fit-picture\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(
+            option_picture_rule,
+            "compact small-card boxes (deck/player pickers) keep a "
+            "bounded square art area"
+        )
+        self.assertIn(
+            'width: calc(4rem * var(--board-scale, 1))', option_picture_rule.group(0)
+        )
+        self.assertIn(
+            'height: calc(4rem * var(--board-scale, 1))', option_picture_rule.group(0)
+        )
+
+        spotlight_rule = re.search(r'\n\.spotlight\{[^}]*\}', style_css)
+        self.assertIsNotNone(spotlight_rule, "spotlight art box rule missing from style.css")
+        self.assertIn('width: 14rem', spotlight_rule.group(0))
+        self.assertIn('height: 14rem', spotlight_rule.group(0))
+
+        for opener, source, name in (
+            ('.fullpage-background{', demo_nav_css, 'demo page backdrop'),
+            ('.title-background{', title_css, 'title page backdrop'),
+        ):
+            self.assertIn(
+                'object-fit: cover', css_block(source, opener),
+                f"the {name} must keep cover now that the fit-picture base "
+                "rule no longer crops decorative backgrounds"
+            )
+
+        self.assertIn(
+            '.playingCards .card.smallCard[class*="rank-"] .smallCardInfo', cards_css,
+            "the static playing-card footer anchoring must stay as is"
+        )
+        self.assertIn(
+            '.playingCards .card.staticCard .smallCardInfo .cardType', cards_css
+        )
+        self.assertIn('margin-bottom: -1px', cards_css)
+        self.assertIn('margin-bottom: -2.75rem', cards_css)
+        self.assertIn('font-size: 7px', cards_css)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        static_card = Card.objects.create(
+            title="Board static card", artSource="static", cardType=1
+        )
+        static_game_card = GameCard.create(static_card.id, self.game.id, self.human_participant.id)
+        static_game_card.save()
+        static_game_card.state.draw()
+        static_game_card.state.updateOrdinal(50)
+        static_game_card.state.save()
+
+        content = self.client.get(board_url).content.decode()
+        self.assertIsNotNone(
+            re.search(
+                r'<div class="card smallCard">\s*'
+                r'<img draggable="false" class="fit-picture" '
+                r'src="/static/MMM/1flubeltje\.jpg"',
+                content,
+            ),
+            "art cards must render their picture inside the card face div"
+        )
+        self.assertIsNotNone(
+            re.search(
+                r'class="card smallCard staticCard '
+                + re.escape(playing_card_rank_class(static_card))
+                + r'\s+'
+                + re.escape(playing_card_suit_class(static_card)),
+                content,
+            ),
+            "static playing-card faces must keep their rank/suit classes on "
+            "the board"
+        )
+        self.assertIn(
+            f'<span class="rank">{playing_card_rank_display(static_card)}</span>', content
+        )
+        self.assertIn(
+            f'<span class="suit">{playing_card_suit_display(static_card)}</span>', content
+        )
+
+        card_page = self.client.get(reverse("MMM:viewCard", args=[self.human_cards[0].id]))
+        self.assertContains(
+            card_page, '<img class="fit-picture spotlight" '
+            'src="/static/MMM/1flubeltje.jpg"'
         )
 
     def test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope(self):
@@ -4940,7 +5680,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/action/' },
+    location: { pathname: '/MMM/game/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -5172,7 +5912,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/action/' },
+    location: { pathname: '/MMM/game/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -5808,7 +6548,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.MutationObserver = function (handler) {
@@ -5880,6 +6620,8 @@ assert('typed play keeps the 1-based dataset hand ordinal in the cookie',
     playCookieCardId(cookieWrites[0]) === '301' && typedPayload.laneValue === '1' &&
     typedPayload.sourceLane === '0' && typedPayload.sourceOrdinal === '1' &&
     typedPayload.flipFaceUp === false);
+assert('the staged play cookie is scoped to the prefixed board path',
+    cookieWrites[0].includes(';path=/MMM/game/1/board/1/'));
 assert('typed staging kept the 1-based focused input', focusedHandCardInput.value === '1');
 
 fakeDocument.activeElement = body;
@@ -8281,7 +9023,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -8871,7 +9613,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.MutationObserver = function (handler) {
@@ -9581,7 +10323,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/action/' },
+    location: { pathname: '/MMM/game/1/board/1/action/' },
 };
 global.CSS = { escape: (value) => String(value) };
 global.Element = function Element() {};
@@ -9919,7 +10661,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -9953,7 +10695,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -9986,7 +10728,7 @@ class ChallengePageTests(TestCase):
 
         self.assertRedirects(
             initialize_response,
-            f"/game/{game_id}/{challenger.id}/",
+            reverse("MMM:viewGameAsPlayer", args=[game_id, challenger.id]),
         )
         human_participant = BattleParticipant.objects.get(
             player_id=challenger.id,
@@ -11489,13 +12231,13 @@ class GameActionApiTests(BattleBoardFixture):
 
     def setUp(self):
         super().setUp()
-        self.schema_url = "/api/schema/"
-        self.docs_url = "/api/docs/"
-        self.reset_url = "/api/games/reset/"
-        self.board_url = f"/api/games/{self.game.id}/board/{self.human.id}/"
-        self.play_url = f"{self.board_url}play/"
-        self.draw_url = f"{self.board_url}draw/"
-        self.end_turn_url = f"{self.board_url}end-turn/"
+        self.schema_url = reverse("MMM:apiSchema")
+        self.docs_url = reverse("MMM:apiSwaggerUI")
+        self.reset_url = reverse("MMM:apiResetGames")
+        self.board_url = reverse("MMM:apiBoardState", args=[self.game.id, self.human.id])
+        self.play_url = reverse("MMM:apiPlayCardsAction", args=[self.game.id, self.human.id])
+        self.draw_url = reverse("MMM:apiDrawCardAction", args=[self.game.id, self.human.id])
+        self.end_turn_url = reverse("MMM:apiEndTurnAction", args=[self.game.id, self.human.id])
 
     def _confirm_via_browser(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -11541,27 +12283,32 @@ class GameActionApiTests(BattleBoardFixture):
             self.schema_url,
             self.docs_url,
             self.reset_url,
-            "/api/games/{gameId}/board/{playerId}/",
-            "/api/games/{gameId}/board/{playerId}/play/",
-            "/api/games/{gameId}/board/{playerId}/draw/",
-            "/api/games/{gameId}/board/{playerId}/end-turn/",
+            api_docs.BOARD_PATH,
+            api_docs.PLAY_PATH,
+            api_docs.DRAW_PATH,
+            api_docs.END_TURN_PATH,
         ):
             self.assertIn(path, schema["paths"], path)
 
-        play_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/play/"]["post"]
+        self.assertEqual(api_docs.BOARD_PATH.format(gameId=1, playerId=2), reverse("MMM:apiBoardState", args=[1, 2]))
+        self.assertEqual(api_docs.PLAY_PATH.format(gameId=1, playerId=2), reverse("MMM:apiPlayCardsAction", args=[1, 2]))
+        self.assertEqual(api_docs.DRAW_PATH.format(gameId=1, playerId=2), reverse("MMM:apiDrawCardAction", args=[1, 2]))
+        self.assertEqual(api_docs.END_TURN_PATH.format(gameId=1, playerId=2), reverse("MMM:apiEndTurnAction", args=[1, 2]))
+
+        play_operation = schema["paths"][api_docs.PLAY_PATH]["post"]
         self.assertTrue(play_operation["requestBody"]["required"])
         self.assertIn("200", play_operation["responses"])
         for status in ("400", "404"):
             self.assertIn(status, play_operation["responses"])
             self.assertIn("#/components/schemas/Error", play_operation["responses"][status]["content"]["application/json"]["schema"]["$ref"])
 
-        end_turn_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/end-turn/"]["post"]
+        end_turn_operation = schema["paths"][api_docs.END_TURN_PATH]["post"]
         self.assertFalse(end_turn_operation["requestBody"]["required"])
         for status in ("200", "400", "404"):
             self.assertIn(status, end_turn_operation["responses"])
 
-        board_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/"]["get"]
-        draw_operation = schema["paths"]["/api/games/{gameId}/board/{playerId}/draw/"]["post"]
+        board_operation = schema["paths"][api_docs.BOARD_PATH]["get"]
+        draw_operation = schema["paths"][api_docs.DRAW_PATH]["post"]
         for operation in (board_operation, play_operation, draw_operation, end_turn_operation):
             path_parameters = {
                 parameter["name"]: parameter
@@ -11629,14 +12376,14 @@ class GameActionApiTests(BattleBoardFixture):
         )
 
     def test_api_board_state_404s_are_json(self):
-        response = self.client.get("/api/games/999999/board/1/")
+        response = self.client.get(reverse("MMM:apiBoardState", args=[999999, 1]))
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
             json.loads(response.content.decode())["error"],
             "no such game or participant",
         )
 
-        response = self.client.get(f"/api/games/{self.game.id}/board/999999/")
+        response = self.client.get(reverse("MMM:apiBoardState", args=[self.game.id, 999999]))
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
             json.loads(response.content.decode())["error"],
@@ -11652,7 +12399,7 @@ class GameActionApiTests(BattleBoardFixture):
     def test_api_board_state_maps_verified_browser_board_to_json(self):
         self._confirm_via_browser()
 
-        browser_response = self.client.get(f"/game/{self.game.id}/board/{self.human.id}/")
+        browser_response = self.client.get(reverse("MMM:viewBoard", args=[self.game.id, self.human.id]))
         self.assertEqual(browser_response.status_code, 200)
         self.assertNotIn("Action error", browser_response.content.decode())
 
@@ -11910,9 +12657,9 @@ class GameActionApiTests(BattleBoardFixture):
         self.assertEqual(Deck.objects.count(), 0)
         self.assertEqual(Player.objects.count(), 2)
 
-        response = self.client.get("/game/reset/")
-        self.assertRedirects(response, "/", target_status_code=302)
-        self.assertEqual(self.client.get("/title/").status_code, 200)
+        response = self.client.get(reverse("MMM:resetGames"))
+        self.assertRedirects(response, reverse("MMM:home"), target_status_code=302)
+        self.assertEqual(self.client.get(reverse("MMM:titlePage")).status_code, 200)
 
     def test_api_methods_follow_documented_status_codes(self):
         self._confirm_via_browser()
@@ -11940,7 +12687,7 @@ class GameActionApiTests(BattleBoardFixture):
         )
         self.assertEqual(response.status_code, 302)
 
-        demo_board_url = f"/api/games/{demo_game_id}/board/{self.human.id}/"
+        demo_board_url = reverse("MMM:apiBoardState", args=[demo_game_id, self.human.id])
 
         response = self.client.post(
             reverse("MMM:confirmChallenge", args=[demo_game_id, self.human.id])
@@ -12111,7 +12858,7 @@ class BoardCardPresentationTests(BattleBoardFixture):
         response = self.client.get(settings_url)
         content = response.content.decode()
         self.assertRegex(content, r'data-card-zoom="enabled"')
-        self.assertRegex(content, r'<form method="post"[^>]*action="/settings/zoom/"')
+        self.assertRegex(content, r'<form method="post"[^>]*action="%s"' % re.escape(reverse("MMM:toggleCardZoom")))
         self.assertIn('<input type="hidden" name="enable" value="false">', content)
         self.assertIn("Disable hover card zoom", content)
 
@@ -12222,15 +12969,16 @@ class DemoNavigationTests(TestCase):
     def _deck_card_ids(self, deck):
         return sorted(card.id for card in deck.cards.all())
 
-    def test_root_redirects_everyone_to_the_title_page(self):
-        response = self.client.get("/")
-        self.assertRedirects(response, "/title/", fetch_redirect_response=False)
+    def _sign_in_admin(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
 
-        title_response = self.client.get(response["Location"])
-        self.assertEqual(title_response.status_code, 200)
-        self.assertContains(title_response, "Magical Masters")
+    def test_admin_route_requires_the_designated_admin_account(self):
+        anonymous_response = self.client.get(reverse("MMM:index"))
+        self.assertRedirects(
+            anonymous_response, f"{reverse('account_login')}?next={reverse('MMM:index')}"
+        )
 
-    def test_current_index_renders_for_anyone_at_the_admin_route(self):
+        self._sign_in_admin()
         response = self.client.get(reverse("MMM:index"))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
@@ -12238,6 +12986,7 @@ class DemoNavigationTests(TestCase):
         self.assertIn("Cards", content)
 
     def test_admin_page_links_lead_to_the_pages_they_name(self):
+        self._sign_in_admin()
         content = self.client.get(reverse("MMM:index")).content.decode()
         player_url = reverse("MMM:viewPlayer", args=[self.lucas.id])
         card_url = reverse("MMM:viewCard", args=[self.lucas_card_ids[0]])
@@ -12249,12 +12998,13 @@ class DemoNavigationTests(TestCase):
         self.assertIn(f'href="{docs_url}"', content)
         self.assertEqual(self.client.get(player_url).status_code, 200)
         self.assertEqual(self.client.get(card_url).status_code, 200)
-        self.assertRedirects(self.client.get(reset_url, follow=True), "/title/")
+        self.assertRedirects(self.client.get(reset_url, follow=True), reverse("MMM:titlePage"))
         docs_response = self.client.get(docs_url)
         self.assertEqual(docs_response.status_code, 200)
         self.assertIn("Game action API", docs_response.content.decode())
 
     def test_settings_page_holds_only_the_card_zoom_preference(self):
+        self._sign_in_admin()
         response = self.client.get(reverse("MMM:demoSettings"))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
@@ -12266,6 +13016,7 @@ class DemoNavigationTests(TestCase):
         self.assertNotIn("cardContainer", content)
 
     def test_settings_page_toggles_card_zoom_from_the_demo_menu(self):
+        self._sign_in_admin()
         settings_url = reverse("MMM:demoSettings")
 
         content = self.client.get(settings_url).content.decode()
@@ -12318,6 +13069,7 @@ class DemoNavigationTests(TestCase):
         self.assertNotIn('class="backlink"', self.client.get(reverse("MMM:titlePage")).content.decode())
 
     def test_back_button_covers_the_admin_pages_too(self):
+        self._sign_in_admin()
         admin_root = self.client.get(reverse("MMM:index")).content.decode()
         self.assertEqual(admin_root.count('class="backlink"'), 1)
         self.assertIn(f'<a class="backlink" href="{reverse("MMM:titlePage")}">back</a>', admin_root)
@@ -12348,6 +13100,7 @@ class DemoNavigationTests(TestCase):
         admin pages now render the link at the end of the document in normal
         flow; only the demo shell pages keep the floating corner link.
         """
+        self._sign_in_admin()
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'style.css')) as style_file:
             style_css = style_file.read()
@@ -12410,11 +13163,11 @@ class DemoNavigationTests(TestCase):
         response = self.client.post(reverse("MMM:play"))
         board_url = response["Location"]
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(board_url.startswith("/game/"))
+        self.assertTrue(board_url.startswith("/MMM/game/"))
         self.assertTrue(board_url.endswith("/board/%d/" % self._created_player("Annabel").id))
 
         game = Game.objects.get(title="Annabel vs Lucas")
-        self.assertIn(f"/game/{game.id}/board/", board_url)
+        self.assertEqual(board_url, reverse("MMM:viewBoard", args=[game.id, self._created_player("Annabel").id]))
         participants = list(game.history.participants.select_related("player"))
         participants_by_player = {
             participant.player.name: participant for participant in participants
@@ -12624,6 +13377,523 @@ class DemoNavigationTests(TestCase):
         self.assertIsNone(self._created_player("Cats"))
 
 
+class MmmUrlPrefixTests(TestCase):
+    """The game owns /MMM/ and nothing else: representative pages and APIs
+    resolve under the mount, their unprefixed equivalents route to no game
+    view, and static assets stay at the root-relative /static/."""
+
+    def test_reverse_resolves_representative_pages_and_apis_under_the_prefix(self):
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        self.assertEqual(reverse("MMM:titlePage"), "/MMM/title/")
+        self.assertEqual(reverse("MMM:play"), "/MMM/play/")
+        self.assertEqual(reverse("MMM:resetGames"), "/MMM/game/reset/")
+        self.assertEqual(reverse("MMM:index"), "/MMM/admin/")
+        self.assertEqual(reverse("MMM:apiSchema"), "/MMM/api/schema/")
+        self.assertEqual(reverse("MMM:apiSwaggerUI"), "/MMM/api/docs/")
+        self.assertEqual(reverse("MMM:apiResetGames"), "/MMM/api/games/reset/")
+
+    def test_representative_prefixed_pages_and_apis_serve_the_game(self):
+        for url in (
+            reverse("MMM:titlePage"),
+            reverse("MMM:apiSchema"),
+            reverse("MMM:apiSwaggerUI"),
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+        self.assertRedirects(
+            self.client.get(reverse("MMM:index")),
+            f"{reverse('account_login')}?next={reverse('MMM:index')}",
+        )
+
+    def test_unprefixed_equivalents_do_not_serve_game_views(self):
+        for url in (
+            "/title/",
+            "/play/",
+            "/deck/",
+            "/settings/",
+            "/admin/",
+            "/game/reset/",
+            "/game/1/board/1/",
+            "/api/schema/",
+            "/api/docs/",
+            "/api/games/reset/",
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 404, url)
+
+    def test_static_urls_stay_root_relative_from_the_prefixed_pages(self):
+        self.assertEqual(settings.STATIC_URL, "/static/")
+        content = self.client.get(reverse("MMM:titlePage")).content.decode()
+        self.assertIn('href="/static/style.css"', content)
+        self.assertNotIn('"/MMM/static/', content)
+
+
+class BandSiteTests(TestCase):
+    """The archived Painted Pillars band site is served at the domain root
+    next to the game at /MMM/: home links every news card to the post's
+    own archived URL, releases at /music/ with the /songs/ alias, the
+    about biography and the social-links contact page, all with the stage
+    photo as a page background behind black-backed paragraphs."""
+
+    BAND_PAGES = {
+        "home": "/",
+        "music": "/music/",
+        "songs": "/songs/",
+        "about": "/about/",
+        "contact": "/contact/",
+    }
+
+    POST_URLS = ["/" + post["url"] for post in NEWS_ITEMS]
+
+    def _page_content(self, page):
+        return self.client.get(self.BAND_PAGES[page]).content.decode()
+
+    def _band_urls(self):
+        """Every band page: the five sections and each archived news post."""
+        return list(self.BAND_PAGES.values()) + self.POST_URLS
+
+    def test_band_routes_resolve_at_the_domain_root(self):
+        self.assertEqual(reverse("band_home"), "/")
+        self.assertEqual(reverse("band_music"), "/music/")
+        self.assertEqual(reverse("band_songs"), "/songs/")
+        self.assertEqual(reverse("band_about"), "/about/")
+        self.assertEqual(reverse("band_contact"), "/contact/")
+
+    def test_every_band_page_serves_200_with_shared_navigation_and_game_link(self):
+        for url in self._band_urls():
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            content = response.content.decode()
+            for nav_url in ("/", "/music/", "/about/", "/contact/"):
+                self.assertIn(f'href="{nav_url}"', content, url)
+            self.assertIn('href="/MMM/"', content, url)
+            self.assertNotIn('href="/live/"', content, url)
+            self.assertNotIn('href="/press-kit/"', content, url)
+            self.assertNotIn("wpforms", content, url)
+            self.assertNotIn("wp-content", content, url)
+            if url != self.BAND_PAGES["contact"]:
+                self.assertNotIn('href="/accounts/login/"', content, url)
+
+    def test_songs_alias_serves_the_releases_page(self):
+        for url in (self.BAND_PAGES["music"], self.BAND_PAGES["songs"]):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            content = response.content.decode()
+            self.assertIn("Answer", content)
+            self.assertIn("The Stoic", content)
+            self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+
+    def test_every_archived_post_serves_its_own_page_from_its_home_news_card(self):
+        home = self._page_content("home")
+        for post in NEWS_ITEMS:
+            post_url = "/" + post["url"]
+            self.assertEqual(reverse(post["urlName"]), post_url, post["title"])
+            self.assertIn(f'href="{post_url}"', home, post["title"])
+            response = self.client.get(post_url)
+            self.assertEqual(response.status_code, 200, post["title"])
+            content = response.content.decode()
+            self.assertIn(post["title"], content, post["title"])
+            self.assertIn(post["date"], content, post["title"])
+            self.assertIn(post["categories"][0], content, post["title"])
+
+    def test_post_pages_hold_the_text_the_snapshots_preserved(self):
+        post_texts = {
+            "band_post_noorderlicht": (
+                "Join us for a vibrant mash-up of music and visual art!",
+                "the debut event of Beats &amp; Bites Production",
+                "Our last concert was in Leiden",
+                "https://noorderlichtcafe.nl/beats-bites/",
+                "https://www.patreon.com/user?u=142072920",
+                "we’ll send you a download link ourselves if you include your email.",
+            ),
+            "band_post_juvenile": (
+                "calls for infantile behaviour",
+                "did we mention the track will feature a glockenspiel?",
+                "The whole world is a playground",
+            ),
+            "band_post_new_recordings": (
+                "About two weeks ago we recorded two brand new songs!",
+            ),
+            "band_post_januari_the_27th": (
+                "Curious what kind of song it will be?",
+                "performing the song live at Stukafest Delft last year",
+                "https://open.spotify.com/playlist/4w7Wlfpb9mmfsSikOs5oN1",
+                "https://www.instagram.com/p/Cb8E0CXDxV1/",
+            ),
+            "band_post_collywobbles": (
+                "Get ready to relax and let the day slide away with our new song!",
+                "‘A Portrait of the Artist as Young Man’",
+                "which is of course a pretext to skip class",
+            ),
+            "band_post_mary": (
+                "a mysterious feeling of sickness and a call for help to a divine mother figure",
+                "made by Floris Springintveld",
+            ),
+            "band_post_shop_window": (
+                "At May the 7th we played at the shop window of the Vintage Department Store in Leiden.",
+            ),
+            "band_post_a_drink": (
+                "Best enjoyed in a dark and quiet room.",
+            ),
+            "band_post_new_studio_session": (
+                "recording studio Peggy 51",
+            ),
+            "band_post_first_music_video": (
+                "made in association with student of Grafisch Lyceum Utrecht",
+            ),
+            "band_post_leidscement": (
+                "An interview by Elly Jousma about our first live experience and more.",
+                "https://leidscement.nl/podiumkunsten/painted-pillars-van-studentenkamer-naar-de-studio/",
+            ),
+            "band_post_second_single": (
+                "Check out ‘Lovely’ on Spotify and other streaming services.",
+            ),
+            "band_post_stukafest": (
+                "Our debut live performance at Stukafest Leiden was a blast!",
+                "Photo by Brian Mul/ Video’s by Stephanie Esajas",
+            ),
+            "band_post_mare": (
+                "Our first interview!",
+                "https://www.mareonline.nl/cultuur/de-leden-van-studentenband-painted-pillars-tasten-af-hoe-groot-ze-mogen-dromen/",
+            ),
+            "band_post_debut_single": (
+                "Check out our debut single on Spotify and other streaming services",
+            ),
+        }
+        for url_name, phrases in post_texts.items():
+            content = self.client.get(reverse(url_name)).content.decode()
+            for phrase in phrases:
+                self.assertIn(phrase, content, url_name)
+        for_a_while = self.client.get(reverse("band_post_for_a_while")).content.decode()
+        self.assertIn("‘For A While’ is out now!", for_a_while)
+        self.assertNotIn("bandPostParagraph", for_a_while)
+
+    def test_home_shows_the_listen_cta_and_links_every_archived_news_card(self):
+        content = self._page_content("home")
+        self.assertIn("Listen to us here!", content)
+        self.assertIn('href="/music/"', content)
+        self.assertIn("News", content)
+        self.assertIn("Upcoming concert at Noorderlicht in Amsterdam", content)
+        self.assertIn("A celebration of childishness", content)
+        self.assertIn("New studio session", content)
+        self.assertIn("We rocked the shop window!", content)
+        self.assertIn("Our first music video!", content)
+        self.assertIn("Our first interview!", content)
+        self.assertIn("band/news/pay.jpg", content)
+        self.assertIn("band/news/collywobbles.jpg", content)
+        self.assertIn("band/news/a-drink.jpg", content)
+        self.assertIn("band/news/first-music-video.jpg", content)
+        self.assertIn("band/news/leidscement.png", content)
+        self.assertIn("band/news/second-single.jpg", content)
+        self.assertIn("band/news/mare.png", content)
+
+    def test_the_stage_photo_is_a_page_background_and_paragraphs_get_black_backings(self):
+        home = self._page_content("home")
+        self.assertNotIn("bandHeroPhoto", home)
+        self.assertNotIn("stage-photo", home)
+        with open(os.path.join(STATIC_TEST_DIR, "band.css")) as style_file:
+            band_css = style_file.read()
+        self.assertNotIn("bandHeroPhoto", band_css)
+        self.assertRegex(band_css, r"body::before\s*\{[^}]*url\(\"band/stage-photo.jpg\"\)")
+        self.assertRegex(band_css, r"\.bandContent p,\s*\.bandContent li\s*\{[^}]*background-color: var\(--band-background\)")
+
+    def test_music_links_streaming_platforms_and_lists_archived_releases(self):
+        content = self._page_content("music")
+        self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+        self.assertIn(
+            "https://www.youtube.com/watch?v=HDyESqUPBmc&amp;list=PLKC6VD0RhYE4csTWJnUeiLe-R7hJwy6Dj",
+            content,
+        )
+        self.assertIn("https://music.apple.com/gb/artist/painted-pillars/1603642369", content)
+        for release_name in (
+            "Answer", "Catastrophe", "Bell", "Pay", "Collywobbles",
+            "Mary", "A Drink", "For A While", "Lovely", "The Stoic",
+        ):
+            self.assertIn(release_name, content)
+            self.assertIn("https://open.spotify.com/track/", content)
+
+    def test_about_shows_the_archived_band_bio_and_member_descriptions(self):
+        content = self._page_content("about")
+        self.assertIn("radical eclecticism", content)
+        self.assertIn("Pop music as it is meant to be.", content)
+        self.assertIn("band/band-photo.jpg", content)
+        self.assertIn("Eric Faassen", content)
+        self.assertIn("singer and guitarist", content)
+        self.assertIn("Rob Müller", content)
+        self.assertIn("bassist, cover art painter", content)
+        self.assertIn("Lucas Willemsens", content)
+        self.assertIn("drummer, poet and computer whisperer", content)
+
+    def test_contact_offers_social_links_without_a_submission_form(self):
+        content = self._page_content("contact")
+        self.assertIn("https://www.instagram.com/paintedpillars/", content)
+        self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
+        self.assertIn("https://www.youtube.com/channel/UCPLO8M2TtIZi3aUkXG3psrg", content)
+        self.assertIn("https://music.apple.com/gb/artist/painted-pillars/1603642369", content)
+        self.assertNotIn("<form", content)
+        self.assertNotIn("<input", content)
+
+    def test_band_styling_and_assets_are_served_from_the_local_static_files(self):
+        for url in self._band_urls():
+            self.assertIn('href="/static/band.css"', self.client.get(url).content.decode(), url)
+        for asset in (
+            "band.css",
+            "band/logo-tile.png",
+            "band/logo-header.png",
+            "band/stage-photo.jpg",
+            "band/band-photo.jpg",
+            "band/fonts/lobster.woff2",
+            "band/fonts/special-elite.woff2",
+            "band/spotify.svg",
+            "band/youtube.svg",
+            "band/apple-music.svg",
+            "band/news/pay.jpg",
+            "band/news/collywobbles.jpg",
+            "band/news/shop-window.jpg",
+            "band/news/a-drink.jpg",
+            "band/news/studio-session.jpg",
+            "band/news/for-a-while.jpg",
+            "band/news/first-music-video.jpg",
+            "band/news/leidscement.png",
+            "band/news/second-single.jpg",
+            "band/news/mare.png",
+        ):
+            self.assertIsNotNone(finders.find(asset), asset)
+
+    def test_the_game_keeps_working_under_the_mmm_mount_next_to_the_band_site(self):
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        response = self.client.get(reverse("MMM:titlePage"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Magical Masters")
+
+
+def _link_account(email, player_name):
+    """Run the controlled account-to-player link operation the way the
+    operator does, and return what it reported."""
+    output = StringIO()
+    call_command("link_account", email, player_name, stdout=output)
+    return output.getvalue()
+
+
+class AccountRoutesTests(TestCase):
+    """The allauth account routes are served at the domain root next to the
+    band site and the game at /MMM/: the login page offers Google sign-in,
+    and local signups and password logins stay off."""
+
+    def test_account_routes_resolve_at_the_domain_root(self):
+        self.assertEqual(reverse("account_login"), "/accounts/login/")
+
+    def test_the_login_page_offers_the_google_provider(self):
+        response = self.client.get(reverse("account_login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('href="/accounts/google/login/', response.content.decode())
+
+    def test_local_signup_and_password_routes_stay_off(self):
+        for url in ("/accounts/signup/", "/accounts/password/change/"):
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+
+    def test_the_game_and_the_band_site_keep_their_routes_next_to_the_accounts(self):
+        self.assertEqual(reverse("band_home"), "/")
+        self.assertEqual(reverse("MMM:home"), "/MMM/")
+        self.assertEqual(self.client.get(reverse("MMM:titlePage")).status_code, 200)
+
+
+class AccountPlayerLinkingTests(TestCase):
+    """The one-to-one link between an authenticated account and a player is
+    established only by the controlled linking operation: it refuses
+    accounts that never signed in and players that do not exist, creates
+    neither, and never lets either side of the link be taken twice."""
+
+    def setUp(self):
+        self.admin = _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        self.lucas = Player.objects.create(name="Lucas")
+
+    def test_the_operation_links_a_signed_in_account_to_an_existing_player(self):
+        output = _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+
+        self.assertIn("Lucas", output)
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+        self.assertEqual(self.admin.player, self.lucas)
+
+    def test_the_operation_matches_email_and_player_name_case_insensitively(self):
+        _link_account("PAINTEDpillars@GMAIL.com", "lucas")
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_linking_an_existing_link_again_reports_it_and_changes_nothing(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        output = _link_account(ADMIN_ACCOUNT_EMAIL, "Lucas")
+
+        self.assertIn("already linked", output)
+        self.assertEqual(Player.objects.filter(name="Lucas").count(), 1)
+
+    def test_an_account_that_never_signed_in_cannot_claim_a_player(self):
+        with self.assertRaises(CommandError):
+            _link_account("stranger@gmail.com", "lucas")
+        self.assertEqual(get_user_model().objects.count(), 1)
+        self.lucas.refresh_from_db()
+        self.assertIsNone(self.lucas.account)
+
+    def test_an_unknown_player_is_never_created(self):
+        with self.assertRaises(CommandError):
+            _link_account(ADMIN_ACCOUNT_EMAIL, "Nobody")
+        self.assertFalse(Player.objects.exclude(id=self.lucas.id).exists())
+
+    def test_a_linked_player_cannot_be_linked_to_another_account(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        _verified_account("someone.else", "someone.else@gmail.com")
+
+        with self.assertRaises(CommandError):
+            _link_account("someone.else@gmail.com", "Lucas")
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_a_linked_account_cannot_be_linked_to_another_player(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        ruben = Player.objects.create(name="Ruben")
+
+        with self.assertRaises(CommandError):
+            _link_account(ADMIN_ACCOUNT_EMAIL, "Ruben")
+        ruben.refresh_from_db()
+        self.assertIsNone(ruben.account)
+        self.lucas.refresh_from_db()
+        self.assertEqual(self.lucas.account, self.admin)
+
+    def test_the_database_rejects_a_second_player_on_one_account(self):
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Player.objects.create(name="Annabel", account=self.admin)
+        self.assertEqual(Player.objects.filter(account=self.admin).count(), 1)
+
+
+class AdminAccessTests(TestCase):
+    """Only the account with the verified designated admin email may enter
+    the game's admin pages: anonymous visitors are sent to the login first,
+    any other signed-in account is denied on the server, and the admin entry
+    stays out of every navigation that account cannot use."""
+
+    def _admin_link(self):
+        return f'href="{reverse("MMM:index")}"'
+
+    def test_anonymous_admin_visits_are_sent_to_the_login(self):
+        self.assertRedirects(
+            self.client.get(reverse("MMM:index")),
+            f"{reverse('account_login')}?next={reverse('MMM:index')}",
+        )
+
+    def test_any_other_signed_in_account_is_denied(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 403)
+
+    def test_an_unverified_copy_of_the_admin_email_is_denied(self):
+        copycat = get_user_model().objects.create_user(
+            username="copycat", email=ADMIN_ACCOUNT_EMAIL
+        )
+        EmailAddress.objects.create(
+            user=copycat, email=ADMIN_ACCOUNT_EMAIL, verified=False, primary=True
+        )
+        self.client.force_login(copycat)
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 403)
+
+    def test_the_verified_admin_account_is_granted(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        self.assertEqual(self.client.get(reverse("MMM:index")).status_code, 200)
+
+    def test_the_band_navigation_admin_entry_appears_only_for_the_admin(self):
+        band_pages = (reverse("band_home"), reverse("band_music"), reverse("band_about"))
+        for page_url in band_pages:
+            self.assertNotIn(self._admin_link(), self.client.get(page_url).content.decode())
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        for page_url in band_pages:
+            self.assertNotIn(self._admin_link(), self.client.get(page_url).content.decode())
+        self.client.logout()
+
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        for page_url in band_pages:
+            self.assertIn(self._admin_link(), self.client.get(page_url).content.decode())
+
+    def test_the_demo_menu_admin_entry_appears_only_for_the_admin(self):
+        settings_page = reverse("MMM:demoSettings")
+        self.assertNotIn(self._admin_link(), self.client.get(settings_page).content.decode())
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        self.assertNotIn(self._admin_link(), self.client.get(settings_page).content.decode())
+        self.client.logout()
+
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        self.assertIn(self._admin_link(), self.client.get(settings_page).content.decode())
+
+    def test_the_band_navigation_has_no_sign_in_entry(self):
+        for page_url in (reverse("band_home"), reverse("band_music"), reverse("band_about")):
+            content = self.client.get(page_url).content.decode()
+            self.assertNotIn(reverse("account_login"), content)
+
+    def test_the_contact_page_links_anonymous_visitors_to_the_login(self):
+        contact = self.client.get(reverse("band_contact"))
+        self.assertEqual(contact.status_code, 200)
+        content = contact.content.decode()
+        self.assertIn(f'href="{reverse("account_login")}"', content)
+        self.assertEqual(self.client.get(reverse("account_login")).status_code, 200)
+
+    def test_the_contact_page_sign_in_link_stays_away_from_signed_in_accounts(self):
+        self.client.force_login(_verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL))
+        contact = self.client.get(reverse("band_contact"))
+        self.assertNotIn(f'href="{reverse("account_login")}"', contact.content.decode())
+
+
+class GoogleAccountEndToEndTests(TestCase):
+    """The end-to-end account story: a visitor follows the sign-in link on
+    the contact page, the designated admin's Google account lands in the
+    game linked to the existing Lucas player and reaches the admin pages,
+    while a different signed-in account is denied there and never even sees
+    the admin link."""
+
+    def test_the_designated_admin_signs_in_and_reaches_the_admin_pages(self):
+        lucas = Player.objects.create(name="Lucas")
+
+        contact = self.client.get(reverse("band_contact"))
+        self.assertIn(f'href="{reverse("account_login")}"', contact.content.decode())
+        login_page = self.client.get(reverse("account_login"))
+        self.assertEqual(login_page.status_code, 200)
+        self.assertIn('href="/accounts/google/login/', login_page.content.decode())
+
+        # The handshake itself runs on Google's pages; what it returns to the
+        # site is the account Google verified. The one-time operation then
+        # links that account to the existing Lucas player, creating nothing.
+        admin = _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        link_output = _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        self.assertIn("Lucas", link_output)
+        lucas.refresh_from_db()
+        self.assertEqual(lucas.account, admin)
+        self.assertEqual(Player.objects.filter(name="Lucas").count(), 1)
+
+        self.client.force_login(admin)
+        home = self.client.get(reverse("band_home"))
+        self.assertIn(f'href="{reverse("MMM:index")}"', home.content.decode())
+        admin_page = self.client.get(reverse("MMM:index"))
+        self.assertEqual(admin_page.status_code, 200)
+        self.assertIn("Lucas", admin_page.content.decode())
+
+    def test_a_different_signed_in_account_is_denied_everywhere(self):
+        Player.objects.create(name="Lucas")
+        _verified_account("paintedpillars", ADMIN_ACCOUNT_EMAIL)
+        _link_account(ADMIN_ACCOUNT_EMAIL, "lucas")
+        other = _verified_account("someone.else", "someone.else@gmail.com")
+        self.client.force_login(other)
+
+        for page_url in (reverse("band_home"), reverse("band_contact")):
+            content = self.client.get(page_url).content.decode()
+            self.assertNotIn(f'href="{reverse("MMM:index")}"', content)
+        admin_page = self.client.get(reverse("MMM:index"))
+        self.assertEqual(admin_page.status_code, 403)
+        self.assertNotIn("Lucas", admin_page.content.decode())
+
+
+
 def _run_node_harness(harness, label):
     """Execute a generated node harness and return its stdout, skipping when node is absent."""
     import os
@@ -12736,7 +14006,7 @@ global.window = {
     addEventListener() {},
     removeEventListener() {},
     cardDragDrop: null,
-    location: { pathname: '/game/1/board/1/' },
+    location: { pathname: '/MMM/game/1/board/1/' },
     setTimeout(callback) {
         const id = nextTimerId++;
         holdTimers.push({ id, callback });
@@ -12874,7 +14144,7 @@ turnPhaseEl.dataset = { phase };
 body.appendChild(turnPhaseEl);
 const boardNext = new FakeElement('div');
 boardNext.setAttribute('id', 'boardNext');
-boardNext.setAttribute('data-next-url', '/game/1/board/1/');
+boardNext.setAttribute('data-next-url', '/MMM/game/1/board/1/');
 body.appendChild(boardNext);
 
 const fakeDocument = {
@@ -12915,7 +14185,7 @@ global.window = {
     removeEventListener() {},
     cardDragDrop: null,
     loadingAnimations: null,
-    location: { pathname: '/game/1/board/1/' },
+    location: { pathname: '/MMM/game/1/board/1/' },
     scrollTo() {},
     setTimeout(callback) { loadingTimers.push(callback); return loadingTimers.length; },
     clearTimeout() {},
@@ -13491,6 +14761,10 @@ class SettingsDeploymentEnvironmentTests(TestCase):
         "MMM_CSRF_TRUSTED_ORIGINS": "https://pr-12.paintedpillars.com",
         "MMM_SECURE_COOKIES": "true",
         "MMM_DB_PATH": "/tmp/opencode/settings-tests-pr-12.sqlite3",
+        "MMM_GOOGLE_CLIENT_ID": "settings-test-google-client-id",
+        "MMM_GOOGLE_CLIENT_SECRET": "settings-test-google-client-secret",
+        "MMM_ADMIN_EMAIL": "bandadmin@example.com",
+        "MMM_ACCOUNT_HTTP_PROTOCOL": "http",
     }
     development_secret_key = 'django-insecure-+40#iiit+*fsij6s#-+8r)#==w-y$@daw)jf%a&dcanwfwj&ly'
 
@@ -13516,6 +14790,11 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             "/tmp/opencode/settings-tests-pr-12.sqlite3",
         )
         self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "settings-test-google-client-id")
+        self.assertEqual(google_app["secret"], "settings-test-google-client-secret")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "bandadmin@example.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "http")
 
     def test_local_development_defaults_without_environment(self):
         settings_module = self.reload_settings({})
@@ -13531,6 +14810,11 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             settings_module.BASE_DIR / "db.sqlite3",
         )
         self.assertFalse(hasattr(settings_module, "SESSION_COOKIE_DOMAIN"))
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "")
+        self.assertEqual(google_app["secret"], "")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "paintedpillars@gmail.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "https")
 
     def test_empty_environment_values_fall_back_to_the_defaults(self):
         settings_module = self.reload_settings(
@@ -13544,6 +14828,10 @@ class SettingsDeploymentEnvironmentTests(TestCase):
             settings_module.DATABASES["default"]["NAME"],
             settings_module.BASE_DIR / "db.sqlite3",
         )
+        google_app = settings_module.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        self.assertEqual(google_app["client_id"], "")
+        self.assertEqual(settings_module.ADMIN_EMAIL, "paintedpillars@gmail.com")
+        self.assertEqual(settings_module.ACCOUNT_DEFAULT_HTTP_PROTOCOL, "https")
 
     def tearDown(self):
         self.reload_settings({})

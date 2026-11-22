@@ -33,7 +33,7 @@ class TemporaryDeploymentDirectory(unittest.TestCase):
 
 class EnvironmentTests(TemporaryDeploymentDirectory):
     def test_the_deployment_environment_carries_the_production_settings(self):
-        environment = self.manager.deployment_environment("secret-value")
+        environment = self.manager.deployment_environment({"secret_key": "secret-value"})
         self.assertEqual(environment["DJANGO_SETTINGS_MODULE"], "mysite.settings")
         self.assertEqual(environment["MMM_SECRET_KEY"], "secret-value")
         self.assertEqual(environment["MMM_DEBUG"], "false")
@@ -44,6 +44,17 @@ class EnvironmentTests(TemporaryDeploymentDirectory):
         self.assertTrue(environment["MMM_DB_PATH"].startswith(str(self.deployment_root)))
         self.assertEqual(environment["MMM_STATIC_ROOT"], str(self.manager.production_static_root()))
         self.assertTrue(environment["MMM_STATIC_ROOT"].startswith(str(self.deployment_root)))
+        self.assertNotIn("MMM_GOOGLE_CLIENT_ID", environment)
+        self.assertNotIn("MMM_GOOGLE_CLIENT_SECRET", environment)
+
+    def test_google_credentials_from_env_json_reach_the_environment(self):
+        environment = self.manager.deployment_environment({
+            "secret_key": "secret-value",
+            "google_client_id": "client-id-value",
+            "google_client_secret": "client-secret-value",
+        })
+        self.assertEqual(environment["MMM_GOOGLE_CLIENT_ID"], "client-id-value")
+        self.assertEqual(environment["MMM_GOOGLE_CLIENT_SECRET"], "client-secret-value")
 
     def test_the_database_secret_key_and_static_root_live_outside_the_checkout(self):
         checkout = self.manager.production_checkout()
@@ -72,18 +83,42 @@ class StateTests(TemporaryDeploymentDirectory):
         self.assertEqual(reloaded["deployment"]["failure"], "test failed with exit status 1\ntraceback tail")
 
 
-class SecretKeyTests(TemporaryDeploymentDirectory):
+class EnvConfigTests(TemporaryDeploymentDirectory):
     def test_the_secret_key_is_generated_once_and_then_reused(self):
-        first_key = self.manager.load_or_create_secret_key()
+        first_key = self.manager.load_or_create_env_config()["secret_key"]
         stored_key = json.loads(self.manager.production_env_path().read_text())["secret_key"]
         self.assertEqual(first_key, stored_key)
-        self.assertEqual(self.manager.load_or_create_secret_key(), first_key)
+        self.assertEqual(self.manager.load_or_create_env_config()["secret_key"], first_key)
 
     def test_an_existing_secret_key_is_kept(self):
         env_path = self.manager.production_env_path()
         env_path.parent.mkdir(parents=True)
         env_path.write_text(json.dumps({"secret_key": "stored-key"}))
-        self.assertEqual(self.manager.load_or_create_secret_key(), "stored-key")
+        self.assertEqual(self.manager.load_or_create_env_config()["secret_key"], "stored-key")
+
+    def test_stored_google_credentials_are_read_and_never_generated(self):
+        env_path = self.manager.production_env_path()
+        env_path.parent.mkdir(parents=True)
+        env_path.write_text(json.dumps({
+            "secret_key": "stored-key",
+            "google_client_id": "client-id-value",
+            "google_client_secret": "client-secret-value",
+        }))
+        env_config = self.manager.load_or_create_env_config()
+        self.assertEqual(env_config["google_client_id"], "client-id-value")
+        self.assertEqual(env_config["google_client_secret"], "client-secret-value")
+        self.assertEqual(
+            json.loads(env_path.read_text())["google_client_id"], "client-id-value"
+        )
+
+    def test_a_generated_secret_key_preserves_the_stored_google_credentials(self):
+        env_path = self.manager.production_env_path()
+        env_path.parent.mkdir(parents=True)
+        env_path.write_text(json.dumps({"google_client_id": "client-id-value"}))
+        env_config = self.manager.load_or_create_env_config()
+        stored = json.loads(env_path.read_text())
+        self.assertEqual(env_config["secret_key"], stored["secret_key"])
+        self.assertEqual(stored["google_client_id"], "client-id-value")
 
 
 class ServerVerificationTests(TemporaryDeploymentDirectory):
@@ -199,8 +234,8 @@ class ManagerHarness(TemporaryDeploymentDirectory):
         exit_status = self.exit_statuses.get(" ".join(command[1:]), 0)
         return exit_status, "simulated output"
 
-    def record_start(self, secret_key):
-        self.started.append(secret_key)
+    def record_start(self, env_config):
+        self.started.append(env_config["secret_key"])
         if self.start_pids_are_live:
             self.live_server_pids.add(4242)
         return 4242
@@ -276,6 +311,33 @@ class DeployFlowTests(ManagerHarness):
             self.assertEqual(env["MMM_SECURE_COOKIES"], "true")
             self.assertEqual(env["DJANGO_SETTINGS_MODULE"], "mysite.settings")
             self.assertTrue(env["MMM_SECRET_KEY"])
+            self.assertNotIn("MMM_GOOGLE_CLIENT_ID", env)
+
+    def test_google_credentials_from_env_json_reach_the_gates_and_the_server(self):
+        env_path = self.manager.production_env_path()
+        env_path.parent.mkdir(parents=True)
+        env_path.write_text(json.dumps({
+            "secret_key": "stored-key",
+            "google_client_id": "client-id-value",
+            "google_client_secret": "client-secret-value",
+        }))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_status = self.manager.main(["deploy"])
+        self.assertEqual(exit_status, 0)
+        for command, cwd, env in self.gate_calls():
+            self.assertEqual(env["MMM_GOOGLE_CLIENT_ID"], "client-id-value")
+            self.assertEqual(env["MMM_GOOGLE_CLIENT_SECRET"], "client-secret-value")
+        self.assertNotIn("google oauth credentials not found", output.getvalue())
+
+    def test_deploying_without_google_credentials_warns_and_still_deploys(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_status = self.manager.main(["deploy"])
+        entry = self.manager.load_state()["deployment"]
+        self.assertEqual(exit_status, 0)
+        self.assertEqual(entry["status"], "ready")
+        self.assertIn("google oauth credentials not found in env.json", output.getvalue())
 
     def test_rebuilds_reset_only_the_checkout_and_keep_the_database_and_secret_key(self):
         production = self.manager.production_directory()
@@ -414,6 +476,16 @@ class DeployFlowTests(ManagerHarness):
         self.assertIn("-m pip install gunicorn", self.command_names())
         self.assertEqual(self.manager.load_state()["deployment"]["status"], "ready")
 
+    def test_django_allauth_is_installed_only_when_the_import_fails(self):
+        self.manager.main(["deploy"])
+        self.assertIn("-c import allauth", self.command_names())
+        self.assertNotIn("-m pip install django-allauth", self.command_names())
+        self.exit_statuses["-c import allauth"] = 1
+        self.head_sha = "1234567890abcdef"
+        self.manager.main(["deploy"])
+        self.assertIn("-m pip install django-allauth", self.command_names())
+        self.assertEqual(self.manager.load_state()["deployment"]["status"], "ready")
+
     def test_an_unresolvable_main_head_fails_the_command_without_touching_state(self):
         self.manager.main_head_sha = self.real_main_head_sha
         self.exit_statuses[
@@ -425,13 +497,19 @@ class DeployFlowTests(ManagerHarness):
         self.assertFalse(self.manager.production_state_path().exists())
 
     def test_deploy_and_status_output_never_contain_the_secret_key(self):
+        env_path = self.manager.production_env_path()
+        env_path.parent.mkdir(parents=True)
+        env_path.write_text(json.dumps({
+            "secret_key": "deploy-secret-value",
+            "google_client_secret": "google-secret-value",
+        }))
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.manager.main(["deploy"])
-        secret_key = json.loads(self.manager.production_env_path().read_text())["secret_key"]
         with contextlib.redirect_stdout(output):
             self.manager.main(["status"])
-        self.assertNotIn(secret_key, output.getvalue())
+        self.assertNotIn("deploy-secret-value", output.getvalue())
+        self.assertNotIn("google-secret-value", output.getvalue())
 
 
 class StatusTests(ManagerHarness):

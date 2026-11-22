@@ -19,8 +19,8 @@
                     style="--deck-indicator-count: {{ enemy.deckIndicators|length }};" {% endif %}>
                     {% for indicator in enemy.deckIndicators %}
                     <ul class="deck-indicator" aria-hidden="true" inert
-                        style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
-                        <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                        style="--deck-indicator-offset: -{{ loop.index * 6.5 }}em;">
+                        <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}em;">
                             <img class="deck-indicator-face" draggable="false" src="/static/extradeck.png"
                                 alt="extra pile of cards from deck">
                         </li>
@@ -161,8 +161,8 @@
             <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
                 style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
                 {% for indicator in ownDeckIndicators %}
-                <ul class="deck-indicator" aria-hidden="true" inert style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
-                    <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}rem;">
+                <ul class="deck-indicator" aria-hidden="true" inert style="--deck-indicator-offset: -{{ loop.index * 6.5 }}em;">
+                    <li aria-hidden="true" style="--deck-indicator-offset: -{{ loop.index * 6.5 }}em;">
                         <img class="deck-indicator-face" draggable="false" src="/static/extradeck.png"
                             alt="extra pile of cards from deck">
                     </li>
