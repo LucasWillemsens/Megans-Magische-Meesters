@@ -1,15 +1,19 @@
 {
   "keywords": [
+    "account",
     "action",
     "active",
     "approval",
     "artwork",
     "asynchronous",
     "audio",
+    "authenticated",
     "automate",
     "automatically",
+    "band",
     "behavior",
     "canceling",
+    "card",
     "chase",
     "consuming",
     "cookies",
@@ -32,10 +36,12 @@
     "focused",
     "followable",
     "functionality",
+    "google",
     "history",
     "includes",
     "interactions",
     "label",
+    "link",
     "loaded",
     "login",
     "loop",
@@ -50,7 +56,10 @@
     "order",
     "ordering",
     "overpowering",
+    "painted",
+    "paintedpillars",
     "participants",
+    "pillars",
     "porting",
     "previews",
     "protect",
@@ -70,6 +79,8 @@
     "sessions",
     "setup",
     "shuffleboard",
+    "sign",
+    "site",
     "skeleton",
     "snapshot",
     "soul",
@@ -103,6 +114,8 @@
     "multiplayer-account/secure-account-links",
     "multiplayer-account/turn-order-async-skip",
     "multiplayer-account/win-loot-draft-rules",
+    "painted-pillars-site",
+    "painted-pillars-site/google-accounts",
     "pre-battle-deck-flow/active-games-interface",
     "pre-battle-deck-flow/cancel-challenge",
     "pre-battle-deck-flow/custom-deck-order",
@@ -129,6 +142,10 @@
   ],
   "pairs": [
     [
+      "account",
+      "painted-pillars-site/google-accounts"
+    ],
+    [
       "action",
       "pre-battle-deck-flow/game-page-metadata/play-again-new-challenge"
     ],
@@ -153,6 +170,10 @@
       "low-prio/sound-design/audio-level-balance"
     ],
     [
+      "authenticated",
+      "painted-pillars-site/google-accounts"
+    ],
+    [
       "automate",
       "tests-and-reliability"
     ],
@@ -161,12 +182,20 @@
       "pre-battle-deck-flow/game-page-metadata/bot-rematch-fresh-deck"
     ],
     [
+      "band",
+      "painted-pillars-site"
+    ],
+    [
       "behavior",
       "multiplayer-account/win-loot-draft-rules"
     ],
     [
       "canceling",
       "pre-battle-deck-flow/cancel-challenge"
+    ],
+    [
+      "card",
+      "painted-pillars-site"
     ],
     [
       "chase",
@@ -257,6 +286,10 @@
       "refactor-parallel-project/feature-parity-tests"
     ],
     [
+      "google",
+      "painted-pillars-site/google-accounts"
+    ],
+    [
       "history",
       "low-prio/customization-card-systems/upgrade-requirements"
     ],
@@ -271,6 +304,10 @@
     [
       "label",
       "pre-battle-deck-flow/deck-page/editable-meta"
+    ],
+    [
+      "link",
+      "painted-pillars-site/google-accounts"
     ],
     [
       "loaded",
@@ -337,8 +374,20 @@
       "low-prio/sound-design/audio-level-balance"
     ],
     [
+      "painted",
+      "painted-pillars-site"
+    ],
+    [
+      "paintedpillars",
+      "painted-pillars-site"
+    ],
+    [
       "participants",
       "multiplayer-account/multi-opponent-specials"
+    ],
+    [
+      "pillars",
+      "painted-pillars-site"
     ],
     [
       "porting",
@@ -419,6 +468,14 @@
     [
       "shuffleboard",
       "tests-and-reliability/random-shuffle-order"
+    ],
+    [
+      "sign",
+      "painted-pillars-site/google-accounts"
+    ],
+    [
+      "site",
+      "painted-pillars-site"
     ],
     [
       "skeleton",

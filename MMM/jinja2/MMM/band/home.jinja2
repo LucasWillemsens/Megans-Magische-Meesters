@@ -6,18 +6,18 @@
     <h1 class="bandPageTitle">News</h1>
     <div class="bandNewsGrid">
         {% for item in newsItems %}
-        <article class="bandNewsCard">
+        <article class="bandNewsCard bandPost">
             {% if item.image %}
             <a class="bandNewsPhotoLink" href="{{ url(item.urlName) }}">
                 <img class="bandNewsPhoto" src="{{ static(item.image) }}" alt="">
             </a>
             {% endif %}
+            <p class="bandNewsMeta">{{ item.date }} </p>
             <p class="bandNewsCategories">{{ item.categories|join(' / ') }}</p>
             <h2 class="bandNewsTitle"><a class="bandNewsLink" href="{{ url(item.urlName) }}">{{ item.title }}</a></h2>
             {% if item.excerpt %}
             <p class="bandNewsExcerpt">{{ item.excerpt }}</p>
             {% endif %}
-            <p class="bandNewsMeta">{{ item.date }} &mdash; Painted Pillars</p>
         </article>
         {% endfor %}
     </div>
