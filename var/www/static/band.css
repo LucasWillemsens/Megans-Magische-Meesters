@@ -16,6 +16,7 @@
 
 :root {
     --band-background: #000000;
+    --band-post-background:#282313a8;
     --band-ink: #ffffff;
     --band-accent: #c0b283;
     --band-muted: rgba(255, 255, 255, 0.75);
@@ -32,7 +33,6 @@ body::before {
     background-position: center top;
     background-repeat: no-repeat;
     background-size: cover;
-    opacity: 0.4;
 }
 
 body {
@@ -200,6 +200,7 @@ a {
 .bandPost {
     max-width: 46rem;
     margin: 0 auto;
+    background-color: var(--band-post-background);
 }
 
 .bandPostParagraph {
