@@ -3,13 +3,13 @@
 
 {% block content %}
 <main class="bandContent">
-    <article class="bandPost">
+    <article class="bandPost {% if post.image %} large-photo-post {% endif %} ">
+        <p class="bandNewsMeta">{{ post.date }}</p>
         <p class="bandNewsCategories">{{ post.categories|join(' / ') }}</p>
-        <h1 class="bandPageTitle">{{ post.title }}</h1>
-        <p class="bandNewsMeta">{{ post.date }} &mdash; Painted Pillars</p>
         {% if post.image %}
         <img class="bandNewsPhoto" src="{{ static(post.image) }}" alt="">
         {% endif %}
+        <h1 class="bandPageTitle">{{ post.title }}</h1>
         {% for paragraph in post.content %}
         <p class="bandPostParagraph">{% for runKind, runText, runUrl in paragraph %}{% if runKind == 'link' %}<a href="{{ runUrl }}" target="_blank" rel="noopener">{{ runText }}</a>{% elif runKind == 'strong' %}<strong>{{ runText }}</strong>{% else %}{{ runText }}{% endif %}{% endfor %}</p>
         {% endfor %}

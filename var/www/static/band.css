@@ -162,6 +162,7 @@ a {
 .bandNewsPhotoLink {
     display: block;
     line-height: 0;
+    position: relative;
 }
 
 .bandNewsLink {
@@ -177,10 +178,23 @@ a {
     display: block;
     width: 100%;
     height: auto;
+    position: absolute;
+    z-index: -1;
 }
 
-.bandNewsCategories {
-    margin: 1rem 0 0;
+.large-photo-post .bandNewsPhoto {
+
+    display: block;
+    width: 100%;
+    height: stretch;
+    position: absolute;
+    z-index: -1;
+    object-fit: cover;
+}
+
+.bandContent p.bandNewsCategories {
+    margin: 0;
+    padding-top: 2rem;
     color: var(--band-accent);
     letter-spacing: 0.08em;
     font-size: 0.9rem;
@@ -194,24 +208,49 @@ a {
 }
 
 .bandNewsExcerpt {
-    margin: 0.5rem auto;
+    margin: 0;
+    margin-block-start: 0;
+    margin-block-end: 0;
     max-width: 46rem;
 }
 
 .bandNewsMeta {
-    margin: 0.5rem 0 0;
+    background-color: transparent !important;
     color: var(--band-muted);
     font-size: 0.9rem;
+    position: absolute;
+    top: 0;
+    margin-block-start: 0;
+    margin-block-end: 0;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
 }
 
 .bandPost {
+    min-width: 80%;
     max-width: 46rem;
     margin: 0 auto;
+    background-color: var(--band-post-background);
+    overflow: clip;
+    position: relative;
+}
+
+.large-photo-post {
+    height: fit-content;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 3rem;
 }
 
 .bandPostParagraph {
     margin: 0.75rem auto;
     max-width: 46rem;
+
+    &:last-of-type {
+        margin: 0;
+        margin-block-end: 0;
+    }
 }
 
 .bandStreaming {
@@ -267,6 +306,11 @@ a {
     display: block;
     margin: 0 auto 2.5rem;
     width: min(40rem, 100%);
+    height: auto;
+}
+
+.large-photo-post .bandPhoto {
+    width: 100%;
     height: auto;
 }
 
