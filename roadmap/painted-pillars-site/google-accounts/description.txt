@@ -21,6 +21,6 @@ Acceptance criteria:
 - [x] Only a signed-in user whose linked account email is `paintedpillars@gmail.com` can access `/MMM/admin/`; anonymous requests require login and other signed-in users receive HTTP 403.
 - [x] The admin navigation entry is absent for anonymous and non-admin accounts and present for the authorized admin; the band-site navigation has no login link.
 - [x] The contact page includes a working root-level login link.
-- [ ] Production data can link the existing `lucas` player to `paintedpillars@gmail.com` without creating another player. (Procedure ready and scratch-DB-verified; awaiting the production deploy and the Google OAuth client prerequisite.)
+- [x] Production data can link the existing `lucas` player to `paintedpillars@gmail.com` without creating another player.
 
 External prerequisites: create a Google OAuth client using the `paintedpillars@gmail.com` account; add the production callback URI (and any required PR/test callback URIs) to its authorized redirects, then provide the client ID/secret through deployment configuration. Configure allauth's Google provider for the production site/domain.
