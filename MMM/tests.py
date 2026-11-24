@@ -13845,6 +13845,59 @@ class AdminAccessTests(TestCase):
         self.assertNotIn(f'href="{reverse("account_login")}"', contact.content.decode())
 
 
+class LogoutEntryTests(TestCase):
+    """The allauth logout entry appears only for signed-in accounts: the
+    shared band navigation offers it on every band page, the game's
+    settings page offers it below the demo preferences, and posting it
+    ends the session and returns to the band home page."""
+
+    def _band_page_urls(self):
+        """Every band page sharing the navigation: the five sections and
+        each archived news post."""
+        section_urls = [
+            reverse(name)
+            for name in ("band_home", "band_music", "band_songs", "band_about", "band_contact")
+        ]
+        return section_urls + ["/" + post["url"] for post in NEWS_ITEMS]
+
+    def _logout_form_action(self):
+        return f'action="{reverse("account_logout")}"'
+
+    def test_the_shared_band_navigation_offers_logout_only_to_signed_in_accounts(self):
+        for page_url in self._band_page_urls():
+            self.assertNotIn(
+                reverse("account_logout"), self.client.get(page_url).content.decode(), page_url
+            )
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        for page_url in self._band_page_urls():
+            content = self.client.get(page_url).content.decode()
+            self.assertIn(self._logout_form_action(), content, page_url)
+            self.assertIn('method="post"', content, page_url)
+            self.assertIn("Log out", content, page_url)
+
+    def test_the_settings_page_offers_logout_only_to_signed_in_accounts(self):
+        settings_url = reverse("MMM:demoSettings")
+        anonymous = self.client.get(settings_url).content.decode()
+        self.assertNotIn(reverse("account_logout"), anonymous)
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        signed_in = self.client.get(settings_url).content.decode()
+        self.assertIn(self._logout_form_action(), signed_in)
+        self.assertIn("Log out", signed_in)
+
+    def test_posting_the_logout_entry_ends_the_session_and_returns_to_the_band_home(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        settings_url = reverse("MMM:demoSettings")
+        self.assertIn(self._logout_form_action(), self.client.get(settings_url).content.decode())
+
+        self.assertRedirects(self.client.post(reverse("account_logout")), reverse("band_home"))
+
+        self.assertNotIn(
+            self._logout_form_action(), self.client.get(settings_url).content.decode()
+        )
+
+
 class GoogleAccountEndToEndTests(TestCase):
     """The end-to-end account story: a visitor follows the sign-in link on
     the contact page, the designated admin's Google account lands in the

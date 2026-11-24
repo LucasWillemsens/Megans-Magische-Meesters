@@ -19,6 +19,12 @@
             <a class="bandNavLink" href="{{ url('band_contact') }}">Contact</a>
             {% if isAdminAccount %}<a class="bandNavLink" href="{{ url('MMM:index') }}">Admin</a>{% endif %}
             <a class="bandNavLink bandGameLink" href="{{ url('MMM:home') }}">Magical Masters</a>
+            {% if user.is_authenticated %}
+            <form class="bandNavLogout" method="post" action="{{ url('account_logout') }}">
+                {{ csrf_input }}
+                <button class="bandNavLink" type="submit">Log out</button>
+            </form>
+            {% endif %}
         </nav>
     </header>
     {% block content %}{% endblock %}

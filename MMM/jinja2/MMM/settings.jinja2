@@ -29,5 +29,18 @@
             </button>
         </form>
     </div>
+
+    {% if user.is_authenticated %}
+    <div class="demoSettingsPanel">
+        <h2> Account </h2>
+        <p>
+            Signs your account out of Painted Pillars.
+        </p>
+        <form method="post" class="demoNameForm" action="{{ url('account_logout') }}">
+            {{ csrf_input }}
+            <button type="submit" draggable="false">Log out</button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

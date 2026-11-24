@@ -92,6 +92,17 @@ a {
     color: var(--band-accent);
 }
 
+.bandNavLogout {
+    display: contents;
+}
+
+.bandNavLogout button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
 .bandContent p,
 .bandContent li {
     background-color: var(--band-background);
