@@ -352,6 +352,90 @@ a {
     max-width: 46rem;
 }
 
+.bandContactFormIntro {
+    margin: 2.5rem auto 0;
+    max-width: 46rem;
+}
+
+.bandContactFeedback {
+    margin: 1rem auto 0;
+    max-width: 46rem;
+    color: var(--band-accent);
+}
+
+.bandContactError {
+    margin: 1rem auto 0;
+    max-width: 46rem;
+}
+
+.bandContactForm {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 1.5rem auto 0;
+    max-width: 46rem;
+    text-align: left;
+}
+
+.bandContactLabel {
+    font-family: var(--band-font-heading);
+    font-size: 1.2rem;
+}
+
+.bandContactInput,
+.bandContactMessage {
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--band-accent);
+    background-color: rgba(0, 0, 0, 0.85);
+    color: var(--band-ink);
+    font-family: var(--band-font-body);
+    font-size: 1rem;
+}
+
+.bandContactMessage {
+    min-height: 10rem;
+    resize: vertical;
+}
+
+.bandContactSubmit {
+    align-self: center;
+    margin-top: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid var(--band-accent);
+    background-color: rgba(0, 0, 0, 0.85);
+    font-family: var(--band-font-heading);
+    font-size: 1.4rem;
+    color: var(--band-ink);
+    cursor: pointer;
+}
+
+.bandContactSubmit:hover {
+    background-color: var(--band-accent);
+    color: var(--band-background);
+}
+
+a.backlink {
+    align-self: flex-start;
+    margin: 0 0 1.5rem clamp(1rem, 4vw, 3rem);
+    padding: 0.5rem 1.25rem;
+    border: 2px solid var(--band-accent);
+    background-color: rgba(0, 0, 0, 0.85);
+    font-family: var(--band-font-heading);
+    font-size: 1.2rem;
+    text-decoration: none;
+    color: var(--band-ink);
+}
+
+a.backlink:hover {
+    background-color: var(--band-accent);
+    color: var(--band-background);
+}
+
+a.backlink::before {
+    content: '←';
+    padding-right: 0.25rem;
+}
+
 .bandFooter {
     padding: 1.5rem 1rem;
     border-top: 1px solid rgba(192, 178, 131, 0.5);

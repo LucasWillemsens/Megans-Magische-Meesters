@@ -435,3 +435,8 @@ a.backlink{
     white-space: nowrap;
     border-width: 0;
 }
+
+body:has(#turnPhase:not([data-phase="player"])) .playerScreen .deckHand .hand li.cardContainer:not(.duplicate) {
+    filter: grayscale(1);
+    opacity: 0.5;
+}

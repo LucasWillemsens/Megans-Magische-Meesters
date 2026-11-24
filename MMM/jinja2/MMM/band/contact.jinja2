@@ -10,7 +10,19 @@
         <li class="bandContactLink"><a href="{{ contactUrl }}" target="_blank" rel="noopener">{{ label }}</a></li>
         {% endfor %}
     </ul>
-    {% if not user.is_authenticated %}
+    {% if user.is_authenticated %}
+    <p class="bandContactFormIntro">Or mail us right from here: your message reaches the band, with a copy sent to your own email address ({{ user.email }}).</p>
+    {% if contactFormSent %}<p class="bandContactFeedback">Thanks! Your message has been mailed to the band and a copy was sent to {{ user.email }}.</p>{% endif %}
+    {% if contactFormError %}<p class="bandContactError">{{ contactFormError }}</p>{% endif %}
+    <form class="bandContactForm" method="post" action="{{ url('band_contact') }}">
+        {{ csrf_input }}
+        <label class="bandContactLabel" for="contactSubject">Subject</label>
+        <input class="bandContactInput" id="contactSubject" type="text" name="subject" value="{{ contactSubject }}" required>
+        <label class="bandContactLabel" for="contactMessage">Message</label>
+        <textarea class="bandContactMessage" id="contactMessage" name="message" required>{{ contactMessage }}</textarea>
+        <button class="bandContactSubmit" type="submit">Send</button>
+    </form>
+    {% else %}
     <p class="bandContactLogin">Got a Painted Pillars account? <a href="{{ url('account_login') }}">Sign in</a></p>
     {% endif %}
 </main>

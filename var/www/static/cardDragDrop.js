@@ -2,11 +2,13 @@ const DRAW_FOCUS_RETURN_KEY = 'mmmDrawFocusReturn';
 
 const TOUCH_DRAG_SLOP_PX = 8;
 
+const SHORTCUT_HOLD_DEFAULT_MS = 1000;
+
 const touchWithIdentifier = (touchList, identifier) =>
     Array.from(touchList ?? []).find(touch => touch.identifier === identifier) ?? null;
 
 class ShortcutHoldAction {
-    constructor({duration = 1000, loadingClass = 'shortcut-hold-loading'} = {}) {
+    constructor({duration = SHORTCUT_HOLD_DEFAULT_MS, loadingClass = 'shortcut-hold-loading'} = {}) {
         this.duration = duration;
         this.loadingClass = loadingClass;
         this.timer = null;
@@ -35,6 +37,10 @@ class ShortcutHoldAction {
         this.completed = false;
         this.submitted = false;
         this.active = true;
+        if (this.duration <= 0) {
+            this._complete();
+            return true;
+        }
         this.indicatorStates = validTargets.map((element) => ({
             element,
             hadLoadingClass: element.classList.contains(this.loadingClass),
@@ -754,8 +760,9 @@ class CardDragDropSystem {
         this.keyboardObserver = null;
         this.lastDragEndedAt = 0;
         this.touchDrag = null;
-        this.endTurnHold = new ShortcutHoldAction();
-        this.drawHold = new ShortcutHoldAction();
+        const shortcutHoldMs = this._shortcutHoldDuration();
+        this.endTurnHold = new ShortcutHoldAction({duration: shortcutHoldMs});
+        this.drawHold = new ShortcutHoldAction({duration: shortcutHoldMs});
         this.init();
     }
 
@@ -881,6 +888,12 @@ class CardDragDropSystem {
     _parseAllowance(value) {
         const parsed = Number.parseInt(value, 10);
         return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    _shortcutHoldDuration() {
+        const rawMs = document.querySelector('.playerScreen')?.dataset?.shortcutHoldMs;
+        const parsedMs = Number.parseInt(rawMs, 10);
+        return Number.isFinite(parsedMs) && parsedMs >= 0 ? parsedMs : SHORTCUT_HOLD_DEFAULT_MS;
     }
 
     remainingAllowances() {

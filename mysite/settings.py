@@ -212,6 +212,29 @@ USE_I18N = True
 USE_TZ = True
 
 
+# Email
+
+# The contact form delivers a signed-in visitor's message to the band at
+# this address with a copy to the sender's own email. SMTP credentials
+# come from the deployment environment; without a configured host the
+# console backend prints the mail instead of sending it, so development
+# and unconfigured deployments need no secrets.
+CONTACT_EMAIL = env_value('MMM_CONTACT_EMAIL', 'paintedpillars@gmail.com')
+
+DEFAULT_FROM_EMAIL = env_value('MMM_DEFAULT_FROM_EMAIL', CONTACT_EMAIL)
+
+EMAIL_HOST = env_value('MMM_SMTP_HOST', '')
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if EMAIL_HOST
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_PORT = int(env_value('MMM_SMTP_PORT', '587'))
+EMAIL_HOST_USER = env_value('MMM_SMTP_USER', '')
+EMAIL_HOST_PASSWORD = env_value('MMM_SMTP_PASSWORD', '')
+EMAIL_USE_TLS = env_flag('MMM_SMTP_USE_TLS', True)
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 

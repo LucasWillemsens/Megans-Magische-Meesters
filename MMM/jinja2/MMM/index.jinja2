@@ -1,6 +1,10 @@
-{% extends 'base.jinja2' %}
+{% extends 'demo_shell.jinja2' %}
 
-{% block content %}
+{% set player = None %}
+
+{% block demo_content %}
+{{ super() }}
+<div class="demoSettings">
     <div class="title">
         <h1> Magical Masters </h1>
         <p>
@@ -8,78 +12,82 @@
         </p>
     </div>
 
-    <div class="players">
-        <div class="playersText">
+    <div class="demoSettingsPanel">
+        <div class="players">
+            <div class="playersText">
 
-            <h2> Players </h2>
-            <p>
-                Please select the player you want to play as:
-            </p>
-        </div>
-    {% if players %}
-        <ul class="basic-mat">
-        {% for player in players %}
-            <li>
-                {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}"
-                alt="{{player}}'s profile picture" />
-                
-                {% else %}
-                <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
-                alt="{{player}}'s profile picture" />
-                
-                {% endif %}
-                <a href="{{ url('MMM:viewPlayer', args=[player.id]) }}">{{ player.name }}</a>
-            </li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        <p>No players are available.</p>
-    {% endif %}
-    </div>
+                <h2> Players </h2>
+                <p>
+                    Please select the player you want to play as:
+                </p>
+            </div>
+        {% if players %}
+            <ul class="basic-mat">
+            {% for player in players %}
+                <li>
+                    {% if player.profilePictureSource == "" %}
+                    <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}"
+                    alt="{{player}}'s profile picture" />
 
-    <div class="cards playingCards">
-        <div class="cardsText">
-            <h2> Cards </h2>
-            <p>
-                These are some of the latest cards:
-            </p>
-        </div>
-    {% if latest_cards_list%}
-        <ul class="basic-mat">
-            {% for card in latest_cards_list %}
-            <li class="cardContainer">
-                <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
-                    href="{{ url('MMM:viewCard', args=[card.id]) }}">
-                    {% if card.artSource == "static" %}
-                    <span class="rank">{{ card|playing_card_rank_display }}</span>
-                    <span class="suit">{{ card|playing_card_suit_display }}</span>
                     {% else %}
-                    {% if card.artSource == "" %}
-                    <img class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
-                    {% else %}
-                    <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                    <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
+                    alt="{{player}}'s profile picture" />
+
                     {% endif %}
-                    {% endif %}
-            
-                    <div class="smallCardInfo">
-                        {% if card.artSource != "static" %}
-                        <p class="cardTitle">{{ card.title }}</p>
-                        {% endif %}
-                        <p class="cardType">
-                            {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
-                        </p>
-                    </div>
-                </a>
-            </li>
-            
+                    <a href="{{ url('MMM:viewPlayer', args=[player.id]) }}">{{ player.name }}</a>
+                </li>
             {% endfor %}
-        </ul>
+            </ul>
         {% else %}
-        <p>No cards are available.</p>
+            <p>No players are available.</p>
         {% endif %}
+        </div>
     </div>
-    
+
+    <div class="demoSettingsPanel">
+        <div class="cards playingCards">
+            <div class="cardsText">
+                <h2> Cards </h2>
+                <p>
+                    These are some of the latest cards:
+                </p>
+            </div>
+        {% if latest_cards_list%}
+            <ul class="basic-mat">
+                {% for card in latest_cards_list %}
+                <li class="cardContainer">
+                    <a class="card smallCard{% if card.artSource == "static" %} staticCard {{ card|playing_card_rank_class }} {{ card|playing_card_suit_class }}{% endif %}"
+                        href="{{ url('MMM:viewCard', args=[card.id]) }}">
+                        {% if card.artSource == "static" %}
+                        <span class="rank">{{ card|playing_card_rank_display }}</span>
+                        <span class="suit">{{ card|playing_card_suit_display }}</span>
+                        {% else %}
+                        {% if card.artSource == "" %}
+                        <img class="fit-picture" src="{{ static(assestsDir ~ '1flubeltje.jpg')}}" alt="no art of {{card.title}}" />
+                        {% else %}
+                        <img class="fit-picture" src="{{ static(card.artSource)}}" alt="art of {{card.title}}" />
+                        {% endif %}
+                        {% endif %}
+
+                        <div class="smallCardInfo">
+                            {% if card.artSource != "static" %}
+                            <p class="cardTitle">{{ card.title }}</p>
+                            {% endif %}
+                            <p class="cardType">
+                                {{["Intelligence","Speed","Visciousness","Resolve"][card.cardType]}}
+                            </p>
+                        </div>
+                    </a>
+                </li>
+
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p>No cards are available.</p>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="createButton">
         <a href="{{ url('MMM:resetGames') }}" draggable="false">
             ResetGames
@@ -91,4 +99,5 @@
             API docs
         </a>
     </div>
+</div>
 {% endblock %}

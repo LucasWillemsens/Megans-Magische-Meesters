@@ -28,6 +28,7 @@
         </nav>
     </header>
     {% block content %}{% endblock %}
+    {% block back_button %}<a class="backlink" href="{{ url('band_home') }}">back</a>{% endblock %}
     <footer class="bandFooter">Copyright &copy; 2026 Painted Pillars</footer>
 </body>
 </html>
