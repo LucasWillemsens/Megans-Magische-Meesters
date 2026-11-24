@@ -98,6 +98,11 @@ SITE_ID = 1
 # from the deployment environment. The site runs without them (Google login
 # then errors until configured), so tests and unconfigured deployments work.
 SOCIALACCOUNT_ONLY = True
+# socialaccount.app_settings.QUERY_EMAIL is derived from
+# SOCIALACCOUNT_EMAIL_REQUIRED; without it allauth's Google provider omits
+# email from the requested scope, the ID token carries no email claim, and
+# account/player linking cannot find the account.
+SOCIALACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
