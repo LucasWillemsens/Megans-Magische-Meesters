@@ -1,7 +1,7 @@
 {% extends 'demo_shell.jinja2' %}
 
 {% block content %}
-<div class="playerScreen playingCards rotateHand{% if cardZoomEnabled %} zoomCards{% endif %}">
+<div class="playerScreen playingCards rotateHand{% if cardZoomEnabled %} zoomCards{% endif %}" data-shortcut-hold-ms="{{ shortcutHoldMs }}">
     <div class="players">
         <div class="title">
             <h1>{{ game.title }}</h1>

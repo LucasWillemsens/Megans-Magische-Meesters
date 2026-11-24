@@ -1,0 +1,45 @@
+/* The allauth account pages render their bare forms and links inside the
+   demo settings panel. This file gives that markup the demo button and
+   list look; the shell around it comes from style.css and
+   demoNavigation.css. */
+
+.demoSettingsPanel h1 {
+    margin: 0;
+    font-size: 1.75rem;
+}
+
+.demoSettingsPanel ul {
+    list-style: none;
+}
+
+.demoSettingsPanel ul a {
+    display: inline-block;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #777;
+    border-radius: 0.3rem;
+    background: #fff;
+}
+
+.demoSettingsPanel ul a:hover {
+    background: #f0f6f6;
+    text-decoration: none;
+}
+
+.demoSettingsPanel ul a:focus-visible {
+    outline: 3px solid var(--demo-nav-border);
+    outline-offset: 1px;
+}
+
+.demoSettingsPanel form p {
+    margin: 0;
+}
+
+.accountMessages {
+    box-sizing: border-box;
+    width: min(100%, 36rem);
+    padding: 1.25rem;
+    border-radius: 0.5rem;
+    background: #fff;
+    box-shadow: 0 1rem 1.5rem rgba(0, 0, 0, 0.15);
+    list-style: none;
+}

@@ -3,6 +3,7 @@
     "account",
     "action",
     "active",
+    "admin",
     "approval",
     "artwork",
     "asynchronous",
@@ -10,12 +11,15 @@
     "authenticated",
     "automate",
     "automatically",
+    "back",
+    "backlink",
     "band",
     "behavior",
     "canceling",
     "card",
     "chase",
     "consuming",
+    "contact",
     "cookies",
     "correctly",
     "create",
@@ -27,6 +31,7 @@
     "discovery",
     "double",
     "drag",
+    "draw",
     "duplicate",
     "effects",
     "encrypting",
@@ -37,12 +42,16 @@
     "followable",
     "functionality",
     "google",
+    "grayscale",
+    "grey",
     "history",
+    "hold",
     "includes",
     "interactions",
     "label",
     "link",
     "loaded",
+    "loading",
     "login",
     "loop",
     "lootpile",
@@ -77,21 +86,25 @@
     "rolls",
     "round",
     "sessions",
+    "settings",
     "setup",
     "shuffleboard",
     "sign",
     "site",
     "skeleton",
+    "slider",
     "snapshot",
     "soul",
     "sound",
+    "styling",
     "supportive",
     "symbol",
     "tactical",
     "tokens",
     "upgrade",
     "victory",
-    "workflows"
+    "workflows",
+    "zoom"
   ],
   "paths": [
     "later-actions/click-drag-interactions",
@@ -108,6 +121,7 @@
     "low-prio/sound-design/audio-level-balance",
     "low-prio/sound-design/interaction-sound-design",
     "low-prio/sound-design/record-sound-effects",
+    "mobile-board-experience/screen-fit",
     "multiplayer-account/cookie-state-safety",
     "multiplayer-account/frontend-key-encryption",
     "multiplayer-account/multi-opponent-specials",
@@ -143,6 +157,10 @@
   "pairs": [
     [
       "account",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
+      "account",
       "painted-pillars-site/google-accounts"
     ],
     [
@@ -152,6 +170,10 @@
     [
       "active",
       "pre-battle-deck-flow/active-games-interface"
+    ],
+    [
+      "admin",
+      "mobile-board-experience/screen-fit"
     ],
     [
       "approval",
@@ -182,6 +204,18 @@
       "pre-battle-deck-flow/game-page-metadata/bot-rematch-fresh-deck"
     ],
     [
+      "back",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
+      "backlink",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
+      "band",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
       "band",
       "painted-pillars-site"
     ],
@@ -204,6 +238,10 @@
     [
       "consuming",
       "multiplayer-account/cookie-state-safety"
+    ],
+    [
+      "contact",
+      "mobile-board-experience/screen-fit"
     ],
     [
       "cookies",
@@ -250,6 +288,10 @@
       "later-actions/click-drag-interactions"
     ],
     [
+      "draw",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
       "duplicate",
       "tests-and-reliability/duplicate-submit-prevention"
     ],
@@ -290,8 +332,20 @@
       "painted-pillars-site/google-accounts"
     ],
     [
+      "grayscale",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
+      "grey",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
       "history",
       "low-prio/customization-card-systems/upgrade-requirements"
+    ],
+    [
+      "hold",
+      "mobile-board-experience/screen-fit"
     ],
     [
       "includes",
@@ -312,6 +366,10 @@
     [
       "loaded",
       "refactor-parallel-project/dynamic-rules"
+    ],
+    [
+      "loading",
+      "mobile-board-experience/screen-fit"
     ],
     [
       "login",
@@ -462,6 +520,10 @@
       "tests-and-reliability/active-game-discovery-tests"
     ],
     [
+      "settings",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
       "setup",
       "tests-and-reliability/challenge-lifecycle"
     ],
@@ -482,6 +544,10 @@
       "refactor-parallel-project/project-scaffold"
     ],
     [
+      "slider",
+      "mobile-board-experience/screen-fit"
+    ],
+    [
       "snapshot",
       "pre-battle-deck-flow/history-page/round-snapshot-log"
     ],
@@ -492,6 +558,10 @@
     [
       "sound",
       "low-prio/sound-design/record-sound-effects"
+    ],
+    [
+      "styling",
+      "mobile-board-experience/screen-fit"
     ],
     [
       "supportive",
@@ -520,6 +590,10 @@
     [
       "workflows",
       "low-prio/customization-card-systems/ai-assisted-card-upgrades"
+    ],
+    [
+      "zoom",
+      "mobile-board-experience/screen-fit"
     ]
   ]
 }

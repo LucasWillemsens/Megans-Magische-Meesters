@@ -793,6 +793,11 @@ class loadingAnimationsSystem {
         duplicate.style.zIndex = 1000;
         document.body.appendChild(duplicate);
 
+        const sourceCard = document.querySelector(`[data-card-id="${cardInfo.cardId}"]`);
+        if (sourceCard) {
+            sourceCard.classList.add('loading');
+        }
+
         // Animate to deck center at normal size, fading out
         requestAnimationFrame(() => {
             duplicate.style.left = `${deckRect.left + deckRect.width / 2 - elRect.width / 2}px`;

@@ -7,9 +7,15 @@ band's own press kit, the news feed with one page per post at its
 archived URL, the release list and the streaming/social links. Post
 content holds only the text the snapshots preserved; imagery and embeds
 the Wayback Machine never captured is left out.
+
+The contact page is live functionality rather than archived content: it
+offers signed-in accounts a mail form whose messages reach the band at
+the configured contact address with a copy to the sender's own email.
 """
-from django.urls import path
-from django.shortcuts import render
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.shortcuts import redirect, render
+from django.urls import path, reverse
 
 BAND_BIO = (
     "What can be said about Painted Pillars? Their music should speak for "
@@ -313,7 +319,34 @@ def band_about(request):
 
 
 def band_contact(request):
-    return render(request, "MMM/band/contact.jinja2", {"contactLinks": CONTACT_LINKS})
+    context = {
+        "contactLinks": CONTACT_LINKS,
+        "contactFormError": "",
+        "contactFormSent": False,
+        "contactSubject": "",
+        "contactMessage": "",
+    }
+    if request.method == "POST" and request.user.is_authenticated:
+        subject = request.POST.get("subject", "").strip()
+        message = request.POST.get("message", "").strip()
+        if not subject or not message:
+            context["contactFormError"] = (
+                "Please give your message both a subject and a body."
+            )
+            context["contactSubject"] = subject
+            context["contactMessage"] = message
+        else:
+            EmailMessage(
+                subject=subject,
+                body=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[settings.CONTACT_EMAIL],
+                cc=[request.user.email],
+            ).send()
+            return redirect(f"{reverse('band_contact')}?sent=1")
+    if request.GET.get("sent") == "1":
+        context["contactFormSent"] = True
+    return render(request, "MMM/band/contact.jinja2", context)
 
 
 def band_post(request, post):
