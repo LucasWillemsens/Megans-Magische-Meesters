@@ -32,6 +32,7 @@ urlpatterns = [
     path("settings/", views.demoSettings, name="demoSettings"),
     path("settings/zoom/", views.toggleCardZoom, name="toggleCardZoom"),
     path("settings/hold/", views.setShortcutHold, name="setShortcutHold"),
+    path("settings/specials/", views.toggleSpecialsAutochoose, name="toggleSpecialsAutochoose"),
 
     path("player/<int:player_id>/", views.viewPlayer, name="viewPlayer"),
 

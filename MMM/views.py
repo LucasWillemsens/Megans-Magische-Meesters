@@ -42,6 +42,7 @@ from .models import (
 
 TURN_PHASE_COOKIE = "turn_phase"
 CARD_ZOOM_SESSION_KEY = "card_zoom"
+SPECIALS_AUTOCHOOSE_SESSION_KEY = "specials_autochoose"
 SHORTCUT_HOLD_SESSION_KEY = "shortcut_hold_ms"
 SHORTCUT_HOLD_MIN_MS = 0
 SHORTCUT_HOLD_MAX_MS = 2000
@@ -127,6 +128,10 @@ def card_zoom_enabled(request):
     return bool(request.session.get(CARD_ZOOM_SESSION_KEY, True))
 
 
+def specials_autochoose(request):
+    return bool(request.session.get(SPECIALS_AUTOCHOOSE_SESSION_KEY, True))
+
+
 def shortcut_hold_ms(request):
     return request.session.get(SHORTCUT_HOLD_SESSION_KEY, SHORTCUT_HOLD_DEFAULT_MS)
 
@@ -138,6 +143,8 @@ def demoSettings(request):
         "toggleZoomUrl": reverse("MMM:toggleCardZoom"),
         "shortcutHoldMs": shortcut_hold_ms(request),
         "saveHoldUrl": reverse("MMM:setShortcutHold"),
+        "specialsAutochoose": specials_autochoose(request),
+        "toggleSpecialsUrl": reverse("MMM:toggleSpecialsAutochoose"),
     }
     return _render(request, "MMM/settings.jinja2", context)
 
@@ -146,6 +153,15 @@ def toggleCardZoom(request):
     if request.method != "POST":
         return redirect(reverse("MMM:demoSettings"))
     request.session[CARD_ZOOM_SESSION_KEY] = request.POST.get("enable", "") == "true"
+    return redirect(reverse("MMM:demoSettings"))
+
+
+def toggleSpecialsAutochoose(request):
+    if request.method != "POST":
+        return redirect(reverse("MMM:demoSettings"))
+    request.session[SPECIALS_AUTOCHOOSE_SESSION_KEY] = (
+        request.POST.get("enable", "") == "true"
+    )
     return redirect(reverse("MMM:demoSettings"))
 
 
@@ -443,15 +459,18 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     bot_timelines = []
     if phase_from_cookie and turn_phase == "enemy":
         finished, _, _ = game_outcome(game)
-        if not finished:
+        if not finished and game.pendingSpecial is None:
             try:
-                bot_actions, bot_timelines = run_bot_turn(game, player_id)
+                bot_actions, bot_timelines = run_bot_turn(
+                    game, player_id, specials_autochoose(request)
+                )
             except Exception as exc:
                 bot_actions = []
                 bot_timelines = []
                 error_message = str(exc)
             game.roundNumber = max(game.roundNumber, 1) + 1
             game.save(update_fields=["roundNumber"])
+            game.refresh_from_db(fields=["pendingSpecial"])
         plays_by_card = {}
         for bot_action in bot_actions:
             play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
@@ -511,6 +530,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "turnAllowances": current_participant.getTurnAllowances(),
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
+        "pendingSpecial": game.pendingSpecial,
         "nextUrl": result_url if finished and turn_phase != "playerMoves" else board_url,
         "actionPlays": action_plays or [],
         "timelineSteps": timeline_steps or [],
@@ -549,6 +569,7 @@ def boardAction(request, game_id, player_id):
         current_participant,
         action,
         cookie_staged_plays(request.COOKIES, game),
+        specials_autochoose=specials_autochoose(request),
     )
 
     request.session['plays'] = []
@@ -650,6 +671,10 @@ def _addLoadingAnimations(context, request):
             enemy_board["handCards"] = _update_moved_hand_cards(
                 enemy_board["handCards"], enemy_plays
             )
+            enemy_board["handCards"] = _restore_shuffled_drawn_cards(
+                enemy_board["handCards"], plays, enemy_board["participant"].id
+            )
+            enemy_board["handCount"] = len(enemy_board["handCards"])
             enemy_board["handFans"] = chunk_hand_cards(enemy_board["handCards"])
     return context
 
@@ -675,7 +700,8 @@ def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
     """A draw that empties the deck runs the special sequence, which shuffles
     the drawn card back into the deck before this render; the drawn card still
     renders in the hand with its deck position as source, so the draw's
-    deck->hand flight plays before the special timeline."""
+    deck->hand flight plays before the special timeline. Serves the player's
+    own hand and every enemy hand."""
     hand_card_ids = {card.id for card in hand_cards}
     drawn_card_ids = {
         int(play["cardId"])

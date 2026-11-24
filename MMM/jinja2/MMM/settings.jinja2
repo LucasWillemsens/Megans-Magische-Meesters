@@ -31,6 +31,25 @@
     </div>
 
     <div class="demoSettingsPanel">
+        <h2> Specials autochoose </h2>
+        <p>
+            When a special action fires, it resolves automatically. Turn this
+            off to pause each special the moment it fires and continue it
+            yourself.
+        </p>
+        <p class="demoSettingState" data-specials-autochoose="{{ 'enabled' if specialsAutochoose else 'disabled' }}">
+            Specials autochoose is {% if specialsAutochoose %}enabled{% else %}disabled{% endif %}.
+        </p>
+        <form method="post" class="demoNameForm" action="{{ toggleSpecialsUrl }}">
+            {{ csrf_input }}
+            <input type="hidden" name="enable" value="{{ 'false' if specialsAutochoose else 'true' }}">
+            <button type="submit" draggable="false">
+                {% if specialsAutochoose %}Disable specials autochoose{% else %}Enable specials autochoose{% endif %}
+            </button>
+        </form>
+    </div>
+
+    <div class="demoSettingsPanel">
         <h2> Hold duration </h2>
         <p>
             How long the D (draw) and E (end turn) board shortcuts must be held

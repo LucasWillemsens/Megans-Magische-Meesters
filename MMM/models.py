@@ -470,6 +470,14 @@ class Game(models.Model):
     #players take turns in the order that they join the game
     roundNumber = models.IntegerField(default=-1) 
     freeForAll = models.BooleanField(default=True)
+    #the participant whose last-card special is paused, waiting for the user to continue
+    pendingSpecial = models.ForeignKey(
+        BattleParticipant,
+        on_delete=models.SET_NULL,
+        related_name="pausedSpecials",
+        null=True,
+        blank=True,
+    )
 
     def __str__(self):
         return f"{self.title}{self.id} - round {self.roundNumber}\n{self.history.challenger.name} vs {self.history.participants.all().count()}-1 others"

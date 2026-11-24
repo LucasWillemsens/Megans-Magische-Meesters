@@ -9,6 +9,19 @@
         </div>
     </div>
 
+    {% if pendingSpecial %}
+    <div class="specialPending" data-participant-id="{{ pendingSpecial.id }}">
+        <p>{{ pendingSpecial.player.name }}'s special is waiting for your input.</p>
+        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+            {{ csrf_input }}
+            <input type="hidden" name="action" value="continue_special">
+            <button type="submit" class="continue-special" title="Continue the special">
+                Continue
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
     {% if enemyBoards %}
     <ul class="enemyBoards basic-mat table">
         {% for enemy in enemyBoards %}
