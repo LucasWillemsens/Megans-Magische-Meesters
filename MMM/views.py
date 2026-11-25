@@ -492,10 +492,11 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
         return response
 
-    own_board = context_board(gameCards, current_participant.id)
+    pre_shuffle_cards = _pre_shuffle_cards_by_participant(timeline_steps, action_plays)
+    own_board = context_board(gameCards, current_participant.id, pre_shuffle_cards.get(current_participant.id))
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
-        enemy_board = context_board(gameCards, enemy_participant.id)
+        enemy_board = context_board(gameCards, enemy_participant.id, pre_shuffle_cards.get(enemy_participant.id))
 
         enemy_boards.append(
             {
@@ -696,14 +697,8 @@ def _update_moved_hand_cards(hand_cards, plays):
     return hand_cards
 
 
-def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
-    """A draw that empties the deck runs the special sequence, which shuffles
-    the drawn card back into the deck before this render; the drawn card still
-    renders in the hand with its deck position as source, so the draw's
-    deck->hand flight plays before the special timeline. Serves the player's
-    own hand and every enemy hand."""
-    hand_card_ids = {card.id for card in hand_cards}
-    drawn_card_ids = {
+def _drawn_card_ids(plays, participant_id):
+    return {
         int(play["cardId"])
         for play in plays
         if play["participantId"] == participant_id
@@ -711,7 +706,16 @@ def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
         and play["sourceLane"] is not None
         and play["sourceLane"] < 0
     }
-    missing_card_ids = drawn_card_ids - hand_card_ids
+
+
+def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
+    """A draw that empties the deck runs the special sequence, which shuffles
+    the drawn card back into the deck before this render; the drawn card still
+    renders in the hand with its deck position as source, so the draw's
+    deck->hand flight plays before the special timeline. Serves the player's
+    own hand and every enemy hand."""
+    hand_card_ids = {card.id for card in hand_cards}
+    missing_card_ids = _drawn_card_ids(plays, participant_id) - hand_card_ids
     if not missing_card_ids:
         return hand_cards
     plays_by_card = {int(play["cardId"]): play for play in plays}
@@ -722,6 +726,25 @@ def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
         _mark_card_as_loading(card, plays_by_card[card.id])
         hand_cards.append(card)
     return hand_cards
+
+
+def _pre_shuffle_cards_by_participant(timeline_steps, action_plays):
+    """Group the timeline's shuffle-back entries per participant, leaving out
+    the cards the draw plays already restore into the hand for their
+    deck->hand flight; context_board renders the remaining shuffled-back
+    cards on their pre-shuffle lanes."""
+    pre_shuffle_cards = {}
+    for step in timeline_steps or []:
+        if step["kind"] != "shuffle-back":
+            continue
+        drawn_card_ids = _drawn_card_ids(action_plays or [], step["participantId"])
+        entries = pre_shuffle_cards.setdefault(step["participantId"], [])
+        entries.extend(
+            card
+            for card in step["affectedCards"]
+            if card["cardId"] not in drawn_card_ids
+        )
+    return pre_shuffle_cards
 
 
 def _update_played_cards(lane_rows, plays):

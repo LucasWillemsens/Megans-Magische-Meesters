@@ -1334,6 +1334,56 @@ class BattleFlowTests(BattleBoardFixture):
         deck_card.state.refresh_from_db()
         self.assertTrue(deck_card.state.inDeck)
 
+    def test_special_sequence_render_keeps_board_cards_on_lanes_until_shuffle_back(self):
+        """A user story: my deck runs out mid-draw and my special fires. The
+        board I get back still shows my untrusted lane cards face up on
+        their lanes, with only the drawn card flying out of the deck; the
+        timeline's shuffle-back step carries every shuffled card's lane,
+        ordinal and deck destination, so the cards vanish into the deck
+        only when that step plays."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [0, 0], 0
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        for ordinal, lane_game_card in enumerate(lane_game_cards, start=1):
+            card_tags = self._visible_card_tags(lane_game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
+        self.assertIn("Deck: 1 | Hand: 1", content)
+
+        timeline = self._board_timeline(content)
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
+        )
+
+        for game_card in lane_game_cards + [deck_game_card]:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.inDeck)
+
     def test_static_hand_card_uses_the_same_css_face_as_field_cards(self):
         for card in self.human_cards + self.bot_cards:
             card.artSource = "static"
@@ -1790,6 +1840,27 @@ class BattleFlowTests(BattleBoardFixture):
         deck_game_card.state.save()
         return lane_game_cards, deck_game_card
 
+    def _board_timeline(self, content):
+        """The board render's parsed special timeline, or None."""
+        timeline_match = re.search(
+            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
+            content,
+            re.DOTALL,
+        )
+        return (
+            json.loads(timeline_match.group(1)) if timeline_match else None
+        )
+
+    def _visible_card_tags(self, game_card_id, content):
+        """The rendered li tags of a card that are not loading-hidden."""
+        return [
+            tag
+            for tag in re.findall(
+                r'<li[^>]*data-card-id="%d"[^>]*>' % game_card_id, content
+            )
+            if "loading" not in tag
+        ]
+
     def _enemy_phase_timeline(self):
         """End the player's turn and read the enemy-phase board render with
         its parsed special timeline."""
@@ -1797,15 +1868,7 @@ class BattleFlowTests(BattleBoardFixture):
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
         self.client.post(end_turn_url, {"action": "end_turn"})
         response = self.client.get(board_url)
-        timeline_match = re.search(
-            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
-            response.content.decode(),
-            re.DOTALL,
-        )
-        timeline = (
-            json.loads(timeline_match.group(1)) if timeline_match else None
-        )
-        return response, timeline
+        return response, self._board_timeline(response.content.decode())
 
     def test_bot_last_card_draw_renders_drawn_card_loading_before_specials(self):
         """The bot's last-card draw plays its deck->hand flight before the
@@ -1866,6 +1929,43 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn(
             deck_game_card.id,
             [card["cardId"] for card in timeline[2]["affectedCards"]],
+        )
+
+    def test_bot_special_sequence_render_keeps_bot_board_cards_on_lanes(self):
+        """The bot's special plays out over an intact bot board: its
+        untrusted lane cards stay face up on their lanes and only the drawn
+        card flies out of the bot's deck, so the timeline's shuffle-back
+        step alone carries the cards into the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.bot_participant, [0, 0], 0
+        )
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        for ordinal, lane_game_card in enumerate(lane_game_cards, start=1):
+            card_tags = self._visible_card_tags(lane_game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+        self.assertIn("Deck: 1 | Hand: 1", content)
+
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
         )
 
     def test_bot_spd_special_renders_flee_timeline_during_enemy_phase(self):
@@ -2037,6 +2137,52 @@ class BattleFlowTests(BattleBoardFixture):
         response = self.client.get(board_url)
         self.assertNotContains(response, "specialPending")
         self.assertNotContains(response, "timelineSteps")
+
+    def test_continue_special_render_keeps_board_cards_on_lanes(self):
+        """A user story: with specials autochoose off, continuing my paused
+        special resolves it over an intact board: every card the special
+        shuffles back still sits face up on its pre-shuffle lane —
+        including the drawn card the master plan played — so only the
+        timeline's shuffle-back step flies them into the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [0, 0], 0
+        )
+
+        self.client.post(draw_url, {"action": "draw"})
+        response = self.client.post(draw_url, {"action": "continue_special"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertIn("Deck: 0 | Hand: 0", content)
+        for ordinal, game_card in enumerate(lane_game_cards + [deck_game_card], start=1):
+            card_tags = self._visible_card_tags(game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+
+        timeline = self._board_timeline(content)
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
+        )
 
     def test_autochoose_off_pauses_bot_special_until_continue(self):
         """A user story: with specials autochoose off, the bot's last-card

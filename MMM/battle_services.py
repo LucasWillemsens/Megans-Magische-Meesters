@@ -400,8 +400,25 @@ def chunk_hand_cards(hand_cards):
     ] or [[]]
 
 
-def context_board(game_cards, participant_id):
+def context_board(game_cards, participant_id, pre_shuffle_cards=None):
+    """Build one participant's board render.
+
+    pre_shuffle_cards holds the shuffle-back timeline entries of a special
+    sequence (cardId, sourceLane, sourceOrdinal) for cards the server has
+    already shuffled into the deck: they render back on their pre-shuffle
+    lane or hand position and stay out of the deck presentation, so the
+    board keeps its pre-shuffle look until the client plays the
+    shuffle-back step that flies them into the deck."""
     user_cards = [gameCard for gameCard in game_cards if gameCard.user_id == participant_id]
+    pre_shuffle_entries = {card["cardId"]: card for card in pre_shuffle_cards or []}
+    for game_card in user_cards:
+        pre_shuffle_entry = pre_shuffle_entries.get(game_card.id)
+        if pre_shuffle_entry is not None:
+            game_card.state.inDeck = False
+            game_card.state.lane = pre_shuffle_entry["sourceLane"]
+            game_card.state.laneOrdinal = pre_shuffle_entry["sourceOrdinal"]
+            if pre_shuffle_entry["sourceLane"] > 0:
+                game_card.state.faceDown = False
     hand_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 0]
     intelligence_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 1]
     speed_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 2]
