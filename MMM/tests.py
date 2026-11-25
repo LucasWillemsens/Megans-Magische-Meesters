@@ -1765,6 +1765,14 @@ console.log('enemy turn end-turn skip ok');
         self.assertIn("Deck: 1 | Hand: 1", content)
 
         timeline = self._board_timeline(content)
+        int_effect = timeline[1]["affectedCards"]
+        self.assertEqual(len(int_effect), 1)
+        self.assertEqual(int_effect[0]["cardId"], deck_game_card.id)
+        self.assertEqual(int_effect[0]["sourceLane"], 0)
+        self.assertEqual(int_effect[0]["sourceOrdinal"], 1)
+        self.assertEqual(int_effect[0]["destinationLane"], 1)
+        self.assertEqual(int_effect[0]["destinationOrdinal"], 3)
+        self.assertFalse(int_effect[0]["flipFaceUp"])
         shuffle_cards = {
             card["cardId"]: (
                 card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
@@ -1853,6 +1861,123 @@ console.log('enemy turn end-turn skip ok');
         self.assertIsNotNone(loading_tag)
         self.assertIn(f'data-card-id="{lane_game_cards[2].id}"', loading_tag.group(0))
         self.assertNotContains(response, 'id="timelineSteps"')
+
+    def test_int_special_plays_hand_cards_face_up_into_their_lanes_until_shuffle_back(self):
+        """A user story: my deck runs out mid-draw while I still hold cards
+        and my intelligence lane dominates. The master plan plays my hand
+        cards onto their own type lanes face up — each card-effect entry
+        flies it out of its hand slot with no flip — and the board keeps
+        those played cards on their lanes until the timeline's shuffle-back
+        step returns them to the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id
+        ).delete()
+
+        def stage_card(lane, ordinal, card_type, face_down, in_deck=False):
+            card = Card.objects.create(
+                title=f"int-special-lane{lane}-ord{ordinal}",
+                artSource="",
+                cardType=card_type,
+            )
+            game_card = GameCard.create(card.id, self.game.id, self.human_participant.id)
+            game_card.save()
+            game_card.state.inDeck = in_deck
+            game_card.state.lane = lane
+            game_card.state.laneOrdinal = ordinal
+            game_card.state.faceDown = face_down
+            game_card.state.trusted = False
+            game_card.state.save()
+            return game_card
+
+        lane_game_cards = [
+            stage_card(1, 1, 0, face_down=False),
+            stage_card(1, 2, 0, face_down=False),
+        ]
+        hand_game_cards = [
+            stage_card(0, 1, 0, face_down=True),
+            stage_card(0, 2, 1, face_down=True),
+        ]
+        deck_game_card = stage_card(-1, 0, 3, face_down=True, in_deck=True)
+
+        def drawn_card_last(cards):
+            cards.sort(key=lambda card: card.id == deck_game_card.id)
+
+        with mock.patch("MMM.battle_services.random.shuffle", side_effect=drawn_card_last):
+            response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        timeline = self._board_timeline(content)
+        self.assertEqual(
+            [step["kind"] for step in timeline],
+            ["special-trigger", "card-effect", "shuffle-back"],
+        )
+        int_effect = {card["cardId"]: card for card in timeline[1]["affectedCards"]}
+        self.assertEqual(
+            set(int_effect), {hand_game_cards[0].id, hand_game_cards[1].id}
+        )
+        self.assertEqual(
+            int_effect[hand_game_cards[0].id],
+            {
+                "cardId": hand_game_cards[0].id,
+                "sourceLane": 0,
+                "sourceOrdinal": 1,
+                "destinationLane": 1,
+                "destinationOrdinal": 3,
+                "flipFaceUp": False,
+                "trust": False,
+            },
+        )
+        self.assertEqual(
+            int_effect[hand_game_cards[1].id],
+            {
+                "cardId": hand_game_cards[1].id,
+                "sourceLane": 0,
+                "sourceOrdinal": 2,
+                "destinationLane": 2,
+                "destinationOrdinal": 1,
+                "flipFaceUp": False,
+                "trust": False,
+            },
+        )
+
+        for game_card, lane_number, ordinal in (
+            (hand_game_cards[0], 1, 3),
+            (hand_game_cards[1], 2, 1),
+        ):
+            card_tags = self._visible_card_tags(game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn(f'data-source-lane="{lane_number}"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                hand_game_cards[0].id: (1, 3, -1),
+                hand_game_cards[1].id: (2, 1, -1),
+                deck_game_card.id: (0, 3, -1),
+            },
+        )
+        for game_card in lane_game_cards + hand_game_cards + [deck_game_card]:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.inDeck)
 
     def test_shuffle_board_returns_combined_cards_in_shuffled_deck_order(self):
         """shuffleBoard sweeps untrusted face-up board cards and hand cards
@@ -2495,8 +2620,11 @@ console.log('enemy turn end-turn skip ok');
         self.assertIn("enacts master plan", content)
         int_effect = timeline[1]["affectedCards"]
         self.assertEqual(int_effect[0]["cardId"], deck_game_card.id)
+        self.assertEqual(int_effect[0]["sourceLane"], 0)
+        self.assertEqual(int_effect[0]["sourceOrdinal"], 1)
         self.assertEqual(int_effect[0]["destinationLane"], 1)
-        self.assertTrue(int_effect[0]["flipFaceUp"])
+        self.assertEqual(int_effect[0]["destinationOrdinal"], 3)
+        self.assertFalse(int_effect[0]["flipFaceUp"])
         self.assertIn(
             deck_game_card.id,
             [card["cardId"] for card in timeline[2]["affectedCards"]],
@@ -7419,6 +7547,39 @@ console.log('enemy deck play flight face ok');
             fly_to_deck.index('document.body.appendChild(duplicate)'),
             fly_to_deck.index('[data-card-id="${cardInfo.cardId}"]'),
             "the real card may only hide once the clone has taken over its slot",
+        )
+
+    def test_int_play_lands_the_real_card_in_its_destination_lane(self):
+        """A special-timeline play flies the real card into its played lane.
+
+        The board renders the played card either on its lane already or, for
+        the freshly drawn card, still in the hand for its deck->hand flight.
+        The card-effect step must place the real element hidden at its
+        destination slot before the duplicate departs the hand, so the
+        flight lands on the card in the lane, where it stays until the
+        shuffle-back wave carries it into the deck.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        effect = _extract_js_brace_block(loading_js, '_animateCardEffect(cardInfo')
+        self.assertIn('this._placeCardAtDestinationLane(element, cardInfo)', effect)
+        self.assertLess(
+            effect.index('this._placeCardAtDestinationLane(element, cardInfo)'),
+            effect.index('duplicateCard(element, sourceLane, sourceOrdinal)'),
+            "the real card must sit at its destination before the flight lands on it",
+        )
+        placement = _extract_js_brace_block(loading_js, '_placeCardAtDestinationLane(element, cardInfo) {')
+        self.assertIn(
+            'findCardRowForOrdinal(laneElement, cardInfo.destinationOrdinal', placement
+        )
+        self.assertIn("classList.add('loading')", placement)
+        self.assertIn(
+            'laneRow.insertBefore(element, laneRow.children[insertIndex] ?? null)',
+            placement,
         )
 
     def test_animation_skip_and_pause_controls(self):

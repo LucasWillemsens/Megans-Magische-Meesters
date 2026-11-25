@@ -217,14 +217,14 @@ def run_specials(participant, timeline=None):
 
 def run_int_special(participant, count, timeline=None):
     from MMM.special_timeline import build_int_timeline
-    hand_cards = list(GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0))
+    hand_cards = list(GameCard.objects.filter(game_id=participant.getGame().id, user_id=participant.id, state__lane=0).select_related("state"))
     random.shuffle(hand_cards)
     chosen = hand_cards[:min(count, len(hand_cards))]
-    chosen_ids = [card.id for card in chosen]
+    played_cards = [{"cardId": card.id, "sourceOrdinal": card.state.laneOrdinal} for card in chosen]
     for card in chosen:
         participant.playCard(card.id, flipFaceUp=True, specialClause=True)
     if timeline is not None:
-        build_int_timeline(participant, count, timeline, card_ids=chosen_ids)
+        build_int_timeline(participant, count, timeline, played_cards=played_cards)
 
 
 def run_spd_special(participant, speed, power, opponent_id=None, timeline=None):

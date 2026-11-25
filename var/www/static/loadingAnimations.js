@@ -643,6 +643,10 @@ class loadingAnimationsSystem {
         // Use duplicateCard for flight animations
         const sourceLane = cardInfo.sourceLane;
         const sourceOrdinal = cardInfo.sourceOrdinal;
+        // A play that moves the card onto a lane puts the real element at its
+        // destination slot first, hidden, so the flight lands on the card in
+        // the lane where it stays until the shuffle-back wave takes it.
+        this._placeCardAtDestinationLane(element, cardInfo);
         // Create duplicate flying from source to the element's current position
         const duplicate = duplicateCard(element, sourceLane, sourceOrdinal);
         if (duplicate) {
@@ -668,6 +672,26 @@ class loadingAnimationsSystem {
                 duplicate.classList.add('to-original');
             });
         }
+    }
+
+    _placeCardAtDestinationLane(element, cardInfo) {
+        const laneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
+        const destinationLane = Number.parseInt(cardInfo.destinationLane, 10);
+        if (!laneNames[destinationLane] || destinationLane === Number.parseInt(cardInfo.sourceLane, 10)) {
+            return;
+        }
+        const enemyBoard = element.closest('.enemyBoard');
+        const laneElement = enemyBoard
+            ? enemyBoard.querySelector(`.lane.${laneNames[destinationLane]}`)
+            : document.querySelector(`.playerScreen .playerBoard .lane.${laneNames[destinationLane]}`);
+        const laneRow = laneElement ? findCardRowForOrdinal(laneElement, cardInfo.destinationOrdinal, 5) : null;
+        if (!laneRow) return;
+        element.classList.add('loading');
+        const insertIndex = Math.min(
+            Math.max(0, Number.parseInt(cardInfo.destinationOrdinal, 10) - 1),
+            laneRow.children.length,
+        );
+        laneRow.insertBefore(element, laneRow.children[insertIndex] ?? null);
     }
 
     _playParticipantEffectStep(step, duration) {
