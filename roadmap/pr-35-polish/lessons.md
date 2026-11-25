@@ -1,5 +1,8 @@
 # pr-35-polish lessons
 
+## 2026-11-25 — Game-rule change confirmed during the int-special flight fix
+- A speed rush that triggers the defender's specials now ends with a shuffle-back of the DEFENDER's board+hand into the defender's deck (`build_shuffle_step(opponent)` + `opponent.shuffleBoard()` in `run_spd_special`) even though the defender's own deck did not deplete — every rushed opponent sweeps their eligible cards after their triggered specials, before the bot's own sweep. Deliberate, user-approved scope decision made during the int-special flight fix.
+
 ## 2026-11-25 — UX decisions confirmed by the user
 - Enemy-phase End turn stays usable and acts as the working Skip button (disabled-button-affordance × enemy-turn-skip reconciliation).
 - Draw stays available during the `playerMoves` animation; it is blocked only at zero draw allowance, empty deck, or a waiting special.

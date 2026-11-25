@@ -743,19 +743,30 @@ def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
 def _pre_shuffle_cards_by_participant(timeline_steps, action_plays):
     """Group the timeline's shuffle-back entries per participant, leaving out
     the cards the draw plays already restore into the hand for their
-    deck->hand flight; context_board renders the remaining shuffled-back
-    cards on their pre-shuffle lanes."""
+    deck->hand flight; a card a card-effect step plays out of the hand
+    keeps its hand slot for the render instead of its played lane, so it
+    stays visible in the hand until its flight departs and lands in the
+    lane; context_board renders the remaining shuffled-back cards on their
+    pre-shuffle lanes and hand slots."""
     pre_shuffle_cards = {}
+    played_hand_ordinals = {}
     for step in timeline_steps or []:
+        if step["kind"] == "card-effect":
+            for card in step["affectedCards"]:
+                if card["sourceLane"] == 0 and card["destinationLane"] > 0:
+                    played_hand_ordinals.setdefault(step["participantId"], {})[card["cardId"]] = card["sourceOrdinal"]
+            continue
         if step["kind"] != "shuffle-back":
             continue
         drawn_card_ids = _drawn_card_ids(action_plays or [], step["participantId"])
+        hand_ordinals = played_hand_ordinals.get(step["participantId"], {})
         entries = pre_shuffle_cards.setdefault(step["participantId"], [])
-        entries.extend(
-            card
-            for card in step["affectedCards"]
-            if card["cardId"] not in drawn_card_ids
-        )
+        for card in step["affectedCards"]:
+            if card["cardId"] in drawn_card_ids:
+                continue
+            if card["cardId"] in hand_ordinals:
+                card = {**card, "sourceLane": 0, "sourceOrdinal": hand_ordinals[card["cardId"]]}
+            entries.append(card)
     return pre_shuffle_cards
 
 

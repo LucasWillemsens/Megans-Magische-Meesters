@@ -228,7 +228,7 @@ def run_int_special(participant, count, timeline=None):
 
 
 def run_spd_special(participant, speed, power, opponent_id=None, timeline=None):
-    from MMM.special_timeline import build_spd_timeline
+    from MMM.special_timeline import build_shuffle_step, build_spd_timeline
     opponent = participant.getGame().history.participants.exclude(id=participant.id).filter(defeated=False, fled=False).first()
     if opponent_id is not None:
         opponent = participant.getGame().history.participants.get(id=opponent_id)
@@ -240,6 +240,8 @@ def run_spd_special(participant, speed, power, opponent_id=None, timeline=None):
     if opponent_power < power:
         response = build_spd_timeline(participant, speed, power, opponent, steps)
         run_specials(opponent, timeline)
+        steps.extend(build_shuffle_step(opponent))
+        opponent.shuffleBoard()
         return response
     if opponent_spd < speed:
         participant.flee()

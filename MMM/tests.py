@@ -1865,9 +1865,9 @@ console.log('enemy turn end-turn skip ok');
     def test_int_special_plays_hand_cards_face_up_into_their_lanes_until_shuffle_back(self):
         """A user story: my deck runs out mid-draw while I still hold cards
         and my intelligence lane dominates. The master plan plays my hand
-        cards onto their own type lanes face up — each card-effect entry
-        flies it out of its hand slot with no flip — and the board keeps
-        those played cards on their lanes until the timeline's shuffle-back
+        cards onto their own type lanes face up: the board keeps them in
+        my hand at their slots until the timeline's card-effect step flies
+        each one out of its hand slot with no flip, and the shuffle-back
         step returns them to the deck."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1945,14 +1945,11 @@ console.log('enemy turn end-turn skip ok');
             },
         )
 
-        for game_card, lane_number, ordinal in (
-            (hand_game_cards[0], 1, 3),
-            (hand_game_cards[1], 2, 1),
-        ):
+        for hand_ordinal, game_card in enumerate(hand_game_cards, start=1):
             card_tags = self._visible_card_tags(game_card.id, content)
             self.assertEqual(len(card_tags), 1)
-            self.assertIn(f'data-source-lane="{lane_number}"', card_tags[0])
-            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+            self.assertIn('data-source-lane="0"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{hand_ordinal}"', card_tags[0])
 
         loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
         self.assertIsNotNone(loading_tag)
@@ -2691,19 +2688,54 @@ console.log('enemy turn end-turn skip ok');
         self.assertTrue(deck_game_card.state.inDeck)
 
     def test_bot_spd_rush_down_renders_opponent_specials_during_enemy_phase(self):
-        """A bot whose speed special rushes the player down chains into the
-        player's own special; both participants' trigger steps ride the one
-        timeline that the enemy-phase render plays."""
+        """A user story: the bot draws its last card and its speed special
+        rushes me down, which starts my own specials mid-enemy-turn: my
+        intelligence lane dominates, so my master plan plays one of my hand
+        cards — the board keeps that card in my hand until the timeline's
+        card-effect flight carries it onto my lane — and after my specials
+        the shuffle-back wave returns it and my remaining hand to my deck,
+        before the bot's own sweep closes the sequence."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
         self._stage_last_card_draw(self.bot_participant, [1, 1, 3], 1)
+        GameCard.objects.filter(
+            game_id=self.game.id, user_id=self.human_participant.id
+        ).delete()
 
-        response, timeline = self._enemy_phase_timeline()
+        def stage_card(title, lane, ordinal, card_type, face_down, trusted=False):
+            card = Card.objects.create(title=title, artSource="", cardType=card_type)
+            game_card = GameCard.create(card.id, self.game.id, self.human_participant.id)
+            game_card.save()
+            game_card.state.inDeck = False
+            game_card.state.lane = lane
+            game_card.state.laneOrdinal = ordinal
+            game_card.state.faceDown = face_down
+            game_card.state.trusted = trusted
+            game_card.state.save()
+            return game_card
+
+        trusted_game_card = stage_card(
+            "Human-start", 1, 1, 0, face_down=False, trusted=True
+        )
+        played_game_card = stage_card("Human-hand-1", 0, 1, 0, face_down=True)
+        kept_game_card = stage_card("Human-hand-2", 0, 2, 0, face_down=True)
+
+        def played_card_first(cards):
+            cards.sort(key=lambda card: card.id == kept_game_card.id)
+
+        with mock.patch(
+            "MMM.battle_services.random.shuffle", side_effect=played_card_first
+        ):
+            response, timeline = self._enemy_phase_timeline()
         content = response.content.decode()
 
         self.assertContains(response, 'data-phase="enemy"')
         self.assertIn("rushes down", content)
         self.assertIn("enacts master plan", content)
+        self.assertEqual(
+            [step["kind"] for step in timeline],
+            ["special-trigger", "special-trigger", "card-effect", "shuffle-back", "shuffle-back"],
+        )
         trigger_participants = [
             step["participantId"]
             for step in timeline
@@ -2713,7 +2745,48 @@ console.log('enemy turn end-turn skip ok');
             trigger_participants,
             [self.bot_participant.id, self.human_participant.id],
         )
-        self.assertEqual(timeline[-1]["kind"], "shuffle-back")
+        int_effect = timeline[2]["affectedCards"]
+        self.assertEqual(len(int_effect), 1)
+        self.assertEqual(int_effect[0]["cardId"], played_game_card.id)
+        self.assertEqual(int_effect[0]["sourceLane"], 0)
+        self.assertEqual(int_effect[0]["sourceOrdinal"], 1)
+        self.assertEqual(int_effect[0]["destinationLane"], 1)
+        self.assertEqual(int_effect[0]["destinationOrdinal"], 2)
+        shuffle_steps = [step for step in timeline if step["kind"] == "shuffle-back"]
+        self.assertEqual(
+            [step["participantId"] for step in shuffle_steps],
+            [self.human_participant.id, self.bot_participant.id],
+        )
+        defender_shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in shuffle_steps[0]["affectedCards"]
+        }
+        self.assertEqual(
+            defender_shuffle_cards,
+            {
+                played_game_card.id: (1, 2, -1),
+                kept_game_card.id: (0, 2, -1),
+            },
+        )
+
+        for hand_ordinal, game_card in ((1, played_game_card), (2, kept_game_card)):
+            card_tags = self._visible_card_tags(game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="0"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{hand_ordinal}"', card_tags[0])
+        trusted_tags = self._visible_card_tags(trusted_game_card.id, content)
+        self.assertEqual(len(trusted_tags), 1)
+        self.assertIn("trustedCard", trusted_tags[0])
+        self.assertIn("Deck: 0 | Hand: 2", content)
+
+        played_game_card.state.refresh_from_db()
+        self.assertTrue(played_game_card.state.inDeck)
+        kept_game_card.state.refresh_from_db()
+        self.assertTrue(kept_game_card.state.inDeck)
+        trusted_game_card.state.refresh_from_db()
+        self.assertFalse(trusted_game_card.state.inDeck)
         self.bot_participant.refresh_from_db()
         self.assertFalse(self.bot_participant.fled)
         self.human_participant.refresh_from_db()
@@ -2837,12 +2910,13 @@ console.log('enemy turn end-turn skip ok');
         self.assertNotContains(response, "specialPending")
         self.assertNotContains(response, "timelineSteps")
 
-    def test_continue_special_render_keeps_board_cards_on_lanes(self):
+    def test_continue_special_render_keeps_cards_where_the_special_found_them(self):
         """A user story: with specials autochoose off, continuing my paused
-        special resolves it over an intact board: every card the special
-        shuffles back still sits face up on its pre-shuffle lane —
-        including the drawn card the master plan played — so only the
-        timeline's shuffle-back step flies them into the deck."""
+        special resolves it over the board exactly as I left it: my lane
+        cards still sit face up on their lanes and the drawn card the
+        master plan played still sits in my hand where the draw left it —
+        only the timeline's steps move them, ending in the shuffle-back
+        wave into the deck."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
 
@@ -2860,12 +2934,16 @@ console.log('enemy turn end-turn skip ok');
 
         self.assertContains(response, 'data-phase="playerMoves"')
         self.assertContains(response, 'id="timelineSteps"')
-        self.assertIn("Deck: 0 | Hand: 0", content)
-        for ordinal, game_card in enumerate(lane_game_cards + [deck_game_card], start=1):
+        self.assertIn("Deck: 0 | Hand: 1", content)
+        for ordinal, game_card in enumerate(lane_game_cards, start=1):
             card_tags = self._visible_card_tags(game_card.id, content)
             self.assertEqual(len(card_tags), 1)
             self.assertIn('data-source-lane="1"', card_tags[0])
             self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+        drawn_card_tags = self._visible_card_tags(deck_game_card.id, content)
+        self.assertEqual(len(drawn_card_tags), 1)
+        self.assertIn('data-source-lane="0"', drawn_card_tags[0])
+        self.assertIn('data-source-ordinal="1"', drawn_card_tags[0])
 
         timeline = self._board_timeline(content)
         shuffle_cards = {
