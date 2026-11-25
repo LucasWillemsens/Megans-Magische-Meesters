@@ -17,9 +17,12 @@
     "behavior",
     "canceling",
     "card",
+    "cards",
     "chase",
+    "choosing",
     "consuming",
     "contact",
+    "continuously",
     "cookies",
     "correctly",
     "create",
@@ -31,9 +34,11 @@
     "discovery",
     "double",
     "drag",
+    "dragging",
     "draw",
     "duplicate",
     "effects",
+    "eligible",
     "encrypting",
     "evolve",
     "experiment",
@@ -44,11 +49,14 @@
     "google",
     "grayscale",
     "grey",
+    "hand",
     "history",
     "hold",
+    "human",
     "includes",
     "interactions",
     "label",
+    "lanes",
     "link",
     "loaded",
     "loading",
@@ -62,6 +70,7 @@
     "modify",
     "modules",
     "mostly",
+    "number",
     "order",
     "ordering",
     "overpowering",
@@ -81,6 +90,7 @@
     "rematch",
     "rematches",
     "reordering",
+    "repository",
     "resolution",
     "roaming",
     "rolls",
@@ -96,17 +106,23 @@
     "snapshot",
     "soul",
     "sound",
+    "staging",
     "styling",
     "supportive",
     "symbol",
     "tactical",
+    "test",
     "tokens",
+    "touch",
+    "trigger",
     "upgrade",
     "victory",
     "workflows",
     "zoom"
   ],
   "paths": [
+    "agent-loops/continuous-loop",
+    "agent-loops/per-pr-test-environment",
     "later-actions/click-drag-interactions",
     "later-actions/lootpile-results",
     "later-actions/pursuit-flee-rules",
@@ -121,6 +137,7 @@
     "low-prio/sound-design/audio-level-balance",
     "low-prio/sound-design/interaction-sound-design",
     "low-prio/sound-design/record-sound-effects",
+    "mobile-board-experience/mobile-drag-drop",
     "mobile-board-experience/screen-fit",
     "multiplayer-account/cookie-state-safety",
     "multiplayer-account/frontend-key-encryption",
@@ -232,8 +249,16 @@
       "painted-pillars-site"
     ],
     [
+      "cards",
+      "mobile-board-experience/mobile-drag-drop"
+    ],
+    [
       "chase",
       "later-actions/pursuit-flee-rules"
+    ],
+    [
+      "choosing",
+      "agent-loops/continuous-loop"
     ],
     [
       "consuming",
@@ -242,6 +267,10 @@
     [
       "contact",
       "mobile-board-experience/screen-fit"
+    ],
+    [
+      "continuously",
+      "agent-loops/continuous-loop"
     ],
     [
       "cookies",
@@ -288,6 +317,10 @@
       "later-actions/click-drag-interactions"
     ],
     [
+      "dragging",
+      "mobile-board-experience/mobile-drag-drop"
+    ],
+    [
       "draw",
       "mobile-board-experience/screen-fit"
     ],
@@ -298,6 +331,10 @@
     [
       "effects",
       "low-prio/sound-design/record-sound-effects"
+    ],
+    [
+      "eligible",
+      "agent-loops/per-pr-test-environment"
     ],
     [
       "encrypting",
@@ -340,12 +377,20 @@
       "mobile-board-experience/screen-fit"
     ],
     [
+      "hand",
+      "mobile-board-experience/mobile-drag-drop"
+    ],
+    [
       "history",
       "low-prio/customization-card-systems/upgrade-requirements"
     ],
     [
       "hold",
       "mobile-board-experience/screen-fit"
+    ],
+    [
+      "human",
+      "agent-loops/continuous-loop"
     ],
     [
       "includes",
@@ -358,6 +403,10 @@
     [
       "label",
       "pre-battle-deck-flow/deck-page/editable-meta"
+    ],
+    [
+      "lanes",
+      "mobile-board-experience/mobile-drag-drop"
     ],
     [
       "link",
@@ -416,6 +465,10 @@
       "refactor-parallel-project/dynamic-rules"
     ],
     [
+      "number",
+      "agent-loops/per-pr-test-environment"
+    ],
+    [
       "order",
       "multiplayer-account/turn-order-async-skip"
     ],
@@ -434,6 +487,10 @@
     [
       "painted",
       "painted-pillars-site"
+    ],
+    [
+      "paintedpillars",
+      "agent-loops/per-pr-test-environment"
     ],
     [
       "paintedpillars",
@@ -500,6 +557,10 @@
       "pre-battle-deck-flow/deck-page/drag-drop-ordering"
     ],
     [
+      "repository",
+      "agent-loops/per-pr-test-environment"
+    ],
+    [
       "resolution",
       "tests-and-reliability/challenge-lifecycle"
     ],
@@ -560,6 +621,10 @@
       "low-prio/sound-design/record-sound-effects"
     ],
     [
+      "staging",
+      "mobile-board-experience/mobile-drag-drop"
+    ],
+    [
       "styling",
       "mobile-board-experience/screen-fit"
     ],
@@ -576,8 +641,20 @@
       "later-actions/tactical-card-selection"
     ],
     [
+      "test",
+      "agent-loops/per-pr-test-environment"
+    ],
+    [
       "tokens",
       "multiplayer-account/secure-account-links"
+    ],
+    [
+      "touch",
+      "mobile-board-experience/mobile-drag-drop"
+    ],
+    [
+      "trigger",
+      "agent-loops/continuous-loop"
     ],
     [
       "upgrade",

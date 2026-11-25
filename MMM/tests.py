@@ -15003,8 +15003,9 @@ class TitleGreetingTests(TestCase):
 
 class BoardCardPresentationTests(BattleBoardFixture):
     """Board presentation: trusted cards render on both boards in their own
-    rows, hover zoom ships enabled by default with a session toggle and its
-    entry grows in sync with the hand lift's shared transition timing, the D
+    rows, hover zoom ships enabled by default with a session toggle, keeps
+    hovered cards in place by reusing the hover lift's shared transition
+    timing, and holds its stage steady through the hover cooldown, the D
     and E shortcut holds share one session-set duration, and staged plays and
     flips move real board cards."""
 
@@ -15269,6 +15270,7 @@ class BoardCardPresentationTests(BattleBoardFixture):
 
         self.assertIn("const ZOOM_CLASS = 'card-zoomed';", zoom_js)
         self.assertIn("release()", zoom_js)
+        self.assertIn('HOVER_REMOVE_COOLDOWN_MS = 500', zoom_js)
         self.assertIn("event.key === 'Escape'", zoom_js)
         self.assertIn(
             "'.playerScreen .cardContainer:not(.ghost):not(.loading):not(.duplicate)'",
@@ -15300,13 +15302,15 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.assertIn("classList.contains('faceDown')", zoom_js)
 
     def test_zoom_stage_grows_in_sync_with_the_hand_lift(self):
-        """Hovering a card zooms it in lockstep with its selection lift.
+        """The zoom entry and the hover response share the hand lift's timing.
 
         User story: with hover zoom enabled I move the pointer onto a hand
-        card; the card lifts while the zoomed copy grows from the card's own
-        size, both over the same shared timing, so the zoom never shows up at
-        full size ahead of the lifting card. With zoom disabled no zoom style
-        applies, so the hand lift alone remains.
+        card; the card itself stays in place — the zoom stage is the hover
+        response — and the zoomed copy grows from the card's own size over
+        the same shared timing the hover transitions ease through, so the
+        zoom never shows up at full size ahead of the card's hover styling.
+        With zoom disabled no zoom style applies, so the hand lift alone
+        remains over that same timing.
         """
         with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as cards_file:
             cards_css = cards_file.read()
@@ -15381,8 +15385,84 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.assertIsNotNone(
             zoom_entry,
             "the zoom must enter from scale(1) so it starts at the hovered "
-            "card's own size and grows with the lift instead of appearing at "
-            "full size before the card has lifted"
+            "card's own size and grows with the hover response instead of "
+            "appearing at full size before the card has reacted"
+        )
+
+    def test_zoom_enabled_cards_rest_in_place_on_hover(self):
+        """Hover zoom replaces the hover lift as the card's hover response.
+
+        User story: with hover zoom enabled I sweep the pointer over a hand
+        card, a field card and a staged hologram; none of them budges — the
+        zoom stage alone answers the hover, and each suppression sits next
+        to the lift rule it neutralizes so disabling zoom (dropping the
+        .zoomCards gate) brings every lift back unchanged.
+        """
+        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as cards_file:
+            cards_css = cards_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "cardDragDrop.css")) as drag_file:
+            drag_css = drag_file.read()
+
+        zoom_hand_lift_block = cards_css[
+            cards_css.index('.playingCards.zoomCards li.cardContainer.card-hover {'):
+            cards_css.index('.playingCards li.cardContainer:focus-within:active')
+        ]
+        self.assertIn(
+            '--card-hover-lift: 0px;',
+            zoom_hand_lift_block,
+            "zoomed screens must neutralize --card-hover-lift so the rotated "
+            "hand fan stops translating hovered cards upward"
+        )
+        self.assertIn(
+            '--card-hover-lift: -30px;',
+            cards_css,
+            "the regular hover lift must stay intact for screens without zoom"
+        )
+
+        zoom_card_row_block = cards_css[
+            cards_css.index(
+                '.playingCards.zoomCards ul.cardRow li.cardContainer:not(.blocked).card-hover {'
+            ):
+            cards_css.index(
+                '.playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {'
+            )
+        ]
+        self.assertIn(
+            'transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));',
+            zoom_card_row_block,
+            "a hovered field card on a zoomed screen must hold its resting "
+            "transform instead of the lifted one"
+        )
+        self.assertNotIn(
+            'transition',
+            zoom_card_row_block,
+            "the suppression must not touch transitions: the shared "
+            "--card-hover-lift-timing keeps the hover styling in sync with "
+            "the zoom entry"
+        )
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) '
+            'rotate(var(--card-rotation, 0deg));',
+            cards_css,
+            "the regular field-card hover lift must stay intact for screens "
+            "without zoom"
+        )
+
+        zoom_hologram_block = drag_css[
+            drag_css.index('.playerScreen.zoomCards ul.hologramRow .hologram.card-hover {'):
+            drag_css.index('ul.hologramRow .hologram:focus-within {')
+        ]
+        self.assertIn(
+            'transform: rotate(var(--card-rotation, 0deg));',
+            zoom_hologram_block,
+            "a hovered staged hologram on a zoomed screen must keep its "
+            "resting transform while its card zooms"
+        )
+        self.assertIn(
+            'transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));',
+            drag_css,
+            "the regular hologram hover lift must stay intact for screens "
+            "without zoom"
         )
 
     def test_staged_play_moves_hand_card(self):
@@ -16804,7 +16884,16 @@ console.log('end turn release keys ok');
         self.assertIn('end turn release keys ok', _run_node_harness(
             harness, 'end-turn release-key hold rehearsal'))
 
-    def test_hover_zoom_opens_a_centered_viewport_sized_stage_and_releases_it(self):
+    def test_hover_zoom_opens_a_centered_stage_and_holds_it_through_the_hover_cooldown(self):
+        """Hover zoom reuses the 500 ms card hover cooldown to stay flicker-free.
+
+        User story: with hover zoom enabled I sweep the pointer quickly over
+        several cards; the zoomed stage keeps showing the card it opened on
+        until the hover cooldown passes, and no stage is created, destroyed
+        or resized mid-sweep. Once the cooldown has passed the stage follows
+        the hovered card again, still sized by the viewport, and leaving the
+        card, the screen or pressing Escape closes it as before.
+        """
         zoom_js = _read_static_asset('cardZoom.js')
 
         harness = FAKE_ELEMENT_DATASET_CORE + r"""
@@ -16822,6 +16911,9 @@ FakeElement.prototype.matches = function (selector) {
 };
 
 const zoomScaleValues = [];
+const zoomTimers = [];
+let nowMs = 1000;
+Date.now = () => nowMs;
 const fakeDocument = {
     querySelector(selector) { return body.querySelector(selector); },
     createElement(tag) {
@@ -16839,7 +16931,12 @@ const fakeDocument = {
     },
 };
 global.document = fakeDocument;
-global.window = { cardZoomManager: null, innerWidth: 1280, innerHeight: 720 };
+global.window = {
+    cardZoomManager: null,
+    innerWidth: 1280,
+    innerHeight: 720,
+    setTimeout(callback) { zoomTimers.push(callback); return zoomTimers.length; },
+};
 
 eval(__ZOOM_JS__);
 (documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
@@ -16856,6 +16953,12 @@ const hover = (target) => {
 };
 const leave = (target, relatedTarget = null) => {
     screen.eventHandlers['mouseout'].forEach((entry) => entry({ target, relatedTarget }));
+};
+const leaveScreen = () => {
+    screen.eventHandlers['mouseleave'].forEach((entry) => entry());
+};
+const fireZoomTimers = () => {
+    zoomTimers.splice(0).forEach((callback) => callback());
 };
 const pressEscape = () => {
     documentListeners['keydown'].forEach((entry) => entry({ key: 'Escape' }));
@@ -16894,15 +16997,24 @@ hover(card);
 assert('re-hovering the same card keeps the one stage',
     zoomStage() === stage && zoomScaleValues.length === 1);
 
+nowMs = 1100;
+leave(card, secondCard);
+hover(secondCard);
+assert('a quick sweep onto another card inside the hover cooldown keeps showing the first card',
+    zoomStage() === stage && zoomScaleValues.length === 1 &&
+    card.classes.has('card-zoomed') && !secondCard.classes.has('card-zoomed'));
+
+nowMs = 1600;
 hover(secondCard);
 const secondStage = zoomStage();
-assert('hovering another card swaps in a fresh stage sized for that card',
+assert('hovering another card after the cooldown swaps in a fresh stage sized for that card',
     secondStage !== null && secondStage !== stage &&
     zoomScaleValues.length === 2 && zoomScaleValues[1] === '11.2');
 assert('the swap unmarks the previous source card and marks the new one',
     !card.classes.has('card-zoomed') && secondCard.classes.has('card-zoomed'));
 
 global.window.innerHeight = 360;
+nowMs = 2100;
 hover(card);
 assert('a viewport that shrinks to 360px tall shrinks the zoomed card with it',
     zoomScaleValues.length === 3 && zoomScaleValues[2] === '2.8');
@@ -16914,9 +17026,18 @@ leave(card, cardFace);
 assert('a wiggle between the innards of the zoomed card keeps the zoom',
     zoomStage() !== null && zoomScaleValues.length === 3);
 
+nowMs = 2200;
+leave(card, null);
+assert('leaving the zoomed card inside the hover cooldown keeps the stage up',
+    zoomStage() !== null && card.classes.has('card-zoomed'));
+hover(card);
+assert('re-entering the same card inside the cooldown does not restage the zoom',
+    zoomStage() !== null && zoomScaleValues.length === 3);
+
+nowMs = 2700;
 const sizedStage = zoomStage();
 leave(card, null);
-assert('leaving the zoomed card closes the stage and unmarks the source',
+assert('leaving the zoomed card after the cooldown closes the stage and unmarks the source',
     zoomStage() === null && !card.classes.has('card-zoomed') &&
     sizedStage.parentNode === null && sizedStage.removed);
 
@@ -16926,13 +17047,29 @@ pressEscape();
 assert('Escape releases the zoomed card',
     zoomStage() === null && !card.classes.has('card-zoomed'));
 
+nowMs = 3200;
 hover(hiddenCard);
 assert('a face down card never opens a stage',
     zoomStage() === null && !hiddenCard.classes.has('card-zoomed'));
 
 hover(card);
+nowMs = 3300;
 hover(hiddenCard);
-assert('moving from a zoomed card onto a face down card releases the zoom',
+assert('moving onto a face down card inside the cooldown keeps the current zoom',
+    zoomStage() !== null && card.classes.has('card-zoomed'));
+nowMs = 3800;
+hover(hiddenCard);
+assert('moving onto a face down card after the cooldown releases the zoom',
+    zoomStage() === null && !card.classes.has('card-zoomed'));
+
+hover(card);
+nowMs = 3900;
+leaveScreen();
+assert('leaving the screen inside the cooldown keeps the stage until the cooldown runs out',
+    zoomStage() !== null && zoomTimers.length === 1);
+nowMs = 4400;
+fireZoomTimers();
+assert('the deferred release closes the stage once the hover cooldown has expired',
     zoomStage() === null && !card.classes.has('card-zoomed'));
 
 console.log('hover zoom centering ok');

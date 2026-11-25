@@ -171,6 +171,9 @@ ul.hologramRow .hologram.card-hover {
     opacity: 1;
     transition: transform 0.15s ease-out, opacity 0.15s ease-out;
 }
+.playerScreen.zoomCards ul.hologramRow .hologram.card-hover {
+    transform: rotate(var(--card-rotation, 0deg));
+}
 ul.hologramRow .hologram:focus-within {
     z-index: var(--card-focus-z-index);
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));

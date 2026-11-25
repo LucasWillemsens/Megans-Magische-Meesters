@@ -55,6 +55,9 @@
     --card-hover-lift: -30px;
     margin-top: 0;
 }
+.playingCards.zoomCards li.cardContainer.card-hover {
+    --card-hover-lift: 0px;
+}
     .playingCards li.cardContainer:focus-within:active
     {
         margin-top: -25px;
@@ -87,6 +90,9 @@
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
         transition: transform var(--card-hover-lift-timing), filter 0.15s ease-out;
+    }
+    .playingCards.zoomCards ul.cardRow li.cardContainer:not(.blocked).card-hover {
+        transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
     }
     .playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
         z-index: var(--card-focus-z-index);

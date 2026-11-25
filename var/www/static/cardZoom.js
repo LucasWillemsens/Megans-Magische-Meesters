@@ -4,18 +4,21 @@ const ZOOM_CARD_SELECTOR =
 const ZOOM_CLASS = 'card-zoomed';
 const ZOOM_STAGE_CLASS = 'cardZoomStage';
 const ZOOMED_CARD_VMIN_PERCENT = 70;
+const HOVER_REMOVE_COOLDOWN_MS = 500;
 
 class CardZoomManager {
     constructor(screen) {
         this.screen = screen;
         this.zoomedCard = null;
         this.zoomStage = null;
+        this.startedAt = null;
     }
 
     start() {
         if (!this.screen) return false;
         this.screen.addEventListener('mouseover', (event) => this.zoomCardFor(event));
         this.screen.addEventListener('mouseout', (event) => this.unzoomCardFor(event));
+        this.screen.addEventListener('mouseleave', () => this.releaseZoom());
         document.addEventListener(
             'keydown',
             (event) => {
@@ -26,11 +29,30 @@ class CardZoomManager {
         return true;
     }
 
+    onHoverCooldown() {
+        return Boolean(
+            this.startedAt && this.startedAt + HOVER_REMOVE_COOLDOWN_MS > Date.now(),
+        );
+    }
+
     zoomCardFor(event) {
         const card = event.target?.closest?.(ZOOM_CARD_SELECTOR) ?? null;
-        if (!card || card === this.zoomedCard) return;
+        if (card === this.zoomedCard) return;
+        if (this.onHoverCooldown()) return;
         this.release();
-        if (card.classList.contains('faceDown')) return;
+        if (!card || card.classList.contains('faceDown')) return;
+        this.showZoom(card);
+    }
+
+    unzoomCardFor(event) {
+        const card = event.target?.closest?.(ZOOM_CARD_SELECTOR) ?? null;
+        if (!card || card !== this.zoomedCard) return;
+        if (event.relatedTarget && card.contains(event.relatedTarget)) return;
+        if (this.onHoverCooldown()) return;
+        this.release();
+    }
+
+    showZoom(card) {
         const stage = document.createElement('div');
         stage.classList.add(ZOOM_STAGE_CLASS);
         stage.appendChild(card.cloneNode(true));
@@ -41,13 +63,17 @@ class CardZoomManager {
         this.zoomStage = stage;
         this.zoomedCard = card;
         card.classList.add(ZOOM_CLASS);
+        this.startedAt = Date.now();
     }
 
-    unzoomCardFor(event) {
-        const card = event.target?.closest?.(ZOOM_CARD_SELECTOR) ?? null;
-        if (!card || card !== this.zoomedCard) return;
-        if (event.relatedTarget && card.contains(event.relatedTarget)) return;
-        this.release();
+    releaseZoom() {
+        if (!this.zoomedCard) return;
+        const remainingMs = this.startedAt + HOVER_REMOVE_COOLDOWN_MS - Date.now();
+        if (remainingMs <= 0) {
+            this.release();
+            return;
+        }
+        window.setTimeout(() => this.release(), remainingMs);
     }
 
     release() {
