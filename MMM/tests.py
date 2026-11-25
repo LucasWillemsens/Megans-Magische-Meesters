@@ -4887,7 +4887,8 @@ console.log('staged hand ghost timing ok');
         above the cards of the other board regions, and above hover or
         blocked states on any other card, while the enemy region stays below
         the player's fixed board at rest and the zoom stage keeps displaying
-        its clone above everything.
+        its clone above everything. On the zoomed screen the focused field
+        card itself rests in place — its zoom stage is the focus response.
         """
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
         with open(os.path.join(static_dir, 'cards.css')) as css_file:
@@ -5077,8 +5078,8 @@ assert('a focused field card paints above its hovered row neighbours and the han
     paintsAbove(fieldA, fieldC, focusedField) && paintsAbove(fieldA, handB, focusedField));
 assert('a focused field card paints above the enemy boards',
     paintsAbove(fieldA, enemyA, focusedField) && paintsAbove(fieldA, enemyB, focusedField));
-assert('the focused field card keeps its focus lift above the row',
-    String(effectiveProperty(fieldA, focusedField, 'transform')).includes('- 1.5em'));
+assert('the focused field card rests in place on the zoomed screen — its zoom stage is the focus response',
+    !String(effectiveProperty(fieldA, focusedField, 'transform')).includes('- 1.5em'));
 
 assert('a flip-blocked face-down field card focused by keyboard paints above hovered neighbours',
     paintsAbove(fieldB, fieldC, focusedBlockedField));
@@ -5205,7 +5206,8 @@ console.log('focused board card stacking ok');
         )
         self.assertNotIn('OWN_SIDE_EXCLUSION_SELECTOR', hover_js)
 
-        # Keyboard focus / mouse press lifts are independent of the manager.
+        # Keyboard focus / mouse press lifts stay CSS-driven; on zoom screens
+        # focus also feeds the hover manager (pinned below).
         self.assertIn(
             '.playingCards li.cardContainer:active, .playingCards li.cardContainer:focus-within,',
             cards_css,
@@ -5366,6 +5368,20 @@ console.log('focused board card stacking ok');
         self.assertNotIn('preventDefault', hover_js)
         self.assertNotIn('stopPropagation', hover_js)
         self.assertIn('window.cardHoverManager = new CardHoverManager(screen);', hover_js)
+
+        self.assertIn('addHoverListener', hover_js)
+        self.assertIn('notifyHoverListeners', hover_js)
+        self.assertIn("const ZOOM_SCREEN_CLASS = 'zoomCards';", hover_js)
+        self.assertIn('this.container.classList.contains(ZOOM_SCREEN_CLASS)', hover_js)
+        self.assertIn("addEventListener('focusin'", hover_js)
+        self.assertIn("addEventListener('focusout'", hover_js)
+        focus_block = hover_js[
+            hover_js.index('handleFocusIn(event) {'):
+            hover_js.index('focusHoverTarget(element) {')
+        ]
+        self.assertIn('this.clearAllHover();', focus_block)
+        self.assertIn('this.applyHover(target);', focus_block)
+        self.assertIn('this.focusHoverTarget(event.relatedTarget)', focus_block)
 
         self.assertNotIn('hoverFootprint', hover_js)
         self.assertNotIn('captureFootprint', hover_js)
@@ -15258,6 +15274,8 @@ class BoardCardPresentationTests(BattleBoardFixture):
             zoom_css = css_file.read()
         with open(os.path.join(STATIC_TEST_DIR, "cardZoom.js")) as js_file:
             zoom_js = js_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "hoverCooldown.js")) as js_file:
+            hover_js = js_file.read()
 
         self.assertIn(".playerScreen.zoomCards", zoom_css)
         self.assertIn("transform: scale(var(--card-zoom-scale));", zoom_css)
@@ -15270,12 +15288,17 @@ class BoardCardPresentationTests(BattleBoardFixture):
 
         self.assertIn("const ZOOM_CLASS = 'card-zoomed';", zoom_js)
         self.assertIn("release()", zoom_js)
-        self.assertIn('HOVER_REMOVE_COOLDOWN_MS = 500', zoom_js)
         self.assertIn("event.key === 'Escape'", zoom_js)
         self.assertIn(
             "'.playerScreen .cardContainer:not(.ghost):not(.loading):not(.duplicate)'",
             zoom_js,
         )
+
+        self.assertIn("window.cardHoverManager.addHoverListener", zoom_js)
+        self.assertIn("followHoveredCard", zoom_js)
+        self.assertIn("removeAttribute('tabindex')", zoom_js)
+        self.assertNotIn("HOVER_REMOVE_COOLDOWN_MS", zoom_js)
+        self.assertIn("HOVER_REMOVE_COOLDOWN_MS = 500", hover_js)
 
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
@@ -15389,14 +15412,15 @@ class BoardCardPresentationTests(BattleBoardFixture):
             "appearing at full size before the card has reacted"
         )
 
-    def test_zoom_enabled_cards_rest_in_place_on_hover(self):
-        """Hover zoom replaces the hover lift as the card's hover response.
+    def test_zoom_enabled_cards_rest_in_place_on_hover_and_focus(self):
+        """Hover and focus zoom replace the card lifts as the card's response.
 
         User story: with hover zoom enabled I sweep the pointer over a hand
-        card, a field card and a staged hologram; none of them budges — the
-        zoom stage alone answers the hover, and each suppression sits next
-        to the lift rule it neutralizes so disabling zoom (dropping the
-        .zoomCards gate) brings every lift back unchanged.
+        card, a field card and a staged hologram, and I tab keyboard focus
+        onto them; none of them budges — the zoom stage alone answers hover
+        and focus alike — and each suppression sits next to the lift rule it
+        neutralizes so disabling zoom (dropping the .zoomCards gate) brings
+        every lift back unchanged.
         """
         with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as cards_file:
             cards_css = cards_file.read()
@@ -15462,6 +15486,51 @@ class BoardCardPresentationTests(BattleBoardFixture):
             'transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));',
             drag_css,
             "the regular hologram hover lift must stay intact for screens "
+            "without zoom"
+        )
+
+        focus_row_rule = re.search(
+            r'\.playingCards ul\.cardRow\[title="cards"\] '
+            r'li\.cardContainer:not\(\.blocked\):focus-within\s*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(
+            focus_row_rule,
+            "the regular field-card focus lift rule must stay in place for "
+            "screens without zoom"
+        )
+        self.assertIn(
+            'transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) '
+            'rotate(var(--card-rotation, 0deg));',
+            focus_row_rule.group(0),
+        )
+        zoom_focus_row_block = cards_css[
+            cards_css.index(
+                '.playingCards.zoomCards ul.cardRow[title="cards"] '
+                'li.cardContainer:not(.blocked):focus-within {'
+            ):
+            cards_css.index('.playingCards ul.cardRow li.cardContainer.ghost.card-hover {')
+        ]
+        self.assertIn(
+            'transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));',
+            zoom_focus_row_block,
+            "a focused field card on a zoomed screen must hold its resting "
+            "transform while its zoom shows"
+        )
+        zoom_focus_hologram_block = drag_css[
+            drag_css.index('.playerScreen.zoomCards ul.hologramRow .hologram:focus-within {'):
+            drag_css.index('li.cardContainer.ghost.hover {')
+        ]
+        self.assertIn(
+            'transform: rotate(var(--card-rotation, 0deg));',
+            zoom_focus_hologram_block,
+            "a focused staged hologram on a zoomed screen must keep its "
+            "resting transform while its card zooms"
+        )
+        self.assertIn(
+            'ul.hologramRow .hologram:focus-within {\n    z-index: var(--card-focus-z-index);',
+            drag_css,
+            "the regular hologram focus lift must stay intact for screens "
             "without zoom"
         )
 
@@ -16884,34 +16953,57 @@ console.log('end turn release keys ok');
         self.assertIn('end turn release keys ok', _run_node_harness(
             harness, 'end-turn release-key hold rehearsal'))
 
-    def test_hover_zoom_opens_a_centered_stage_and_holds_it_through_the_hover_cooldown(self):
-        """Hover zoom reuses the 500 ms card hover cooldown to stay flicker-free.
+    def test_hovered_and_focused_card_always_match_the_zoomed_card(self):
+        """The zoom stage shows exactly the card the hover state points at.
 
         User story: with hover zoom enabled I sweep the pointer quickly over
-        several cards; the zoomed stage keeps showing the card it opened on
-        until the hover cooldown passes, and no stage is created, destroyed
-        or resized mid-sweep. Once the cooldown has passed the stage follows
-        the hovered card again, still sized by the viewport, and leaving the
-        card, the screen or pressing Escape closes it as before.
+        several cards and the zoomed stage always shows the same card that
+        carries the hover highlight — frozen together through the cooldown,
+        moved together by one event after it — never one card highlighted
+        while another one is zoomed. Tabbing keyboard focus onto a card
+        zoomes it the same way, straight through the cooldown, and the
+        zoomed copy in the middle of the screen never joins the tab order.
+        Leaving the card, the screen or pressing Escape closes the stage as
+        before.
         """
         zoom_js = _read_static_asset('cardZoom.js')
+        hover_js = _read_static_asset('hoverCooldown.js')
 
         harness = FAKE_ELEMENT_DATASET_CORE + r"""
 const documentListeners = {};
 const body = new FakeElement('body');
 const screen = new FakeElement('div', 'playerScreen playingCards rotateHand zoomCards');
 body.appendChild(screen);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+screen.appendChild(deckHand);
 const hand = new FakeElement('ul', 'hand hand-fan');
-screen.appendChild(hand);
+deckHand.appendChild(hand);
+const endTurnButton = new FakeElement('button', 'end-turn');
+deckHand.appendChild(endTurnButton);
+const playerBoard = new FakeElement('li', 'playerBoard');
+screen.appendChild(playerBoard);
+const lane = new FakeElement('li', 'lane');
+playerBoard.appendChild(lane);
+const hologramRow = new FakeElement('ul', 'hologramRow');
+lane.appendChild(hologramRow);
+const hologram = new FakeElement('div', 'hologram');
+hologramRow.appendChild(hologram);
 
 const stripNotSegments = (part) => part.replace(/:not\([^)]*\)/g, ' ');
 FakeElement.prototype.matches = function (selector) {
     return String(selector).split(',').some((part) => part.trim() &&
         matchChainFrom(this, tokenizeChain(stripNotSegments(part.trim()))));
 };
+FakeElement.prototype.querySelectorAll = function (selector) {
+    const alternatives = String(selector).split(',').map(
+        (part) => tokenizeChain(stripNotSegments(part.trim())),
+    );
+    return descendantsInOrder(this).filter((candidate) =>
+        alternatives.some((tokens) => matchChainFrom(candidate, tokens)));
+};
 
 const zoomScaleValues = [];
-const zoomTimers = [];
+const hoverTimers = [];
 let nowMs = 1000;
 Date.now = () => nowMs;
 const fakeDocument = {
@@ -16932,12 +17024,14 @@ const fakeDocument = {
 };
 global.document = fakeDocument;
 global.window = {
+    cardHoverManager: null,
     cardZoomManager: null,
     innerWidth: 1280,
     innerHeight: 720,
-    setTimeout(callback) { zoomTimers.push(callback); return zoomTimers.length; },
+    setTimeout(callback) { hoverTimers.push(callback); return hoverTimers.length; },
 };
 
+eval(__HOVER_JS__);
 eval(__ZOOM_JS__);
 (documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
 
@@ -16945,20 +17039,30 @@ const assert = (label, condition) => {
     if (!condition) throw new Error('FAILED: ' + label);
     console.log('ok: ' + label);
 };
+const hoverManager = global.window.cardHoverManager;
 const manager = global.window.cardZoomManager;
+assert('the hover manager boots on the zoomCards screen', Boolean(hoverManager));
 assert('the zoom manager boots on the zoomCards screen', Boolean(manager));
+assert('the zoom stage rides the shared hover decision, not its own mouse listeners',
+    !screen.eventHandlers['mouseover'] && !screen.eventHandlers['mouseout']);
+assert('the zoom manager keeps no cooldown clock of its own', manager.startedAt === undefined);
+assert('keyboard focus is wired into the same decision on zoom screens',
+    Boolean(screen.eventHandlers['focusin']) && Boolean(screen.eventHandlers['focusout']));
 
-const hover = (target) => {
-    screen.eventHandlers['mouseover'].forEach((entry) => entry({ target, relatedTarget: null }));
-};
-const leave = (target, relatedTarget = null) => {
-    screen.eventHandlers['mouseout'].forEach((entry) => entry({ target, relatedTarget }));
+const mouseMove = (target) => {
+    screen.eventHandlers['mousemove'].forEach((entry) => entry({ target }));
 };
 const leaveScreen = () => {
     screen.eventHandlers['mouseleave'].forEach((entry) => entry());
 };
-const fireZoomTimers = () => {
-    zoomTimers.splice(0).forEach((callback) => callback());
+const focusCard = (target, relatedTarget = null) => {
+    screen.eventHandlers['focusin'].forEach((entry) => entry({ target, relatedTarget }));
+};
+const blurCard = (target, relatedTarget = null) => {
+    screen.eventHandlers['focusout'].forEach((entry) => entry({ target, relatedTarget }));
+};
+const fireHoverTimers = () => {
+    hoverTimers.splice(0).forEach((callback) => callback());
 };
 const pressEscape = () => {
     documentListeners['keydown'].forEach((entry) => entry({ key: 'Escape' }));
@@ -16968,18 +17072,27 @@ const zoomStage = () =>
 
 const card = new FakeElement('li', 'cardContainer');
 card.offsetHeight = 90;
+card.setAttribute('tabindex', '0');
 const cardFace = new FakeElement('div', 'card smallCard');
 card.appendChild(cardFace);
 hand.appendChild(card);
 const secondCard = new FakeElement('li', 'cardContainer');
 secondCard.offsetHeight = 45;
-secondCard.appendChild(new FakeElement('div', 'card smallCard'));
+secondCard.setAttribute('tabindex', '0');
+const secondCardFace = new FakeElement('div', 'card smallCard');
+secondCard.appendChild(secondCardFace);
 hand.appendChild(secondCard);
 const hiddenCard = new FakeElement('li', 'cardContainer faceDown');
-hiddenCard.appendChild(new FakeElement('div', 'card smallCard'));
+hiddenCard.setAttribute('tabindex', '0');
+hiddenCard.appendChild(new FakeElement('div', 'card back smallCard'));
 hand.appendChild(hiddenCard);
+const hologramCard = new FakeElement('li', 'cardContainer');
+hologramCard.offsetHeight = 60;
+hologramCard.setAttribute('tabindex', '0');
+hologramCard.appendChild(new FakeElement('div', 'card smallCard'));
+hologram.appendChild(hologramCard);
 
-hover(card);
+mouseMove(card);
 const stage = zoomStage();
 assert('hovering a card opens exactly one zoom stage on the board screen',
     stage !== null &&
@@ -16992,91 +17105,151 @@ assert('the clone lives inside the playingCards root so it keeps the card stylin
 assert('the zoom size follows the smaller viewport side: 70% of 720 over a 90px card',
     zoomScaleValues.length === 1 && zoomScaleValues[0] === '5.6');
 assert('the hovered board card is marked as the zoom source', card.classes.has('card-zoomed'));
+assert('the hovered card and the zoomed card are the same card from the start',
+    hoverManager.hoveredCard === card && manager.zoomedCard === card &&
+    card.classes.has('card-hover'));
+assert('the zoomed clone joins no tab order while the real card keeps its tabindex',
+    !stage.children[0].hasAttribute('tabindex') && card.hasAttribute('tabindex'));
 
-hover(card);
-assert('re-hovering the same card keeps the one stage',
+mouseMove(cardFace);
+assert('a wiggle between the innards of the zoomed card keeps the zoom',
     zoomStage() === stage && zoomScaleValues.length === 1);
 
 nowMs = 1100;
-leave(card, secondCard);
-hover(secondCard);
-assert('a quick sweep onto another card inside the hover cooldown keeps showing the first card',
+mouseMove(secondCard);
+assert('a quick sweep onto another card inside the hover cooldown freezes hover and zoom on the same first card',
     zoomStage() === stage && zoomScaleValues.length === 1 &&
-    card.classes.has('card-zoomed') && !secondCard.classes.has('card-zoomed'));
+    hoverManager.hoveredCard === card && manager.zoomedCard === card &&
+    card.classes.has('card-hover') && card.classes.has('card-zoomed') &&
+    !secondCard.classes.has('card-hover') && !secondCard.classes.has('card-zoomed'));
 
 nowMs = 1600;
-hover(secondCard);
+mouseMove(secondCard);
 const secondStage = zoomStage();
-assert('hovering another card after the cooldown swaps in a fresh stage sized for that card',
+assert('after the cooldown one mousemove moves the highlight and the stage to the new card together',
     secondStage !== null && secondStage !== stage &&
-    zoomScaleValues.length === 2 && zoomScaleValues[1] === '11.2');
-assert('the swap unmarks the previous source card and marks the new one',
-    !card.classes.has('card-zoomed') && secondCard.classes.has('card-zoomed'));
+    hoverManager.hoveredCard === secondCard && manager.zoomedCard === secondCard &&
+    secondCard.classes.has('card-hover') && secondCard.classes.has('card-zoomed') &&
+    !card.classes.has('card-hover') && !card.classes.has('card-zoomed'));
+assert('the swap stages a fresh clone sized for the new card',
+    zoomScaleValues.length === 2 && zoomScaleValues[1] === '11.2' &&
+    secondStage.children[0].children[0] !== secondCardFace);
 
 global.window.innerHeight = 360;
 nowMs = 2100;
-hover(card);
+mouseMove(card);
 assert('a viewport that shrinks to 360px tall shrinks the zoomed card with it',
-    zoomScaleValues.length === 3 && zoomScaleValues[2] === '2.8');
-
-leave(secondCard, null);
-assert('leaving a card that is not zoomed changes nothing', zoomStage() !== null);
-
-leave(card, cardFace);
-assert('a wiggle between the innards of the zoomed card keeps the zoom',
-    zoomStage() !== null && zoomScaleValues.length === 3);
-
-nowMs = 2200;
-leave(card, null);
-assert('leaving the zoomed card inside the hover cooldown keeps the stage up',
-    zoomStage() !== null && card.classes.has('card-zoomed'));
-hover(card);
-assert('re-entering the same card inside the cooldown does not restage the zoom',
-    zoomStage() !== null && zoomScaleValues.length === 3);
+    zoomScaleValues.length === 3 && zoomScaleValues[2] === '2.8' &&
+    manager.zoomedCard === card);
+global.window.innerHeight = 720;
 
 nowMs = 2700;
-const sizedStage = zoomStage();
-leave(card, null);
-assert('leaving the zoomed card after the cooldown closes the stage and unmarks the source',
-    zoomStage() === null && !card.classes.has('card-zoomed') &&
-    sizedStage.parentNode === null && sizedStage.removed);
+mouseMove(endTurnButton);
+assert('moving off every card releases the hover highlight and the zoom stage together',
+    zoomStage() === null && hoverManager.hoveredCard === null && manager.zoomedCard === null &&
+    !card.classes.has('card-hover') && !card.classes.has('card-zoomed'));
 
-hover(card);
-assert('hovering again reopens the stage', zoomStage() !== null);
-pressEscape();
-assert('Escape releases the zoomed card',
-    zoomStage() === null && !card.classes.has('card-zoomed'));
-
-nowMs = 3200;
-hover(hiddenCard);
-assert('a face down card never opens a stage',
-    zoomStage() === null && !hiddenCard.classes.has('card-zoomed'));
-
-hover(card);
-nowMs = 3300;
-hover(hiddenCard);
-assert('moving onto a face down card inside the cooldown keeps the current zoom',
-    zoomStage() !== null && card.classes.has('card-zoomed'));
-nowMs = 3800;
-hover(hiddenCard);
-assert('moving onto a face down card after the cooldown releases the zoom',
-    zoomStage() === null && !card.classes.has('card-zoomed'));
-
-hover(card);
-nowMs = 3900;
+mouseMove(card);
+nowMs = 2800;
 leaveScreen();
 assert('leaving the screen inside the cooldown keeps the stage until the cooldown runs out',
-    zoomStage() !== null && zoomTimers.length === 1);
+    zoomStage() !== null && hoverManager.hoveredCard === card &&
+    card.classes.has('card-hover') && hoverTimers.length === 1);
+nowMs = 3300;
+fireHoverTimers();
+assert('the deferred release closes the stage once the shared hover cooldown has expired',
+    zoomStage() === null && !card.classes.has('card-hover') && !card.classes.has('card-zoomed'));
+
+mouseMove(hiddenCard);
+assert('a face down card carries the hover highlight but never opens a stage',
+    zoomStage() === null && hiddenCard.classes.has('card-hover') &&
+    !hiddenCard.classes.has('card-zoomed'));
+
+nowMs = 3800;
+mouseMove(card);
+nowMs = 3900;
+mouseMove(hiddenCard);
+assert('moving onto a face down card inside the cooldown keeps the current zoom',
+    zoomStage() !== null && manager.zoomedCard === card &&
+    !hiddenCard.classes.has('card-hover'));
 nowMs = 4400;
-fireZoomTimers();
-assert('the deferred release closes the stage once the hover cooldown has expired',
-    zoomStage() === null && !card.classes.has('card-zoomed'));
+mouseMove(hiddenCard);
+assert('moving onto a face down card after the cooldown releases the zoom',
+    zoomStage() === null && !card.classes.has('card-zoomed') &&
+    hiddenCard.classes.has('card-hover'));
 
-console.log('hover zoom centering ok');
-""".replace('__ZOOM_JS__', repr(zoom_js))
+nowMs = 4900;
+mouseMove(card);
+pressEscape();
+assert('Escape releases the zoomed card while the hover highlight stays on it',
+    zoomStage() === null && !card.classes.has('card-zoomed') &&
+    hoverManager.hoveredCard === card && card.classes.has('card-hover'));
+nowMs = 5400;
+mouseMove(cardFace);
+assert('the Escape dismissal sticks while the pointer rests on the same card',
+    zoomStage() === null && hoverManager.hoveredCard === card);
+mouseMove(secondCard);
+assert('a different card after Escape reopens the stage',
+    zoomStage() !== null && manager.zoomedCard === secondCard);
 
-        self.assertIn('hover zoom centering ok', _run_node_harness(
-            harness, 'hover zoom centered stage rehearsal'))
+focusCard(card, secondCard);
+assert('keyboard focus zoomes the focused card exactly like a hover, even inside the mouse cooldown',
+    zoomStage() !== null && hoverManager.hoveredCard === card && manager.zoomedCard === card &&
+    card.classes.has('card-hover') && card.classes.has('card-zoomed') &&
+    !secondCard.classes.has('card-hover') && !secondCard.classes.has('card-zoomed'));
+nowMs = 5450;
+focusCard(secondCard, card);
+assert('rapid tabbing moves the zoom with every focused card — focus never freezes behind the cooldown',
+    manager.zoomedCard === secondCard && hoverManager.hoveredCard === secondCard);
+focusCard(endTurnButton, secondCard);
+assert('focus leaving every card releases the zoom together with the highlight',
+    zoomStage() === null && hoverManager.hoveredCard === null &&
+    !secondCard.classes.has('card-hover'));
+
+focusCard(card, endTurnButton);
+blurCard(card, endTurnButton);
+assert('focus leaving the board clears both the highlight and the stage',
+    zoomStage() === null && hoverManager.hoveredCard === null);
+
+focusCard(card, null);
+blurCard(card, secondCard);
+focusCard(secondCard, card);
+assert('focus handing over between cards keeps one stage on the newly focused card',
+    zoomStage() !== null && manager.zoomedCard === secondCard &&
+    hoverManager.hoveredCard === secondCard);
+focusCard(hiddenCard, secondCard);
+assert('a focused face down card never opens a stage, like hovering one',
+    zoomStage() === null && hiddenCard.classes.has('card-hover') &&
+    !hiddenCard.classes.has('card-zoomed'));
+
+nowMs = 6000;
+mouseMove(hologramCard);
+assert('hovering a staged hologram zoomes its inner card while the highlight lands on the hologram',
+    zoomStage() !== null && hoverManager.hoveredCard === hologram &&
+    manager.zoomedCard === hologramCard && hologram.classes.has('card-hover') &&
+    !hologramCard.classes.has('card-hover') &&
+    zoomStage().children[0].tagName === 'LI' &&
+    zoomScaleValues[zoomScaleValues.length - 1] === '8.4');
+assert('the hologram zoom clone joins no tab order either',
+    !zoomStage().children[0].hasAttribute('tabindex'));
+
+focusCard(card, hologramCard);
+assert('the mouse and the keyboard feed one shared active card',
+    manager.zoomedCard === card && hoverManager.hoveredCard === card);
+nowMs = 6600;
+mouseMove(secondCard);
+assert('whichever input moved last owns the zoom',
+    manager.zoomedCard === secondCard && hoverManager.hoveredCard === secondCard &&
+    secondCard.classes.has('card-hover') && secondCard.classes.has('card-zoomed'));
+pressEscape();
+assert('Escape releases the focus-driven zoom the same way as the hover-driven one',
+    zoomStage() === null && !secondCard.classes.has('card-zoomed'));
+
+console.log('hover and focus zoom stay one card ok');
+""".replace('__HOVER_JS__', repr(hover_js)).replace('__ZOOM_JS__', repr(zoom_js))
+
+        self.assertIn('hover and focus zoom stay one card ok', _run_node_harness(
+            harness, 'hover and focus zoom one-card rehearsal'))
 
     def test_loading_phases_suppress_key_release_end_turn_submits(self):
         drag_js = _read_static_asset('cardDragDrop.js')

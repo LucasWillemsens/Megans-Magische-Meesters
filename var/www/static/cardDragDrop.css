@@ -178,6 +178,9 @@ ul.hologramRow .hologram:focus-within {
     z-index: var(--card-focus-z-index);
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
 }
+.playerScreen.zoomCards ul.hologramRow .hologram:focus-within {
+    transform: rotate(var(--card-rotation, 0deg));
+}
 
 li.cardContainer.ghost.hover {
     z-index: 10;

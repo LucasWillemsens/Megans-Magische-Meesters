@@ -98,6 +98,9 @@
         z-index: var(--card-focus-z-index);
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
     }
+    .playingCards.zoomCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
+        transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
+    }
     .playingCards ul.cardRow[title="cards"] li.cardContainer.blocked:focus-within {
         z-index: var(--card-focus-z-index);
     }
