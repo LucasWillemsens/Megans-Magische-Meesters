@@ -2,6 +2,11 @@
     --demo-nav-background: #a447b636;
     --demo-nav-border: #2b0320;
     --demo-settings-page-background: linear-gradient(160deg, #2b0320 0%, #4a122e 55%, #6b2a1f 100%);
+    --demo-page-background-color: #7f4e43;
+}
+
+body.demoPage{
+    background-color: var(--demo-page-background-color);
 }
 
 .fullpage-background{

@@ -14,6 +14,8 @@
     --card-background: #c7dce0;
     --card-background-highlight: #d1e1ea;
     --card-font-size: 1.2em; /* @change: adjust this value to make bigger or smaller cards */
+    --card-hover-lift-timing: 0.15s ease-out;
+    --card-focus-z-index: 1500;
 }
 
 .playingCards .card {
@@ -84,11 +86,14 @@
         z-index: 1000;
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
-        transition: transform 0.15s ease-out, filter 0.15s ease-out;
+        transition: transform var(--card-hover-lift-timing), filter 0.15s ease-out;
     }
     .playingCards ul.cardRow[title="cards"] li.cardContainer:not(.blocked):focus-within {
-        z-index: 999;
+        z-index: var(--card-focus-z-index);
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
+    }
+    .playingCards ul.cardRow[title="cards"] li.cardContainer.blocked:focus-within {
+        z-index: var(--card-focus-z-index);
     }
     .playingCards ul.cardRow li.cardContainer.ghost.card-hover {
         z-index: 999;
@@ -128,7 +133,7 @@
 
     .playerScreen .deckHand .hand li.cardContainer:not(.blocked):focus-within{
         opacity: 1 !important;
-        z-index: 2;
+        z-index: var(--card-focus-z-index);
     }
 
     .playerScreen .deckHand .hand li.cardContainer.blocked.card-hover {
@@ -523,8 +528,12 @@ ul.cardRow{
     transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
 }
 
+.playingCards ul.cardRow[title="trustedCards"] li.cardContainer.trustedCard {
+    --card-rotation: 90deg;
+}
+
 .playingCards ul.cardRow li.cardContainer:not(.duplicate) {
-    transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;
+    transition: transform var(--card-hover-lift-timing), filter 0.3s ease, box-shadow 0.3s ease;
 }
 
 .playingCards ul.cardRow li.cardContainer:nth-child(1) { left: 0; z-index: 1; }
@@ -597,7 +606,7 @@ ul.cardRow{
 }
 
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {
-    transition: transform 0.15s ease-out;
+    transition: transform var(--card-hover-lift-timing);
 }
 
 .playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer.ghost {
@@ -964,6 +973,12 @@ div.playerScreen{
         flex-direction: column;
         flex-wrap: nowrap;
         padding-top: 1rem;
+        z-index: 0;
+    }
+    /* The enemy region is one stacking context below the fixed player region,
+       rising to the focus layer only while one of its cards is focused. */
+    .playerScreen ul.enemyBoards:focus-within {
+        z-index: var(--card-focus-z-index);
     }
         .playerScreen ul.enemyBoards li.enemyBoard {
             display: flex;
@@ -1046,39 +1061,6 @@ div.playerScreen{
         cursor: default;
     }
 
-    .playerScreen .enemyDeckHand .enemy-targeting{
-        padding-left: 2rem;
-        padding-right: 1rem;
-        height: 100%;
-        display: none;
-        flex-direction: column;
-        
-        & > p{        
-            margin-block-start: 0;
-            margin-block-end: 0;
-            justify-self: center;
-            align-self: center;
-        }
-        & .small-buttons{        
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        & .small-buttons button{
-            pointer-events: all;
-            user-select: none;
-            cursor: pointer;
-        }
-        & .small-buttons button:last-child{
-            right: 0;
-        }
-        & .small-buttons button:disabled{
-            cursor: not-allowed;
-        }
-    }
-
 li.playerBoard > ul.basic-mat{
     display: flex;
     flex-direction: column;
@@ -1087,7 +1069,6 @@ li.playerBoard > ul.basic-mat{
 
 .playerScreen .deckHand{
     --hand-row-height: 8em;
-    z-index: 1;
     display: flex;
     width: 100%;
     flex-direction: column;
@@ -1129,6 +1110,12 @@ li.playerBoard > ul.basic-mat{
     pointer-events: none;
     user-select: none;
     transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
+}
+
+.playerScreen.enemyTurnFocus .deckHand .end-turn {
+    opacity: 1;
+    filter: none;
+    pointer-events: auto;
 }
 
 .playerScreen .specialPending {
@@ -1256,8 +1243,9 @@ ul.lanes {
     flex-wrap: nowrap;
     flex-direction: row;
     align-items: stretch;
-    width: 82vw;
-    gap: 0.5rem;
+    width: 90vw;
+    padding: 0 5%;
+    gap: 1.5%;
 }
     ul.lanes li.lane {
         flex: 1;
@@ -1345,6 +1333,13 @@ button.end-turn{
     position: relative;
     background-color: #fff;
     box-shadow: .2em .2em .35em #333;
+}
+
+.playerScreen .deckHand .end-turn:disabled {
+    filter: grayscale(0.85);
+    opacity: 0.6;
+    box-shadow: none;
+    cursor: not-allowed;
 }
 
 button.draw{
@@ -1554,6 +1549,18 @@ button.draw{
     z-index: 999;
 }
 
+/* short-viewport board fit: the player table joins the document flow so
+   both boards stay reachable by scrolling the page */
+@media (max-height: 48.125rem) {
+    div.playerScreen {
+        height: auto;
+    }
+
+    .playerScreen > ul:not(.enemyBoards) {
+        position: relative;
+    }
+}
+
 /* mobile board fit */
 @media (max-width: 41rem) {
     div.playerScreen {
@@ -1577,6 +1584,8 @@ button.draw{
 
     ul.lanes {
         width: 100%;
+        padding: 0;
+        gap: 0.5rem;
     }
 
     ul.lanes li.lane {

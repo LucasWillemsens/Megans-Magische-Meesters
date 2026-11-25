@@ -940,6 +940,7 @@ class CardDragDropSystem {
                 !card.classList.contains('blocked') && !card.classList.contains('ghost')
             ).forEach(card => {
                 card.classList.add('blocked');
+                card.setAttribute('aria-disabled', 'true');
                 card.setAttribute('draggable', 'false');
                 card.title = this.tooltips.play;
                 card.removeAttribute('tabindex');

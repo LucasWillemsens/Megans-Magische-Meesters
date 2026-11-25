@@ -1,0 +1,14 @@
+Immediately mark a played hand card as a ghost and remove its hand-stack z-order as soon as it is staged, so it no longer renders above other hand cards.
+
+Objective + intent of end-to-end test: stage a hand card for play, then verify before submitting the turn that it is ghosted and no longer overlays the other hand cards; verify submitting the staged play preserves the existing animation and cookie flow.
+
+Implementation:
+1. Trace the hand-card staging path in `var/www/static/cardDragDrop.js` (`_stagePlay()`, `createupdateCookie()`, and any mouse, touch, and keyboard staging callers) alongside `var/www/static/cardDragDrop.css` and `var/www/static/cards.css`. Identify why the staged card's current ghost class does not immediately take effect for appearance and hand stacking; preserve the per-card cookie payload and established staged-action/animation behavior.
+2. Implement the smallest client-side fix so every staged hand play immediately gains visible ghost styling and is below/does not overlay remaining hand cards. Ensure the hand's hover/focus z-index rules cannot override the staged ghost state. Keep the ghost on the hand card until the existing board-action flow renders its loading animation.
+3. Add a browser-DOM interaction regression test in `MMM/tests.py` for staging a hand card and checking its ghost class and effective hand stacking state before form submission; cover the regular drag/click-to-stage path, and include other staging paths if they share a distinct broken mechanism.
+
+Acceptance criteria:
+- [ ] Immediately after staging, the source hand card has the ghost appearance (including the established reduced opacity/grayscale) without waiting for a POST or page reload.
+- [ ] The staged hand card does not render above unplayed hand cards, including while hovered or focused; other hand cards retain normal stacking and interaction.
+- [ ] The staged play cookie still identifies the card and carries its lane, source lane, source ordinal, and flip flag; submitting it still follows the existing loading-animation path.
+- [ ] A DOM interaction regression test verifies the immediate staged ghost state and prevents the hand-card overlay regression.

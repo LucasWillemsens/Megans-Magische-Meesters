@@ -1,0 +1,11 @@
+Rotate trusted face-up cards sideways (~90°) so they are visually distinct from regular face-up cards. End-to-end objective: render trusted cards on both players' boards in the sideways presentation while leaving regular face-up cards upright.
+
+Implementation:
+1. In `MMM/jinja2/MMM/battle/viewBoard.jinja2`, apply a trusted-card marker/class or rotation variable to each trusted card `<li>` in both enemy and own `trustedCards` rows; do not alter regular `lane.cards`.
+2. In `var/www/static/cards.css`, render trusted cards at approximately 90° while preserving their existing layout and any transform/hover behavior; make the marker/rotation apply consistently to both board sides.
+3. Add a focused assertion in `MMM/tests.py` for both board trusted-card rows, verifying trusted markup carries the rotation marker/value and ordinary face-up card markup does not.
+
+Acceptance criteria:
+- [ ] Trusted cards on both boards have an approximately 90° sideways presentation; regular face-up cards remain upright.
+- [ ] The presentation is applied via the trusted-card row/element styling and does not enable focus or hover interaction for trusted cards.
+- [ ] End-to-end rendered-board coverage asserts trusted and regular face-up cards receive distinct presentation.

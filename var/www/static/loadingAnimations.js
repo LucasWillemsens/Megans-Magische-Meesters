@@ -414,6 +414,12 @@ class loadingAnimationsSystem {
         }
 
         if (phase === 'enemy') {
+            document
+                .querySelector('.playerScreen .deckHand .end-turn')
+                ?.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    this.skipAnimations();
+                });
             focusEnemySide();
             playerElements.forEach(animateElement);
             let cursor = playerElements.length * perElementWindow;

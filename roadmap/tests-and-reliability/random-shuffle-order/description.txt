@@ -11,3 +11,5 @@ Implementation notes:
 Acceptance criteria:
 - Board and hand cards are interleaved in random order when shuffled back.
 - Repeated shuffles do not produce a predictable draw sequence.
+
+Completed via roadmap/pr-35-polish/shuffle-random-draw: BattleParticipant.shuffleBoard() combines the eligible board and hand cards into one list, random.shuffle's it, and assigns each card a distinct negative deck lane so getNextDeckCard() draws in that randomized order; covered by that goal's tests (MMM/tests.py BattleFlowTests.test_shuffle_board_returns_combined_cards_in_shuffled_deck_order and the depleted-deck redraw test), not implemented separately here.

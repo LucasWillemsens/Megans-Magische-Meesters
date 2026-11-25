@@ -1,0 +1,12 @@
+Align card zoom timing with hand selection so a card does not zoom before the matching hand card lifts.
+End-to-end objective: when hovering a hand card with zoom enabled, its zoom and upward selection movement begin together and remain visually associated.
+
+Implementation:
+1. In `var/www/static/cardZoom.css`, add a zoom transition delay to the zoom-stage card that matches the hand-lift transition delay in `var/www/static/cards.css` (the rotated hand transition is `transform 0.15s ease-out`).
+2. Check the relevant `mouseover`/`mouseout` behavior in `var/www/static/cardZoom.js` and `var/www/static/hoverCooldown.js`; adjust only if needed so the shared delay applies consistently when changing cards and releasing hover. Avoid introducing a separate timer if CSS transition timing suffices.
+3. Verify on the board template `MMM/jinja2/MMM/battle/viewBoard.jinja2`, which loads both `cardZoom.js`/`cardZoom.css` and class-gates zoom with `zoomCards`.
+
+Acceptance criteria:
+- [ ] Zoom transition delay and hand-lift transition delay use one matching value; hand lift currently transitions over `0.15s`.
+- [ ] With zoom enabled, entering a hand card produces zoom and lift in sync; moving between cards or leaving the card does not leave an unrelated card zoomed.
+- [ ] With zoom disabled, hand lift behavior is unchanged.

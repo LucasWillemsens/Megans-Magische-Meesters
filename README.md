@@ -161,7 +161,7 @@ Also add an efficient way to create cards in general and allow use efficient cli
 - [ ] Test challenge send, cancel, accept, and resolution paths to ensure reliable match setup.
 - [ ] Prevent duplicate confirms and accidental double submit behavior in challenge and game flows.
 - [ ] Build and verify the full match loop so a game can be played from start to finish without breaking.
-- [ ] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.
+- [~] Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair. _(Make shuffleBoard return cards to the deck in a random order instead of queryset order so deck exhaustion shuffles stay fair.)_
 
 ### Multiplayer and account model
 
@@ -288,6 +288,24 @@ Restore paintedpillars.com as the Painted Pillars band site and move the card ga
 - [~] Rebuild the archived Painted Pillars band site at domain-root paths, with one page for every archived post. Objective/end-to-end test: browse home, open every linked post, and visit music/releases, about, and contact; verify preserved archive content, design, navigation, and the `/MMM/` game link. _(Rebuild the archived Painted Pillars band site at domain-root paths, with one page for every archived post. Objective/end-to-end test: browse home, open every linked post, and visit music/releases, about, and contact; verify preserved archive content, design, navigation, and the `/MMM/` game link.)_
 - [ ] Add Google/Gmail account sign-in for MMM, securely link authenticated accounts to existing MMM players, and grant admin pages only to the account linked with `paintedpillars@gmail.com`. End-to-end user story: visit the contact-page login link, sign in, and verify player access; the designated admin can reach admin pages while a different signed-in account is denied.
 - [ ] Move every MMM page and API below `/MMM/`; keep `/` available to the band site. Objective/end-to-end test: verify root and `/MMM/` route separately, then follow a complete game interaction and exercise representative API and static URLs under the prefix.
+
+### Pr 35 Polish
+
+Board UX polish batch for PR 35: implement and verify each independently actionable subgoal.
+
+- [~] Avoid the white flash when a board action reloads the battle page. _(Avoid the white flash when a board action reloads the battle page.)_
+- [~] Allow vertical scrolling on the battle board below 770px viewport height and focus the player board on load. _(Allow vertical scrolling on the battle board below 770px viewport height and focus the player board on load.)_
+- [~] Disabled controls explain why they cannot be used
+Objective + intent of end-to-end test: On the board, every rendered control that is unavailable has a truthful reason, is visibly greyed out, cannot be activated, and shows a not-allowed cursor and the reason in its native title tooltip; available controls remain usable. Exercise the key unavailable states through board requests and inspect static CSS/JS contracts. _(Disabled controls explain why they cannot be used)_
+- [~] Allow the end-turn control to skip the enemy-turn animation.
+Objective + intent of end-to-end test: during the enemy animation, the button reads “Skip”; activating it immediately reloads the board after the existing bot turn has completed, without submitting another end-turn action or starting a duplicate bot turn. _(Allow the end-turn control to skip the enemy-turn animation.)_
+- [~] Keep the focused board card visually above every other board card and board overlay. E2E intent: keyboard-focus cards in the hand and player/enemy field rows, and verify the focused card is not obscured by overlapping cards or board UI; hover/zoom behavior remains correctly stacked. _(Keep the focused board card visually above every other board card and board overlay. E2E intent: keyboard-focus cards in the hand and player/enemy field rows, and verify the focused card is not obscured by overlapping cards or board UI; hover/zoom behavior remains correctly stacked.)_
+- [~] Make the desktop `ul.lanes` width contract consistent with the completed lane-spread goal. _(Make the desktop `ul.lanes` width contract consistent with the completed lane-spread goal.)_
+- [~] Immediately mark a played hand card as a ghost and remove its hand-stack z-order as soon as it is staged, so it no longer renders above other hand cards. _(Immediately mark a played hand card as a ghost and remove its hand-stack z-order as soon as it is staged, so it no longer renders above other hand cards.)_
+- [~] On a depleted-deck draw, animate the final card into the hand, then include it in the shuffle-back flight and draw a randomized replacement from the shuffled deck. _(On a depleted-deck draw, animate the final card into the hand, then include it in the shuffle-back flight and draw a randomized replacement from the shuffled deck.)_
+- [~] Rotate trusted face-up cards sideways (~90°) so they are visually distinct from regular face-up cards. End-to-end objective: render trusted cards on both players' boards in the sideways presentation while leaving regular face-up cards upright. _(Rotate trusted face-up cards sideways (~90°) so they are visually distinct from regular face-up cards. End-to-end objective: render trusted cards on both players' boards in the sideways presentation while leaving regular face-up cards upright.)_
+- [~] Align card zoom timing with hand selection so a card does not zoom before the matching hand card lifts.
+End-to-end objective: when hovering a hand card with zoom enabled, its zoom and upward selection movement begin together and remain visually associated. _(Align card zoom timing with hand selection so a card does not zoom before the matching hand card lifts.)_
 
 ### Test Coverage
 

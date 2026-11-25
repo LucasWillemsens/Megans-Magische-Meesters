@@ -1,0 +1,17 @@
+Make the desktop `ul.lanes` width contract consistent with the completed lane-spread goal.
+
+Objective + intent of end-to-end test: establish one shared width and equal-lane layout for player and enemy boards, preserving mobile sizing and the existing vertical overflow behavior.
+
+Choice: use the horizontal-spread contract: `ul.lanes` is `90vw` wide with `0 5%` horizontal padding, `1.5%` gap, and equal-width `flex: 1` lanes. This preserves the requested ~90% viewport span on 1920px and larger displays, and is supported by the screen-fit goal's emphasis on viewport-relative sizing. The overflow goal concerns vertical growth and explicitly leaves lane widths alone; it does not justify retaining a narrower desktop width. HEAD currently uses `82vw` and `0.5rem` gap, matching neither specification.
+
+Implementation:
+1. In `var/www/static/cards.css`, update the base `ul.lanes` rule to `width: 90vw; padding: 0 5%; gap: 1.5%;`, retaining its flex layout properties. Keep `ul.lanes li.lane { flex: 1; min-width: 8rem; position: relative; }`.
+2. Inspect all later overrides, including `.enemyBoard ul.lanes` and the `@media (max-width: 700px)` block, so the desktop contract applies equally to player and enemy lanes while mobile-specific layout remains intact.
+3. Update or add focused static assertions in `MMM/tests.py` for the base width, padding, gap and equal lane sizing, and for mobile override preservation. Do not change lane overflow-row behavior or vertical board sizing.
+
+Acceptance criteria:
+- [ ] Outside the mobile media query, the effective player and enemy `ul.lanes` layout uses `width: 90vw`, `padding: 0 5%`, and `gap: 1.5%`.
+- [ ] All four lanes use equal `flex: 1` sizing; no desktop lane-width override makes the player and enemy contracts differ.
+- [ ] The mobile media-query lane layout remains unchanged.
+- [ ] At a 1920px viewport the lane list width is 90vw (1728px) and its four lanes have equal computed widths; at 3840px the list scales to 90vw without a desktop max-width cap.
+- [ ] Existing vertical overflow-row and player-board-growth rules remain unchanged.

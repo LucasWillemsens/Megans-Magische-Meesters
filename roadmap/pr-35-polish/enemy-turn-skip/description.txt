@@ -1,0 +1,13 @@
+Allow the end-turn control to skip the enemy-turn animation.
+Objective + intent of end-to-end test: during the enemy animation, the button reads “Skip”; activating it immediately reloads the board after the existing bot turn has completed, without submitting another end-turn action or starting a duplicate bot turn.
+
+Implementation:
+1. In `var/www/static/loadingAnimations.js`, connect the enemy-phase end-turn button to the existing `skipAnimations()` flow, preserving animation cancellation and its guarded single reload. Do not intercept/skip the `playerMoves` phase or special timelines unless they are part of an active enemy phase.
+2. In `MMM/jinja2/MMM/battle/viewBoard.jinja2`, expose “Skip” as the button label and accessible title only while `turnPhase == "enemy"`; keep “End turn” during normal play.
+3. Keep the server phase flow unchanged: `MMM/views.py::boardAction` marks enemy phase via the turn-phase cookie, and the subsequent `viewBoard` GET runs `_run_bot_turn`; the skip interaction must only end client animation/reload, not POST `end_turn` again.
+4. Add/adjust a focused browser-contract test in `MMM/tests.py` to cover the enemy-phase label and activation behavior, including that normal player-phase end-turn remains unchanged.
+
+Acceptance criteria:
+- [ ] During `data-phase="enemy"`, the button visibly reads “Skip” and exposes a matching accessible title; in a normal player phase it reads “End turn”.
+- [ ] Activating the button during enemy animation cancels scheduled animation work and reloads once to the board/next URL without issuing a second end-turn POST.
+- [ ] Bot execution remains on the existing enemy-phase board GET; the skip does not cause a duplicate bot turn or alter turn-phase cookie handling.

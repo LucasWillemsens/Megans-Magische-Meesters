@@ -8,6 +8,7 @@ from django.urls import reverse
 from .account_access import is_admin_account
 
 from .battle_services import (
+    SPECIAL_WAITING_MESSAGE,
     chunk_hand_cards,
     context_board,
     cookie_staged_plays,
@@ -48,6 +49,7 @@ SHORTCUT_HOLD_MIN_MS = 0
 SHORTCUT_HOLD_MAX_MS = 2000
 SHORTCUT_HOLD_STEP_MS = 100
 SHORTCUT_HOLD_DEFAULT_MS = 1000
+END_TURN_MOVES_BLOCKED_TITLE = "End turn is unavailable while your moves animate"
 OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
 DEMO_PLAYER_SESSION_KEY = "demo_player_id"
 TITLE_VISITED_SESSION_KEY = "title_visited"
@@ -482,6 +484,14 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
 
     finished, _, _ = game_outcome(game)
 
+    special_waiting = game.pendingSpecial is not None
+    end_turn_blocked_reason = (
+        END_TURN_MOVES_BLOCKED_TITLE
+        if turn_phase == "playerMoves"
+        else (SPECIAL_WAITING_MESSAGE if special_waiting and turn_phase != "enemy" else "")
+    )
+    draw_blocked_reason = SPECIAL_WAITING_MESSAGE if special_waiting else ""
+
     if not clear_cookies:
         clear_cookies = turn_phase == "enemy"
 
@@ -532,6 +542,8 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
         "pendingSpecial": game.pendingSpecial,
+        "end_turn_blocked_reason": end_turn_blocked_reason,
+        "draw_blocked_reason": draw_blocked_reason,
         "nextUrl": result_url if finished and turn_phase != "playerMoves" else board_url,
         "actionPlays": action_plays or [],
         "timelineSteps": timeline_steps or [],

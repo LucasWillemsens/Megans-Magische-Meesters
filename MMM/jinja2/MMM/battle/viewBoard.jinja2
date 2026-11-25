@@ -61,27 +61,6 @@
                     </li>
                     {% endfor %}
                 </ul>
-                <div class="enemy-targeting">
-                    <p>
-                        Opponents
-                    </p>
-                    <div class="small-buttons">
-                        <button disabled type="button" class="targeting" data-target-participant-id="{{ enemy.participant.id }}"
-                            title="Target {{ enemy.participant.player.name }}">
-                            ←
-                            <p class="invisible">
-                                Previous
-                            </p>
-                        </button>
-                        <button disabled type="button" class="targeting" data-target-participant-id="{{ enemy.participant.id }}"
-                            title="Target {{ enemy.participant.player.name }}">
-                            →
-                            <p class="invisible">
-                                Next
-                            </p>
-                        </button>
-                    </div>
-                </div>
             </div>
             <ul class="lanes">
                 {% for lane in enemy.laneRows %}
@@ -130,7 +109,7 @@
                     <p class="debug-overlay"> {{ lane.value }} | {{ lane.name}} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                        <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                        <li class="cardContainer trustedCard {{ card.cssClass }}" data-card-id="{{ card.id }}"
                             title="{{ card.card.title }} of {{ enemy.participant.player.name }}">
                             <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
                                 {{ card.card|playing_card_suit_class }}{% endif %}">
@@ -170,7 +149,8 @@
     {% endif %}
 
     <ul class="basic-mat table">
-        <li class="playerBoard " data-participant-id="{{ current_participant.id }}">
+        <li class="playerBoard " id="playerBoard" data-participant-id="{{ current_participant.id }}">
+            {% set draw_blocked = turnAllowances.draws_left <= 0 or draw_blocked_reason != "" %}
             <div class="deck-stack own-deck-stack" {% if ownDeckIndicators %}
                 style="--deck-indicator-count: {{ ownDeckIndicators|length }};" {% endif %}>
                 {% for indicator in ownDeckIndicators %}
@@ -181,7 +161,7 @@
                     </li>
                 </ul>
                 {% endfor %}
-                <ul class="deck{% if turnAllowances.draws_left <= 0 %} blocked{% endif %} active-deck">
+                <ul class="deck{% if draw_blocked %} blocked{% endif %} active-deck">
                     {% if ownDeckCount > 0 %}
                     {% for _ in ownDeckStack %}
                     <li>
@@ -189,7 +169,9 @@
                         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
                             {{ csrf_input }}
                             <input type="hidden" name="action" value="draw">
-                            <button type="submit" class="card back draw{% if turnAllowances.draws_left <= 0 %} blocked{% endif %}" {% if turnAllowances.draws_left <= 0 %}disabled title="{{ turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
+                            <button type="submit" class="card back draw{% if draw_blocked %} blocked{% endif %}" {% if
+                                draw_blocked %}disabled title="{{ draw_blocked_reason if draw_blocked_reason else
+                                turnAllowances.blocked_titles.draw }}"{% else %}title="Draw card"{% endif %}>Draw</button>
                         </form>
                         {% else %}
                         <div class="card back">*</div>
@@ -277,9 +259,8 @@
                     <p class="debug-overlay"> {{ lane.value }} | {{ lane.name }} </p>
                     <ul class="cardRow" title="trustedCards">
                         {% for card in lane.trustedCards %}
-                        {% set trusted_card_rotation = ((card.id * 7 + 13) % 9) - 4 %}
-                        <li class="cardContainer {{ card.cssClass }}" data-card-id="{{ card.id }}"
-                            title="{{ card.card.title }} of {{ player.name }}" style="--card-rotation: {{ trusted_card_rotation }}deg;">
+                        <li class="cardContainer trustedCard {{ card.cssClass }}" data-card-id="{{ card.id }}"
+                            title="{{ card.card.title }} of {{ player.name }}">
                             <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class
                                 }} {{ card.card|playing_card_suit_class }}{% endif %}">
                                 {% if card.card.artSource == "static" %}
@@ -321,7 +302,7 @@
                     {% if handFan %}
                     {% for card in handFan %}
                     <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if
-                        turnAllowances.plays_left <=0 %}draggable="false" title="{{ turnAllowances.blocked_titles.play }}" {% else
+                        turnAllowances.plays_left <=0 %}draggable="false" aria-disabled="true" title="{{ turnAllowances.blocked_titles.play }}" {% else
                         %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
                         data-source-ordinal="{{ card.state.laneOrdinal }}">
                         <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}
@@ -362,8 +343,11 @@
                     {{ csrf_input }}
                     <input type="hidden" name="action" value="end_turn">
                     <input type="hidden" name="focused_hand_card" value="{{ turnAllowances.focused_hand_card }}">
-                    <button type="submit" class="end-turn" title="End turn" {% if turnPhase !="enemy" %}autofocus{% endif %}>
-                        <span class="suit">End turn</span>
+                    {% set end_turn_control_label = "Skip" if turnPhase == "enemy" else "End turn" %}
+                    <button type="submit" class="end-turn" title="{{ end_turn_blocked_reason if
+                        end_turn_blocked_reason else end_turn_control_label }}" {% if end_turn_blocked_reason
+                        %}disabled{% elif turnPhase !="enemy" %}autofocus{% endif %}>
+                        <span class="suit">{{ end_turn_control_label }}</span>
                     </button>
                     </form>
             </div>
@@ -398,6 +382,7 @@
 <script type="module" src="{{ static('laneStacking.js')}}"></script>
 <script type="module" src="{{ static('hoverCooldown.js')}}"></script>
 <script type="module" src="{{ static('cardZoom.js')}}"></script>
+<script type="module" src="{{ static('boardScroll.js')}}"></script>
 <link rel="stylesheet" type="text/css" href="{{ static('cardDragDrop.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ static('cardZoom.css') }}">
 {% endblock %}

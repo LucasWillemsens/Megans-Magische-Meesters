@@ -1,0 +1,13 @@
+Avoid the white flash when a board action reloads the battle page.
+
+Objective: keep the board background visually continuous across action-triggered full-page renders without changing board action or turn-phase behavior.
+
+Implementation:
+1. In `MMM/jinja2/demo_shell.jinja2`, move the shared `woodtextureorangedark2.jpg` background image from the late `demo_content` block into the document head as a preload (using `as="image"` and the correct static URL), while retaining the existing visible background image element.
+2. In `var/www/static/demoNavigation.css`, give `body.demoPage` a background-color matching the dominant dark orange/brown background tone so the page has a non-white fallback before the image paints. Keep the existing background image, sizing, and layering.
+3. Add a focused `MMM/tests.py` contract assertion that the rendered board includes the background preload and the fallback style is defined for demo pages.
+
+Acceptance criteria:
+- [ ] A board response advertises the shared background image for eager loading before document body content; the visible background remains the same image.
+- [ ] Before the background image paints, demo pages render a non-white background fallback.
+- [ ] Player actions still render `playerMoves` timelines as before, and `end_turn` still defers the bot turn until the following board GET.

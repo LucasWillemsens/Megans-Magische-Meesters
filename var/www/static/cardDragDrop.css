@@ -42,6 +42,17 @@ li.cardContainer.ghost {
     filter: grayscale(0.3);
 }
 
+/* Staged hand ghosts stay dimmed and below every unplayed hand card,
+   beating the hand hover/focus/arrow rules that raise live cards. */
+.playerScreen .deckHand ul.hand li.cardContainer.ghost,
+.playerScreen .deckHand ul.hand li.cardContainer.ghost.card-hover,
+.playerScreen .deckHand ul.hand li.cardContainer.ghost.hover,
+.playerScreen .deckHand ul.hand li.cardContainer.ghost:focus-within {
+    opacity: 0.4 !important;
+    filter: grayscale(0.3) !important;
+    z-index: 0;
+}
+
 li.cardContainer.keyboard-selected {
     outline: 3px solid;
     outline-offset: 4px;
@@ -161,7 +172,7 @@ ul.hologramRow .hologram.card-hover {
     transition: transform 0.15s ease-out, opacity 0.15s ease-out;
 }
 ul.hologramRow .hologram:focus-within {
-    z-index: 100;
+    z-index: var(--card-focus-z-index);
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
 }
 

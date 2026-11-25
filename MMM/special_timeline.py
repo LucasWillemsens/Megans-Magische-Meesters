@@ -57,36 +57,13 @@ def build_participant_effect_step(participant, banner, defeated_id=None, fled_id
 
 def build_shuffle_step(participant, order=0):
     """Build a shuffle-back step listing all untrusted face-up board cards + hand cards."""
-    game = participant.getGame()
-    board_cards = GameCard.objects.filter(
-        game_id=game.id,
-        user_id=participant.id,
-        state__trusted=False,
-        state__inDeck=False,
-        state__faceDown=False,
-    )
-    hand_cards = GameCard.objects.filter(
-        game_id=game.id,
-        user_id=participant.id,
-        state__lane=0,
-    )
     affected = []
-    for card in board_cards:
+    for card in participant.getShuffleEligibleCards():
         affected.append({
             "cardId": card.id,
             "sourceLane": card.state.lane,
             "sourceOrdinal": card.state.laneOrdinal,
             "destinationLane": -1,  # -1 means deck
-            "destinationOrdinal": 0,
-            "flipFaceUp": False,
-            "trust": False,
-        })
-    for card in hand_cards:
-        affected.append({
-            "cardId": card.id,
-            "sourceLane": card.state.lane,
-            "sourceOrdinal": card.state.laneOrdinal,
-            "destinationLane": -1,
             "destinationOrdinal": 0,
             "flipFaceUp": False,
             "trust": False,

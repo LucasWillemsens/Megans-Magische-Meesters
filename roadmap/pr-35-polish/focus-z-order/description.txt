@@ -1,0 +1,11 @@
+Keep the focused board card visually above every other board card and board overlay. E2E intent: keyboard-focus cards in the hand and player/enemy field rows, and verify the focused card is not obscured by overlapping cards or board UI; hover/zoom behavior remains correctly stacked.
+
+Implementation:
+1. In `var/www/static/cards.css`, reconcile existing `:focus-within` z-index rules (hand currently `2`, player field `999`) with hover rules (`999`/`1000`) and positional card-row stacking (`1–25`). Apply a consistent focused-card stacking rule to focusable cards on both player and enemy boards, including hand cards; account for the zoom stage in `var/www/static/cardZoom.css` (`z-index: 2000`) and fixed/stacked board ancestors so focus can actually rise above other board regions.
+2. Check `var/www/static/cardDragDrop.css` hologram focus treatment and `var/www/static/cardZoom.js` cloned-card staging; preserve interaction/zoom visuals while ensuring the actual focused element—not just its clone—wins when applicable. Update `MMM/tests.py` contract assertions or add the most direct browser/end-to-end coverage available for focused card stacking.
+
+Acceptance criteria:
+- [ ] A focused hand, player-field, or enemy-field card is painted above overlapping cards in its row/hand and above cards in the opposing board region.
+- [ ] A focused card remains above board overlays/other board stacking layers; zoomed-card staging continues to display correctly.
+- [ ] Hover and blocked-card states do not demote a focused card below another card.
+- [ ] Focused-card stacking behavior is covered by a regression assertion/test that checks all three card regions (hand, player field, enemy field).

@@ -484,6 +484,178 @@ class FakeElement {
 '''
 
 
+CSS_CASCADE_ENGINE_JS = r'''
+const cssRules = [];
+const collectCssRules = (cssText, sheetOrder) => {
+    const bareText = cssText.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+    let match;
+    while ((match = rulePattern.exec(bareText)) !== null) {
+        for (const rawSelector of match[1].split(',')) {
+            const selector = rawSelector.trim();
+            if (!/^[.#a-zA-Z]/.test(selector)) continue;
+            cssRules.push({ selector, body: match[2], order: sheetOrder, ruleIndex: cssRules.length });
+        }
+    }
+};
+
+const parseCompound = (part) => {
+    if (part.includes('::') || part.includes('&')) return null;
+    const nots = [];
+    const attrs = [];
+    let nthChild = null;
+    const stripped = part
+        .replace(/\[([\w-]+)(?:="([^"]*)")?\]/g, (_, name, value) => {
+            attrs.push({ name, value });
+            return '';
+        })
+        .replace(/:not\(\.([\w-]+)\)/g, (_, cls) => { nots.push(cls); return ''; })
+        .replace(/:nth-child\((\d+)\)/g, (_, index) => { nthChild = Number(index); return ''; });
+    const focusWithin = /:focus-within/.test(stripped);
+    const active = /:active/.test(stripped);
+    const cleaned = stripped.replace(/:focus-within/g, '').replace(/:active/g, '');
+    if (cleaned.includes(':')) return null;
+    const tagMatch = cleaned.match(/^[a-zA-Z][\w-]*/);
+    const idMatch = cleaned.match(/#([\w-]+)/);
+    return {
+        tag: tagMatch ? tagMatch[0].toLowerCase() : null,
+        classes: (cleaned.match(/\.([\w-]+)/g) || []).map((cls) => cls.slice(1)),
+        id: idMatch ? idMatch[1] : null,
+        nots,
+        attrs,
+        nthChild,
+        focusWithin,
+        active,
+    };
+};
+
+const tokenizeCssChain = (chain) => {
+    const tokens = [];
+    const pattern = /(\s*>\s*|\s+)?([^>\s]+)/g;
+    let match;
+    while ((match = pattern.exec(chain)) !== null) {
+        let combinator = null;
+        if (match[1] && match[1].includes('>')) combinator = '>';
+        else if (match[1] && match[1].trim() !== '') combinator = ' ';
+        tokens.push({ part: match[2], combinator });
+    }
+    return tokens;
+};
+
+const specificityOf = (tokens) => {
+    let ids = 0;
+    let classes = 0;
+    let elements = 0;
+    for (const token of tokens) {
+        const compound = parseCompound(token.part);
+        if (!compound) return null;
+        if (compound.id) ids += 1;
+        classes += compound.classes.length + compound.nots.length + compound.attrs.length;
+        if (compound.nthChild !== null) classes += 1;
+        if (compound.focusWithin) classes += 1;
+        if (compound.active) classes += 1;
+        if (compound.tag) elements += 1;
+    }
+    return [ids, classes, elements];
+};
+
+const focusWithinMatches = (el, states) => {
+    if (states.focusElement) {
+        let node = states.focusElement;
+        while (node) {
+            if (node === el) return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+    return Boolean(states.focusWithin);
+};
+
+const matchesCssChain = (el, tokens, states) => {
+    const last = tokens[tokens.length - 1];
+    const compound = parseCompound(last.part);
+    if (!compound) return false;
+    if (compound.tag && el.tagName.toLowerCase() !== compound.tag) return false;
+    if (compound.id && el.id !== compound.id) return false;
+    for (const cls of compound.classes) if (!el.classes.has(cls)) return false;
+    for (const cls of compound.nots) if (el.classes.has(cls)) return false;
+    for (const attr of compound.attrs) {
+        const value = typeof el.getAttribute === 'function' ? el.getAttribute(attr.name) : null;
+        if (attr.value === undefined) {
+            if (value === null) return false;
+        } else if (String(value) !== attr.value) return false;
+    }
+    if (compound.nthChild !== null) {
+        const siblings = el.parentNode ? el.parentNode.children : [];
+        if (siblings.indexOf(el) + 1 !== compound.nthChild) return false;
+    }
+    if (compound.focusWithin && !focusWithinMatches(el, states)) return false;
+    if (compound.active && !states.active) return false;
+    if (tokens.length === 1) return true;
+    const rest = tokens.slice(0, -1);
+    if (last.combinator === '>') {
+        return Boolean(el.parentNode) && matchesCssChain(el.parentNode, rest, states);
+    }
+    let node = el.parentNode;
+    while (node) {
+        if (matchesCssChain(node, rest, states)) return true;
+        node = node.parentNode;
+    }
+    return false;
+};
+
+const declarationsOf = (ruleBody) => {
+    const declarations = [];
+    for (const raw of ruleBody.split(';')) {
+        const colon = raw.indexOf(':');
+        if (colon === -1) continue;
+        const property = raw.slice(0, colon).trim();
+        let value = raw.slice(colon + 1).trim();
+        if (!/^[a-zA-Z-]+$/.test(property) || !value) continue;
+        let important = false;
+        if (value.endsWith('!important')) {
+            important = true;
+            value = value.slice(0, -'!important'.length).trim();
+        }
+        declarations.push({ property: property.toLowerCase(), value, important });
+    }
+    return declarations;
+};
+
+const cascadeBeats = (candidate, winner) => {
+    if (candidate.important !== winner.important) return candidate.important;
+    for (let i = 0; i < 3; i += 1) {
+        if (candidate.specificity[i] !== winner.specificity[i]) {
+            return candidate.specificity[i] > winner.specificity[i];
+        }
+    }
+    if (candidate.order !== winner.order) return candidate.order > winner.order;
+    return candidate.ruleIndex > winner.ruleIndex;
+};
+
+const effectiveProperty = (el, states, property) => {
+    let winner = null;
+    for (const rule of cssRules) {
+        const tokens = tokenizeCssChain(rule.selector);
+        if (tokens.length === 0) continue;
+        const specificity = specificityOf(tokens);
+        if (!specificity || !matchesCssChain(el, tokens, states)) continue;
+        const declaration = declarationsOf(rule.body).find((d) => d.property === property);
+        if (!declaration) continue;
+        const candidate = {
+            important: declaration.important,
+            specificity,
+            order: rule.order,
+            ruleIndex: rule.ruleIndex,
+            value: declaration.value,
+        };
+        if (!winner || cascadeBeats(candidate, winner)) winner = candidate;
+    }
+    return winner ? winner.value : null;
+};
+'''
+
+
 class BattleBoardFixture(TestCase):
     """Two-participant game fixture shared by browser and API tests."""
 
@@ -813,6 +985,7 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertEqual([fan.count("cardContainer") for fan in fan_matches], [9, 5])
         for fan in fan_matches:
             self.assertEqual(fan.count("blocked"), fan.count("cardContainer"))
+            self.assertEqual(fan.count('aria-disabled="true"'), fan.count("cardContainer"))
             self.assertEqual(
                 len(re.findall(r'<li class="cardContainer[^>]*draggable="false"', fan)),
                 fan.count("cardContainer"),
@@ -1264,6 +1437,233 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIsNotNone(nested_deck_hand)
         self.assertContains(response, '<li class="playerBoard ')
 
+    def test_enemy_phase_end_turn_button_reads_skip_and_reloads_board_once(self):
+        """The end-turn control becomes Skip while the enemy turn animates.
+
+        User story: the player ends their turn, the bot's moves start
+        animating, and the end-turn control now reads "Skip" with a matching
+        title. Activating it reloads the board after the bot turn that
+        already ran, without submitting end_turn again — the enemy-phase GET
+        owns the one bot run, and the skip's plain board GET rides the
+        existing turn-phase cookie flow, so no duplicate bot turn can
+        start. During normal play the control keeps its "End turn" label
+        and native submit.
+        """
+        loading_js = _read_static_asset('loadingAnimations.js')
+        cards_css = _read_static_asset('cards.css')
+
+        enemy_phase_block = _extract_js_brace_block(loading_js, "if (phase === 'enemy')")
+        self.assertIn("'.playerScreen .deckHand .end-turn'", enemy_phase_block)
+        self.assertIn("addEventListener('click'", enemy_phase_block)
+        self.assertIn('this.skipAnimations()', enemy_phase_block)
+        self.assertLess(
+            enemy_phase_block.index("addEventListener('click'"),
+            enemy_phase_block.index('focusEnemySide();'),
+            "the skip control must be wired from phase start, before the dim and animations",
+        )
+        player_moves_block = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
+        self.assertNotIn("addEventListener('click'", player_moves_block)
+
+        skip_button_rule = re.search(
+            r'\.playerScreen\.enemyTurnFocus \.deckHand \.end-turn\s*\{[^}]*\}', cards_css
+        )
+        self.assertIsNotNone(skip_button_rule, "skip button clickability rule missing from cards.css")
+        self.assertIn('pointer-events: auto', skip_button_rule.group(0))
+        self.assertIn('opacity: 1', skip_button_rule.group(0))
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        player_content = self.client.get(board_url).content.decode()
+        self.assertIn('title="End turn"', player_content)
+        self.assertIn('<span class="suit">End turn</span>', player_content)
+        self.assertRegex(player_content, r'<button[^>]*class="end-turn"[^>]*autofocus')
+
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        response = self.client.get(board_url)
+        enemy_content = response.content.decode()
+        self.assertIn('data-phase="enemy"', enemy_content)
+        self.assertIn('title="Skip"', enemy_content)
+        self.assertIn('<span class="suit">Skip</span>', enemy_content)
+        self.assertNotIn('title="End turn"', enemy_content)
+        self.assertEqual(response.cookies["turn_phase"].value, "player")
+
+        def bot_lane_count():
+            return GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.bot_participant.id,
+                state__lane__gt=0,
+            ).count()
+
+        bot_lane_after_enemy = bot_lane_count()
+        self.assertGreater(bot_lane_after_enemy, 0)
+
+        skip_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-phase="player"', skip_content)
+        self.assertIn('title="End turn"', skip_content)
+        self.assertEqual(bot_lane_count(), bot_lane_after_enemy)
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.roundNumber, 2)
+
+    def test_enemy_phase_end_turn_click_skips_animation_without_resubmit(self):
+        """Clicking Skip during the enemy animation cancels it and reloads once.
+
+        User story: the bot's moves are animating and the player clicks the
+        end-turn control that now reads Skip. The click must be intercepted
+        so no second end_turn POST submits, cancel the scheduled animation
+        work, and reload exactly once to the board/next URL through the
+        guarded reload the keyboard skip already uses. The playerMoves and
+        plain player phases keep the control's native submit untouched.
+        """
+        loading_js = _read_static_asset('loadingAnimations.js')
+
+        harness = FAKE_ELEMENT_NAVIGATION_CORE + r"""
+const makePage = (phase, nextUrl) => {
+    const body = new FakeElement('body');
+    const playerScreen = new FakeElement('div', 'playerScreen playingCards rotateHand');
+    body.appendChild(playerScreen);
+    const enemyBoards = new FakeElement('ul', 'enemyBoards basic-mat table');
+    playerScreen.appendChild(enemyBoards);
+    const enemyBoard = new FakeElement('li', 'enemyBoard');
+    enemyBoards.appendChild(enemyBoard);
+    enemyBoard.appendChild(new FakeElement('h2'));
+    const basicMat = new FakeElement('ul', 'basic-mat table');
+    playerScreen.appendChild(basicMat);
+    basicMat.appendChild(new FakeElement('li', 'playerBoard'));
+    const deckHand = new FakeElement('div', 'deckHand handContainer');
+    basicMat.appendChild(deckHand);
+    const handScroll = new FakeElement('div', 'hand-scroll');
+    deckHand.appendChild(handScroll);
+    handScroll.appendChild(new FakeElement('ul', 'hand hand-fan'));
+    const endTurnForm = new FakeElement('form', 'cardActionForm');
+    handScroll.appendChild(endTurnForm);
+    const endTurnButton = new FakeElement('button', 'end-turn');
+    endTurnForm.appendChild(endTurnButton);
+    if (phase !== null) {
+        const turnPhase = new FakeElement('div');
+        turnPhase.setAttribute('id', 'turnPhase');
+        turnPhase.dataset.phase = phase;
+        playerScreen.appendChild(turnPhase);
+    }
+    const boardNext = new FakeElement('div');
+    boardNext.setAttribute('id', 'boardNext');
+    boardNext.dataset.nextUrl = nextUrl;
+    playerScreen.appendChild(boardNext);
+    return { body, endTurnButton };
+};
+
+const makeWindowRecord = () => {
+    const timeouts = [];
+    let timeoutCounter = 0;
+    const hrefAssignments = [];
+    let hrefValue = '';
+    const windowRecord = {
+        location: { pathname: '/game/7/board/8/' },
+        setTimeout(fn, ms) {
+            timeoutCounter += 1;
+            timeouts.push({ id: timeoutCounter, fn, ms, cleared: false });
+            return timeoutCounter;
+        },
+        clearTimeout(id) {
+            const task = timeouts.find((entry) => entry.id === id);
+            if (task) task.cleared = true;
+        },
+        scrollTo() {},
+        addEventListener() {},
+    };
+    Object.defineProperty(windowRecord.location, 'href', {
+        get() { return hrefValue; },
+        set(value) { hrefAssignments.push(value); hrefValue = value; },
+    });
+    return { windowRecord, timeouts, hrefAssignments };
+};
+
+const makeDocument = (root) => ({
+    querySelector(selector) { return root.querySelector(selector); },
+    querySelectorAll(selector) { return root.querySelectorAll(selector); },
+    getElementsByClassName(name) { return root.querySelectorAll('.' + name); },
+    getElementById(id) { return root.querySelector('#' + id); },
+    createElement(tag) { return new FakeElement(tag); },
+    addEventListener() {},
+    removeEventListener() {},
+    readyState: 'complete',
+    body: root,
+});
+
+global.performance = { now: () => 0 };
+global.sessionStorage = { getItem: () => null, removeItem: () => {} };
+global.requestAnimationFrame = () => 0;
+
+const bootWindowRecord = makeWindowRecord();
+global.window = bootWindowRecord.windowRecord;
+global.document = makeDocument(makePage(null, '/game/7/board/8/').body);
+
+const LoadingAnimations = eval(__LOADING_JS__ + '\nloadingAnimationsSystem');
+
+const runPhasePage = (phase, nextUrl) => {
+    const page = makePage(phase, nextUrl);
+    const windowRecord = makeWindowRecord();
+    global.document = makeDocument(page.body);
+    global.window = windowRecord.windowRecord;
+    const system = new LoadingAnimations();
+    return { page, system, windowRecord };
+};
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const clickEndTurn = (button) => {
+    let prevented = false;
+    for (const handler of button.eventHandlers.click ?? []) {
+        handler({ preventDefault() { prevented = true; } });
+    }
+    return prevented;
+};
+
+const enemy = runPhasePage('enemy', '/game/7/result/8/');
+assert('the enemy phase dims the board from the start',
+    enemy.page.body.querySelector('.playerScreen').classList.contains('enemyTurnFocus'));
+assert('the enemy-phase end-turn button carries a click handler',
+    (enemy.page.endTurnButton.eventHandlers.click ?? []).length === 1);
+assert('the enemy animation schedules reload work before any skip',
+    enemy.windowRecord.timeouts.some((entry) => !entry.cleared));
+const skipPrevented = clickEndTurn(enemy.page.endTurnButton);
+assert('the enemy-phase click is intercepted so no end_turn POST submits', skipPrevented);
+assert('the skip cancels every scheduled animation task',
+    enemy.windowRecord.timeouts.length > 0 &&
+    enemy.windowRecord.timeouts.every((entry) => entry.cleared));
+assert('the skip reloads exactly once to the next URL',
+    enemy.windowRecord.hrefAssignments.length === 1 &&
+    enemy.windowRecord.hrefAssignments[0] === '/game/7/result/8/');
+clickEndTurn(enemy.page.endTurnButton);
+assert('a second skip click neither reloads again nor resubmits',
+    enemy.windowRecord.hrefAssignments.length === 1);
+
+const playerMoves = runPhasePage('playerMoves', '/game/7/board/8/');
+assert('the playerMoves phase leaves the end-turn control a native submit',
+    (playerMoves.page.endTurnButton.eventHandlers.click ?? []).length === 0);
+assert('the playerMoves reload stays scheduled without any skip wiring',
+    playerMoves.windowRecord.timeouts.some((entry) => !entry.cleared) &&
+    playerMoves.windowRecord.hrefAssignments.length === 0);
+
+const player = runPhasePage(null, '/game/7/board/8/');
+assert('the normal player phase keeps the native end-turn submit',
+    (player.page.endTurnButton.eventHandlers.click ?? []).length === 0);
+assert('the normal player board does not navigate on its own',
+    player.windowRecord.hrefAssignments.length === 0);
+
+console.log('enemy turn end-turn skip ok');
+""".replace('__LOADING_JS__', repr(loading_js))
+
+        self.assertIn(
+            'enemy turn end-turn skip ok',
+            _run_node_harness(harness, 'enemy turn end-turn skip rehearsal'),
+        )
+
     def test_draw_renders_drawn_card_loading_from_deck(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1383,6 +1783,142 @@ class BattleFlowTests(BattleBoardFixture):
         for game_card in lane_game_cards + [deck_game_card]:
             game_card.state.refresh_from_db()
             self.assertTrue(game_card.state.inDeck)
+
+    def test_depleted_deck_draw_flies_last_card_to_hand_and_deck_then_redraws_shuffled_order(self):
+        """A user story: my deck is down to its last card. I draw it and
+        watch that exact card fly into my hand, then straight back into the
+        deck with the shuffle wave; when I draw again afterwards, I get
+        whichever card the shuffle put on top, not a fixed card-ID order."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [1, 1, 2], 1
+        )
+
+        def drawn_card_last(cards):
+            cards.sort(key=lambda card: (card.id == deck_game_card.id, -card.id))
+
+        with mock.patch("MMM.models.random.shuffle", side_effect=drawn_card_last):
+            response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+        self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
+        self.assertEqual(self._visible_card_tags(deck_game_card.id, content), [])
+        self.assertIn("Deck: 1 | Hand: 1", content)
+
+        timeline = self._board_timeline(content)
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (2, 1, -1),
+                lane_game_cards[1].id: (2, 2, -1),
+                lane_game_cards[2].id: (3, 3, -1),
+                deck_game_card.id: (0, 1, -1),
+            },
+        )
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIn("Deck: 4 | Hand: 0", response.content.decode())
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        redrawn_card = GameCard.objects.get(
+            game_id=self.game.id, user_id=self.human_participant.id, state__lane=0
+        )
+        self.assertEqual(redrawn_card.id, lane_game_cards[2].id)
+        self.assertEqual(
+            GameCard.objects.filter(
+                game_id=self.game.id, user_id=self.human_participant.id, state__inDeck=True
+            ).count(),
+            3,
+        )
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{lane_game_cards[2].id}"', loading_tag.group(0))
+        self.assertNotContains(response, 'id="timelineSteps"')
+
+    def test_shuffle_board_returns_combined_cards_in_shuffled_deck_order(self):
+        """shuffleBoard sweeps untrusted face-up board cards and hand cards
+        back into the deck together in one randomized order: each card takes
+        a distinct deck position, the next draw follows that order, and
+        trusted or face-down board cards keep their lanes."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [1, 1, 2], 1
+        )
+        excluded_game_cards = []
+        for lane, face_down, trusted in ((1, False, True), (2, True, False)):
+            excluded_card = Card.objects.create(
+                title=f"Human-untouched-{lane}-{trusted}", artSource="", cardType=lane - 1
+            )
+            excluded_game_card = GameCard.create(
+                excluded_card.id, self.game.id, self.human_participant.id
+            )
+            excluded_game_card.save()
+            excluded_game_card.state.inDeck = False
+            excluded_game_card.state.lane = lane
+            excluded_game_card.state.laneOrdinal = 4
+            excluded_game_card.state.faceDown = face_down
+            excluded_game_card.state.trusted = trusted
+            excluded_game_card.state.save()
+            excluded_game_cards.append(excluded_game_card)
+        deck_game_card.state.draw()
+        deck_game_card.state.updateOrdinal(1)
+        deck_game_card.state.save()
+
+        shuffled_cards_seen = []
+
+        def newest_card_first(cards):
+            shuffled_cards_seen.extend(cards)
+            cards.sort(key=lambda card: -card.id)
+
+        with mock.patch("MMM.models.random.shuffle", side_effect=newest_card_first) as shuffle_mock:
+            self.human_participant.shuffleBoard()
+
+        self.assertEqual(shuffle_mock.call_count, 1)
+        self.assertEqual(
+            {card.id for card in shuffled_cards_seen},
+            {card.id for card in lane_game_cards + [deck_game_card]},
+        )
+        deck_lanes = {}
+        for game_card in lane_game_cards + [deck_game_card]:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.inDeck)
+            self.assertEqual(game_card.state.laneOrdinal, 0)
+            deck_lanes[game_card.id] = game_card.state.lane
+        self.assertEqual(
+            deck_lanes,
+            {
+                lane_game_cards[0].id: -4,
+                lane_game_cards[1].id: -3,
+                lane_game_cards[2].id: -2,
+                deck_game_card.id: -1,
+            },
+        )
+        self.assertEqual(self.human_participant.getNextDeckCard().id, deck_game_card.id)
+        for excluded_game_card in excluded_game_cards:
+            excluded_game_card.state.refresh_from_db()
+            self.assertFalse(excluded_game_card.state.inDeck)
+            self.assertNotIn(excluded_game_card.state.lane, deck_lanes.values())
 
     def test_static_hand_card_uses_the_same_css_face_as_field_cards(self):
         for card in self.human_cards + self.bot_cards:
@@ -1618,6 +2154,41 @@ class BattleFlowTests(BattleBoardFixture):
                 section.group(1),
                 f"the {section_name} deck indicator lost its card-back face art",
             )
+
+    def test_board_preloads_backdrop_and_paints_fallback_color_before_image(self):
+        """Board actions re-render the whole document, so the wood backdrop is
+        advertised in the head and the page paints a matching color until the
+        image loads; reloads must not flash white."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        content = self.client.get(board_url).content.decode()
+
+        head = content[: content.index("</head>")]
+        self.assertIn(
+            '<link rel="preload" as="image" href="/static/woodtextureorangedark2.jpg">',
+            head,
+        )
+        self.assertLess(
+            head.index("woodtextureorangedark2.jpg"),
+            content.index('class="fit-picture fullpage-background"'),
+            "the backdrop must be advertised for eager loading before body content",
+        )
+
+        with open(os.path.join(STATIC_TEST_DIR, "demoNavigation.css")) as css_file:
+            demo_css = css_file.read()
+
+        fallback_rule = re.search(r"body\.demoPage\s*\{[^}]*\}", demo_css)
+        self.assertIsNotNone(
+            fallback_rule,
+            "demo pages need a background-color fallback behind the wood backdrop",
+        )
+        self.assertRegex(
+            fallback_rule.group(0),
+            r"background-color:\s*var\(--demo-page-background-color\)",
+        )
+        self.assertIn("--demo-page-background-color: #", demo_css)
 
     def test_deck_animation_and_draw_selectors_use_active_deck_only(self):
         import os
@@ -2796,6 +3367,243 @@ class BattleFlowTests(BattleBoardFixture):
         self.assertIn("1d", content)
 
     # ------------------------------------------------------------------
+    # Disabled-button affordance tests
+    # ------------------------------------------------------------------
+
+    def _board_button_tags(self, content):
+        return re.findall(r'<button[^>]*>', content)
+
+    def _single_board_button_tag(self, content, class_marker):
+        matching = [
+            button_tag for button_tag in self._board_button_tags(content)
+            if f'class="{class_marker}' in button_tag
+        ]
+        self.assertEqual(len(matching), 1, f"expected one {class_marker!r} button")
+        return matching[0]
+
+    def _assert_button_affordance_contract(self, content):
+        """Every rendered board button is a known control that either works
+        right now or is disabled with a truthful unavailable reason as its
+        title."""
+        button_tags = self._board_button_tags(content)
+        self.assertTrue(button_tags, "board renders no buttons")
+        available_titles = ("Draw card", "End turn", "Skip", "Continue the special")
+        for button_tag in button_tags:
+            if not any(marker in button_tag for marker in (
+                'class="card back draw',
+                'class="end-turn',
+                'class="continue-special',
+            )):
+                self.fail(f"unknown board button in inventory: {button_tag}")
+            title_match = re.search(r'title="([^"]*)"', button_tag)
+            self.assertIsNotNone(title_match, f"button without a title: {button_tag}")
+            if 'disabled' in button_tag:
+                self.assertNotIn(
+                    title_match.group(1),
+                    available_titles,
+                    f"disabled button without a truthful reason: {button_tag}",
+                )
+
+    def test_board_button_inventory_is_complete_and_dead_targeting_is_gone(self):
+        """User story: I open my board and every control I can see is real.
+        The old opponent-target arrows never did anything, so they are gone
+        from the page and the stylesheet; the buttons that remain — Draw and
+        End turn — are available with their plain titles."""
+        cards_css = _read_static_asset('cards.css')
+        self.assertNotIn('enemy-targeting', cards_css)
+        self.assertNotIn('.small-buttons', cards_css)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        content = self.client.get(board_url).content.decode()
+
+        self.assertNotIn('class="targeting"', content)
+        self.assertNotIn('data-target-participant-id', content)
+        self.assertNotIn('enemy-targeting', content)
+
+        available_buttons = []
+        for button_tag in self._board_button_tags(content):
+            if 'class="card back draw' in button_tag:
+                available_buttons.append('draw')
+            elif 'class="end-turn' in button_tag:
+                available_buttons.append('end-turn')
+            else:
+                self.fail(f"unknown board button in inventory: {button_tag}")
+        self.assertEqual(available_buttons, ['draw', 'end-turn'])
+        self.assertNotIn('disabled', self._single_board_button_tag(content, 'card back draw'))
+        self.assertIn(
+            'title="Draw card"',
+            self._single_board_button_tag(content, 'card back draw'),
+        )
+        self.assertNotIn('disabled', self._single_board_button_tag(content, 'end-turn'))
+        self.assertIn(
+            'title="End turn"',
+            self._single_board_button_tag(content, 'end-turn'),
+        )
+        self._assert_button_affordance_contract(content)
+
+    def test_player_moves_phase_disables_end_turn_with_reason_until_settled(self):
+        """User story: I submit my end turn and my staged card flights start
+        playing. The end-turn button is greyed out and cannot be activated
+        while that animation runs — its hover title says exactly that — and
+        once the board settles it is a normal usable button again."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        moved_content = self.client.post(
+            end_turn_url, {"action": "end_turn"}
+        ).content.decode()
+        self.assertIn('data-phase="playerMoves"', moved_content)
+        moved_end_turn = self._single_board_button_tag(moved_content, 'end-turn')
+        self.assertIn('disabled', moved_end_turn)
+        self.assertIn(
+            'title="End turn is unavailable while your moves animate"', moved_end_turn
+        )
+        self.assertNotIn('autofocus', moved_end_turn)
+        moved_draw = self._single_board_button_tag(moved_content, 'card back draw')
+        self.assertNotIn('disabled', moved_draw)
+        self.assertIn('title="Draw card"', moved_draw)
+        self._assert_button_affordance_contract(moved_content)
+
+        enemy_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-phase="enemy"', enemy_content)
+        enemy_end_turn = self._single_board_button_tag(enemy_content, 'end-turn')
+        self.assertNotIn('disabled', enemy_end_turn)
+        self.assertIn('title="Skip"', enemy_end_turn)
+        self._assert_button_affordance_contract(enemy_content)
+
+        player_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-phase="player"', player_content)
+        player_end_turn = self._single_board_button_tag(player_content, 'end-turn')
+        self.assertNotIn('disabled', player_end_turn)
+        self.assertIn('title="End turn"', player_end_turn)
+        self._assert_button_affordance_contract(player_content)
+
+        self.client.cookies = SimpleCookie()
+        settled_content = self.client.get(board_url).content.decode()
+        settled_end_turn = self._single_board_button_tag(settled_content, 'end-turn')
+        self.assertNotIn('disabled', settled_end_turn)
+        self.assertIn('title="End turn"', settled_end_turn)
+        self.assertIn('autofocus', settled_end_turn)
+        self._assert_button_affordance_contract(settled_content)
+
+    def test_pending_special_blocks_end_turn_but_keeps_continue_available(self):
+        """User story: with specials autochoose off, drawing my deck's last
+        card pauses the game for my special. The Continue button is the one
+        working control; End turn is disabled with the waiting-special
+        reason on hover, and continuing the special hands the board back."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        self._stage_last_card_draw(self.human_participant, [3], 3)
+
+        pending_content = self.client.post(draw_url, {"action": "draw"}).content.decode()
+        self.assertIn("special is waiting for your input", pending_content)
+        continue_tag = self._single_board_button_tag(pending_content, 'continue-special')
+        self.assertNotIn('disabled', continue_tag)
+        self.assertIn('title="Continue the special"', continue_tag)
+        end_turn_tag = self._single_board_button_tag(pending_content, 'end-turn')
+        self.assertIn('disabled', end_turn_tag)
+        self.assertIn(
+            'title="A special is waiting for input; continue it first."', end_turn_tag
+        )
+        self._assert_button_affordance_contract(pending_content)
+
+        resolved_content = self.client.post(
+            draw_url, {"action": "continue_special"}
+        ).content.decode()
+        self.assertIn('data-phase="playerMoves"', resolved_content)
+        self.assertNotIn("special is waiting for your input", resolved_content)
+        resolved_end_turn = self._single_board_button_tag(resolved_content, 'end-turn')
+        self.assertIn('disabled', resolved_end_turn)
+        self.assertIn(
+            'title="End turn is unavailable while your moves animate"',
+            resolved_end_turn,
+        )
+        self._assert_button_affordance_contract(resolved_content)
+
+    def test_bot_pending_special_keeps_skip_and_continue_but_blocks_player_buttons(self):
+        """User story: the bot draws its last card with autochoose off, so
+        its special waits for me. During the enemy animation the Skip and
+        Continue buttons keep working; once my board settles, my End turn
+        and Draw buttons are disabled with the waiting-special reason until
+        I continue the special."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        self._stage_last_card_draw(self.bot_participant, [0, 0], 0)
+
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        enemy_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-phase="enemy"', enemy_content)
+        self.assertIn("special is waiting for your input", enemy_content)
+        enemy_end_turn = self._single_board_button_tag(enemy_content, 'end-turn')
+        self.assertNotIn('disabled', enemy_end_turn)
+        self.assertIn('title="Skip"', enemy_end_turn)
+        self.assertNotIn(
+            'disabled',
+            self._single_board_button_tag(enemy_content, 'continue-special'),
+        )
+        self._assert_button_affordance_contract(enemy_content)
+
+        waiting_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-phase="player"', waiting_content)
+        waiting_continue = self._single_board_button_tag(
+            waiting_content, 'continue-special'
+        )
+        self.assertNotIn('disabled', waiting_continue)
+        self.assertIn('title="Continue the special"', waiting_continue)
+        waiting_end_turn = self._single_board_button_tag(waiting_content, 'end-turn')
+        self.assertIn('disabled', waiting_end_turn)
+        self.assertIn(
+            'title="A special is waiting for input; continue it first."',
+            waiting_end_turn,
+        )
+        waiting_draw = self._single_board_button_tag(waiting_content, 'card back draw')
+        self.assertIn('disabled', waiting_draw)
+        self.assertIn(
+            'title="A special is waiting for input; continue it first."', waiting_draw
+        )
+        self._assert_button_affordance_contract(waiting_content)
+
+    def test_disabled_button_affordance_css_and_js_contracts(self):
+        """Disabled controls are greyed out with a not-allowed cursor, and
+        the dynamic hand-card blocking carries the aria-disabled state."""
+        cards_css = _read_static_asset('cards.css')
+        drag_js = _read_static_asset('cardDragDrop.js')
+
+        disabled_end_turn_rule = re.search(
+            r'\.playerScreen \.deckHand \.end-turn:disabled\s*\{(.*?)\}',
+            cards_css,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            disabled_end_turn_rule, "disabled end-turn rule missing from cards.css"
+        )
+        self.assertIn('grayscale(', disabled_end_turn_rule.group(1))
+        self.assertIn('opacity:', disabled_end_turn_rule.group(1))
+        self.assertIn('cursor: not-allowed', disabled_end_turn_rule.group(1))
+
+        blocked_hand_branch = drag_js[
+            drag_js.index('if (remaining.plays <= 0) {'):
+            drag_js.index(
+                '} else {', drag_js.index('if (remaining.plays <= 0) {')
+            )
+        ]
+        self.assertIn("card.setAttribute('aria-disabled', 'true');", blocked_hand_branch)
+        self.assertIn("card.classList.add('blocked');", blocked_hand_branch)
+
+    # ------------------------------------------------------------------
     # Staged-action-blocking tests
     # ------------------------------------------------------------------
 
@@ -2855,6 +3663,57 @@ class BattleFlowTests(BattleBoardFixture):
 
         response = self.client.post(draw_url, {"action": "draw"})
         self.assertIn("Flip limit reached", response.content.decode())
+
+    def test_end_turn_submitted_staged_play_renders_loading_from_hand_source(self):
+        """Submitting a staged play keeps the cookie flow and loading flight.
+
+        The drag-drop system stages a play as a card-id keyed cookie with
+        lane, source lane, source ordinal and flip fields. Ending the turn
+        must consume that cookie, move the card into its lane, and render
+        it loading with the hand position as its source so the existing
+        hand-to-lane flight animation plays from where the card was.
+        """
+        from urllib.parse import quote
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(action_url, {"action": "draw"})
+
+        hand_card = GameCard.objects.filter(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__lane=0,
+        ).first()
+        hand_ordinal = hand_card.state.laneOrdinal
+        staged_payload = json.dumps({
+            "laneValue": "2",
+            "sourceLane": "0",
+            "sourceOrdinal": str(hand_ordinal),
+            "flipFaceUp": False,
+        })
+        self.client.cookies[str(hand_card.id)] = quote(staged_payload)
+
+        response = self.client.post(action_url, {"action": "end_turn"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        loading_tags = re.findall(r'<li class="cardContainer[^"]*loading"[^>]*>', content)
+        self.assertEqual(len(loading_tags), 1)
+        self.assertIn('data-source-lane="0"', loading_tags[0])
+        self.assertIn(f'data-source-ordinal="{hand_ordinal}"', loading_tags[0])
+        self.assertIn(f'name="card_id" value="{hand_card.id}"', content)
+
+        played_card = GameCard.objects.select_related("state").get(pk=hand_card.id)
+        self.assertEqual(played_card.state.lane, 2)
+        self.assertFalse(played_card.state.inDeck)
+
+        board_path = action_url[:action_url.rfind("action")]
+        cleared_cookie = response.cookies.get(str(hand_card.id))
+        self.assertIsNotNone(cleared_cookie)
+        self.assertEqual(cleared_cookie.value, "")
+        self.assertEqual(cleared_cookie["path"], board_path)
 
     def test_over_playing_shrinks_draw_budget(self):
         """With low int+spd, staging plays reduces draws_left via the min clause so the deck shows .blocked."""
@@ -3754,6 +4613,497 @@ console.log('touch drag staging ok');
             )
         self.assertIn('touch drag staging ok', completed.stdout)
 
+    def test_click_staged_hand_play_is_immediate_ghost_below_remaining_hand_via_dom(self):
+        """Staging a hand play ghosts the card before any POST or reload.
+
+        Click a hand card, then click a lane drop zone, and verify the
+        source card is a ghost with the play cookie written before the
+        turn is submitted, and that the real stylesheets keep the ghost
+        dimmed and below every unplayed hand card, including while the
+        hover, arrow and focus states are active on it.
+        """
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cardDragDrop.js')) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + CSS_CASCADE_ENGINE_JS + r"""
+const documentListeners = {};
+const windowListeners = {};
+const holdTimers = [];
+let nextTimerId = 1;
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen playingCards');
+body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
+const playerBoard = new FakeElement('div', 'playerBoard');
+matTable.appendChild(playerBoard);
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const holoRows = [];
+['Intelligence', 'Speed', 'Visciousness', 'Resolve'].forEach((laneName) => {
+    const lane = new FakeElement('li', `lane ${laneName}`);
+    lane.classList[1] = laneName;
+    lanesEl.appendChild(lane);
+    const holoRow = new FakeElement('ul', 'hologramRow');
+    lane.appendChild(holoRow);
+    holoRows.push(holoRow);
+});
+
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand hand-fan');
+handScroll.appendChild(handList);
+
+const makeHandCard = (cardId, cardLane, sourceOrdinal) => {
+    const card = new FakeElement('li', 'cardContainer');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('draggable', 'true');
+    card.dataset.cardLane = String(cardLane);
+    card.dataset.sourceLane = '0';
+    card.dataset.sourceOrdinal = String(sourceOrdinal);
+    const cardFace = new FakeElement('div', 'card smallCard');
+    card.appendChild(cardFace);
+    const input = new FakeElement('input');
+    input.setAttribute('type', 'hidden');
+    input.setAttribute('name', 'card_id');
+    input.setAttribute('value', String(cardId));
+    card.appendChild(input);
+    handList.appendChild(card);
+    return card;
+};
+const handA = makeHandCard(201, 2, 1);
+const handB = makeHandCard(202, 1, 2);
+const handC = makeHandCard(203, 4, 3);
+
+const endTurnForm = new FakeElement('form', 'cardActionForm end-turn');
+playerScreen.appendChild(endTurnForm);
+const endTurnButton = new FakeElement('button', 'end-turn');
+endTurnForm.appendChild(endTurnButton);
+const focusedHandCardInput = new FakeElement('input');
+focusedHandCardInput.setAttribute('type', 'hidden');
+focusedHandCardInput.setAttribute('name', 'focused_hand_card');
+focusedHandCardInput.setAttribute('value', '1');
+endTurnForm.appendChild(focusedHandCardInput);
+
+let endTurnSubmissions = 0;
+let endTurnClicks = 0;
+endTurnForm.requestSubmit = () => { endTurnSubmissions += 1; };
+endTurnButton.click = () => { endTurnClicks += 1; };
+
+const turnLimits = new FakeElement('div');
+turnLimits.id = 'turnLimits';
+turnLimits.dataset = {
+    intCount: '2', spdCount: '0', tactics: '0',
+    drawn: '0', played: '0', flipped: '0',
+    focusedHandCard: '1',
+    drawBlockedTitle: 'draw blocked',
+    playBlockedTitle: 'play blocked',
+    flipBlockedTitle: 'flip blocked',
+};
+
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementById(id) {
+        if (id === 'turnLimits') return turnLimits;
+        for (const el of descendantsInOrder(body)) {
+            if (el.id === id) return el;
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: () => new FakeElement('svg'),
+    addEventListener(event, handler) {
+        (documentListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    body,
+    activeElement: null,
+};
+
+const cookieWrites = [];
+Object.defineProperty(fakeDocument, 'cookie', {
+    set(value) { cookieWrites.push(value); },
+    get() { return cookieWrites.join('; '); },
+});
+
+for (const el of [body, playerScreen, endTurnForm, endTurnButton, handA, handB, handC]) {
+    el.focus = () => { fakeDocument.activeElement = el; };
+    el.blur = () => { if (fakeDocument.activeElement === el) fakeDocument.activeElement = body; };
+}
+
+global.document = fakeDocument;
+global.window = {
+    addEventListener(event, handler) {
+        (windowListeners[event] ??= []).push(handler);
+    },
+    removeEventListener(event, handler) {
+        windowListeners[event] = (windowListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    cardDragDrop: null,
+    location: { pathname: '/MMM/game/1/board/1/action/' },
+    setTimeout(callback) {
+        const id = nextTimerId++;
+        holdTimers.push({ id, callback });
+        return id;
+    },
+    clearTimeout(id) {
+        const index = holdTimers.findIndex((task) => task.id === id);
+        if (index !== -1) holdTimers.splice(index, 1);
+    },
+};
+global.CSS = { escape: (value) => String(value) };
+global.getComputedStyle = () => ({ getPropertyValue: () => '1' });
+global.Element = function Element() {};
+global.MutationObserver = function (handler) {
+    this.observe = () => {};
+    this.disconnect = () => {};
+};
+
+const dragCode = __DRAG_JS__;
+eval(dragCode);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+const system = global.window.cardDragDrop;
+if (!system) throw new Error('cardDragDrop not instantiated');
+
+const zoneFor = (laneValue) => fakeDocument.getElementById(`drop-zone-${laneValue}`);
+const fireZone = (zone, type, event = {}) => {
+    (zone.eventHandlers[type] ?? []).forEach((handler) => handler({ target: zone, ...event }));
+};
+const fireDocumentClick = (target) => {
+    (documentListeners['click'] ?? []).forEach((handler) => handler({
+        type: 'click', button: 0, target, clientX: 5, clientY: 5,
+    }));
+};
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+fakeDocument.activeElement = body;
+fireDocumentClick(handA);
+assert('clicking a playable hand card starts the mouse selection',
+    system.keyboardSelection.selectedCard === handA &&
+    system.keyboardSelection.mouseSelecting === true);
+assert('the selection click alone neither stages nor submits anything',
+    cookieWrites.length === 0 && !handA.classList.contains('ghost') &&
+    endTurnSubmissions === 0 && endTurnClicks === 0);
+
+fireZone(zoneFor(2), 'mouseenter');
+fireZone(zoneFor(2), 'click', { currentTarget: zoneFor(2), preventDefault() {}, stopPropagation() {} });
+assert('clicking the lane stages the play with the ghost state before any submit',
+    handA.classList.contains('ghost') &&
+    handA.getAttribute('draggable') === 'false' &&
+    handA.dataset.stagedLane === '2' &&
+    !handA.classList.contains('loading'));
+const stagedHologram = holoRows[1].children[0];
+assert('the staged hologram lands face down in the target lane row',
+    Boolean(stagedHologram) && holoRows[0].children.length === 0 &&
+    stagedHologram.dataset.stagedForCardId === '201' &&
+    stagedHologram.querySelector('.cardContainer').classList.contains('faceDown'));
+assert('the staged play keeps the card-id keyed cookie shape',
+    cookieWrites.length === 1 && cookieWrites[0].startsWith('201=') &&
+    cookieWrites[0].endsWith(';path=/MMM/game/1/board/1/'));
+const stagedPayload = JSON.parse(
+    decodeURIComponent(cookieWrites[0].split(';')[0].split('=').slice(1).join('=')),
+);
+assert('the staged payload preserves lane, source and flip fields',
+    stagedPayload.laneValue === '2' && stagedPayload.sourceLane === '0' &&
+    stagedPayload.sourceOrdinal === '0' && stagedPayload.flipFaceUp === false);
+assert('staging consumed one play allowance without submitting the turn',
+    system.staged.plays === 1 && system.remainingAllowances().plays === 1 &&
+    endTurnSubmissions === 0 && endTurnClicks === 0);
+assert('the remaining hand cards keep their playable state',
+    !handB.classList.contains('ghost') && !handC.classList.contains('ghost') &&
+    handB.getAttribute('draggable') === 'true' &&
+    handC.getAttribute('draggable') === 'true');
+
+(handA.eventHandlers['mouseenter'] ?? []).forEach((handler) => handler({}));
+assert('hovering the staged ghost still raises the arrow hover state',
+    handA.classList.contains('hover') && stagedHologram.classList.contains('hover'));
+handA.classList.add('card-hover');
+
+collectCssRules(__CARDS_CSS__, 0);
+collectCssRules(__DRAG_CSS__, 1);
+
+handA.classList.remove('hover', 'card-hover');
+const ghostStates = [
+    { label: 'at rest after staging', classes: [], focusWithin: false },
+    { label: 'while the cooldown hover is active', classes: ['card-hover'], focusWithin: false },
+    { label: 'while the staged-play arrow is active', classes: ['hover'], focusWithin: false },
+    { label: 'while hovered and focused', classes: ['card-hover'], focusWithin: true },
+    { label: 'while focused for its flip', classes: [], focusWithin: true },
+];
+for (const state of ghostStates) {
+    state.classes.forEach((cls) => handA.classList.add(cls));
+    const opacity = effectiveProperty(handA, state, 'opacity');
+    const filter = effectiveProperty(handA, state, 'filter');
+    const zIndex = effectiveProperty(handA, state, 'z-index');
+    state.classes.forEach((cls) => handA.classList.remove(cls));
+    assert(`the staged hand ghost stays dimmed and below the hand ${state.label}`,
+        opacity === '0.4' && filter === 'grayscale(0.3)' && zIndex === '0');
+}
+
+assert('an unplayed hand card keeps its normal hand stack position',
+    effectiveProperty(handB, {}, 'opacity') === null &&
+    effectiveProperty(handB, {}, 'z-index') === '1');
+handB.classList.add('card-hover');
+assert('an unplayed hand card still rises over the hand when hovered',
+    effectiveProperty(handB, {}, 'opacity') === '1' &&
+    effectiveProperty(handB, {}, 'z-index') === '1000');
+handB.classList.remove('card-hover');
+assert('the staged ghost renders below every unplayed hand card',
+    Number(effectiveProperty(handA, {}, 'z-index')) <
+    Number(effectiveProperty(handB, {}, 'z-index')));
+
+console.log('staged hand ghost timing ok');
+""".replace('__DRAG_JS__', repr(drag_js)).replace('__CARDS_CSS__', repr(cards_css)).replace('__DRAG_CSS__', repr(drag_css))
+
+        self.assertIn(
+            'staged hand ghost timing ok',
+            _run_node_harness(harness, 'staged hand ghost timing DOM test'),
+        )
+
+    def test_focused_board_card_paints_above_every_region_via_dom(self):
+        """Keyboard focus keeps the focused board card above every other card.
+
+        User story: tab through the hand, the player field and an enemy field
+        card and check the composed paint order against the real stylesheets.
+        The focused card must rise above overlapping cards in its own row,
+        above the cards of the other board regions, and above hover or
+        blocked states on any other card, while the enemy region stays below
+        the player's fixed board at rest and the zoom stage keeps displaying
+        its clone above everything.
+        """
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
+            drag_css = css_file.read()
+        with open(os.path.join(static_dir, 'cardZoom.css')) as css_file:
+            zoom_css = css_file.read()
+
+        harness = FAKE_ELEMENT_DATASET_CORE + CSS_CASCADE_ENGINE_JS + r"""
+const focusLayerMatch = __CARDS_CSS__.match(/--card-focus-z-index:\s*([0-9]+)/);
+if (!focusLayerMatch) throw new Error('FAILED: cards.css must define --card-focus-z-index');
+const focusLayer = Number(focusLayerMatch[1]);
+const resolveFocusLayer = (cssText) => cssText.replace(/var\(--card-focus-z-index\)/g, String(focusLayer));
+collectCssRules(resolveFocusLayer(__CARDS_CSS__), 0);
+collectCssRules(resolveFocusLayer(__DRAG_CSS__), 1);
+collectCssRules(__ZOOM_CSS__, 2);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+assert('the focus layer rises above every hover layer and stays below the zoom stage',
+    focusLayer > 1000 && focusLayer < 2000);
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen playingCards rotateHand zoomCards');
+body.appendChild(playerScreen);
+
+const enemyBoards = new FakeElement('ul', 'enemyBoards basic-mat table');
+playerScreen.appendChild(enemyBoards);
+const enemyBoard = new FakeElement('li', 'enemyBoard');
+enemyBoards.appendChild(enemyBoard);
+const enemyLanes = new FakeElement('ul', 'lanes');
+enemyBoard.appendChild(enemyLanes);
+const enemyLane = new FakeElement('li', 'lane Resolve');
+enemyLanes.appendChild(enemyLane);
+const enemyRow = new FakeElement('ul', 'cardRow');
+enemyRow.setAttribute('title', 'cards');
+enemyLane.appendChild(enemyRow);
+
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
+const playerBoard = new FakeElement('li', 'playerBoard');
+matTable.appendChild(playerBoard);
+const lanes = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanes);
+const lane = new FakeElement('li', 'lane Resolve');
+lanes.appendChild(lane);
+const hologramRow = new FakeElement('ul', 'hologramRow');
+lane.appendChild(hologramRow);
+const hologram = new FakeElement('div', 'hologram');
+hologramRow.appendChild(hologram);
+const playerRow = new FakeElement('ul', 'cardRow');
+playerRow.setAttribute('title', 'cards');
+lane.appendChild(playerRow);
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handList = new FakeElement('ul', 'hand hand-fan');
+handScroll.appendChild(handList);
+const zoomStage = new FakeElement('div', 'cardZoomStage');
+playerScreen.appendChild(zoomStage);
+
+const makeCard = (parent, extraClasses = '') => {
+    const card = new FakeElement('li', ('cardContainer ' + extraClasses).trim());
+    parent.appendChild(card);
+    return card;
+};
+
+const enemyA = makeCard(enemyRow);
+const enemyB = makeCard(enemyRow);
+const enemyC = makeCard(enemyRow);
+const holoCard = makeCard(hologram);
+holoCard.setAttribute('tabindex', '0');
+const fieldA = makeCard(playerRow);
+const fieldB = makeCard(playerRow, 'faceDown blocked');
+fieldB.setAttribute('tabindex', '0');
+const fieldC = makeCard(playerRow);
+const handA = makeCard(handList);
+handA.setAttribute('tabindex', '0');
+const handB = makeCard(handList);
+const handC = makeCard(handList, 'blocked');
+const zoomedClone = makeCard(zoomStage);
+
+const orderedNodes = [body, ...descendantsInOrder(body)];
+const orderOf = (el) => orderedNodes.indexOf(el);
+
+const zIndexOf = (el, states) => {
+    const value = effectiveProperty(el, states, 'z-index');
+    if (value === null) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw new Error('FAILED: unresolvable z-index ' + value);
+    return parsed;
+};
+
+const isStackingContext = (el, states) => {
+    if (!el.parentNode) return true;
+    const position = effectiveProperty(el, states, 'position');
+    if (position === 'fixed' || position === 'sticky') return true;
+    const zIndex = zIndexOf(el, states);
+    if (zIndex !== null && (position === 'absolute' || position === 'relative')) return true;
+    const parentDisplay = el.parentNode
+        ? String(effectiveProperty(el.parentNode, states, 'display') || '') : '';
+    if (zIndex !== null && /flex|grid/.test(parentDisplay)) return true;
+    const opacityValue = effectiveProperty(el, states, 'opacity');
+    const opacity = opacityValue === null ? 1 : Number(opacityValue);
+    if (Number.isFinite(opacity) && opacity < 1) return true;
+    return false;
+};
+
+const stackingChain = (el, states) => {
+    const chain = [];
+    let participant = el;
+    while (participant && participant.parentNode) {
+        let boundary = participant.parentNode;
+        while (boundary && !isStackingContext(boundary, states)) boundary = boundary.parentNode;
+        const position = effectiveProperty(participant, states, 'position');
+        chain.unshift({
+            node: participant,
+            context: boundary,
+            z: zIndexOf(participant, states),
+            positioned: position !== null,
+            order: orderOf(participant),
+        });
+        participant = boundary;
+    }
+    return chain;
+};
+
+const levelOf = (entry) => (entry.positioned || entry.z !== null) ? (entry.z ?? 0) : -1;
+
+const paintsAbove = (upper, lower, states) => {
+    const upperChain = stackingChain(upper, states);
+    const lowerChain = stackingChain(lower, states);
+    let step = 0;
+    while (step < upperChain.length && step < lowerChain.length) {
+        const upperEntry = upperChain[step];
+        const lowerEntry = lowerChain[step];
+        if (upperEntry.context !== lowerEntry.context) {
+            throw new Error('FAILED: compared elements sit in different stacking trees');
+        }
+        if (upperEntry.node === lowerEntry.node) {
+            step += 1;
+            continue;
+        }
+        const upperLevel = levelOf(upperEntry);
+        const lowerLevel = levelOf(lowerEntry);
+        if (upperLevel !== lowerLevel) return upperLevel > lowerLevel;
+        if (upperEntry.positioned !== lowerEntry.positioned) return upperEntry.positioned;
+        return upperEntry.order > lowerEntry.order;
+    }
+    return step >= lowerChain.length && step < upperChain.length;
+};
+
+const rest = {};
+const focusedHand = { focusElement: handA };
+const focusedField = { focusElement: fieldA };
+const focusedBlockedField = { focusElement: fieldB };
+const focusedHologram = { focusElement: holoCard };
+const focusedEnemy = { focusElement: enemyA };
+
+assert("the player's fixed board region paints above the enemy region at rest",
+    paintsAbove(handB, enemyB, rest) && paintsAbove(fieldC, enemyC, rest));
+handB.classList.add('card-hover');
+handC.classList.add('card-hover');
+enemyB.classList.add('card-hover');
+assert('a hovered enemy card stays inside its region below the player board',
+    !paintsAbove(enemyB, handA, rest) && !paintsAbove(enemyB, fieldA, rest));
+assert('unfocused row cards keep their positional stacking',
+    paintsAbove(fieldC, fieldA, rest) && !paintsAbove(fieldA, fieldC, rest));
+
+assert('a focused hand card paints above hovered and blocked hand neighbours',
+    paintsAbove(handA, handB, focusedHand) && paintsAbove(handA, handC, focusedHand));
+assert('a focused hand card paints above the player field row',
+    paintsAbove(handA, fieldA, focusedHand) && paintsAbove(handA, fieldC, focusedHand));
+assert('a focused hand card paints above every enemy field card',
+    paintsAbove(handA, enemyA, focusedHand) && paintsAbove(handA, enemyB, focusedHand) &&
+    paintsAbove(handA, enemyC, focusedHand));
+assert('a focused hand card stays below the zoom stage clone',
+    !paintsAbove(handA, zoomedClone, focusedHand) && paintsAbove(zoomedClone, handA, focusedHand));
+
+fieldC.classList.add('card-hover');
+assert('a focused field card paints above its hovered row neighbours and the hand',
+    paintsAbove(fieldA, fieldC, focusedField) && paintsAbove(fieldA, handB, focusedField));
+assert('a focused field card paints above the enemy boards',
+    paintsAbove(fieldA, enemyA, focusedField) && paintsAbove(fieldA, enemyB, focusedField));
+assert('the focused field card keeps its focus lift above the row',
+    String(effectiveProperty(fieldA, focusedField, 'transform')).includes('- 1.5em'));
+
+assert('a flip-blocked face-down field card focused by keyboard paints above hovered neighbours',
+    paintsAbove(fieldB, fieldC, focusedBlockedField));
+assert('the blocked focused field card keeps its resting position without the lift',
+    !String(effectiveProperty(fieldB, focusedBlockedField, 'transform')).includes('- 1.5em'));
+
+assert('a focused staged hologram paints above hovered field cards',
+    paintsAbove(holoCard, fieldC, focusedHologram));
+
+assert('a focused enemy field card paints above its own hovered row neighbours',
+    paintsAbove(enemyA, enemyB, focusedEnemy) && paintsAbove(enemyA, enemyC, focusedEnemy));
+assert('a focused enemy field card paints above the whole player board and hand',
+    paintsAbove(enemyA, fieldA, focusedEnemy) && paintsAbove(enemyA, fieldC, focusedEnemy) &&
+    paintsAbove(enemyA, handA, focusedEnemy) && paintsAbove(enemyA, handB, focusedEnemy));
+assert('the zoom stage clone still paints above a focused enemy card',
+    paintsAbove(zoomedClone, enemyA, focusedEnemy) && !paintsAbove(enemyA, zoomedClone, focusedEnemy));
+
+console.log('focused board card stacking ok');
+""".replace('__CARDS_CSS__', repr(cards_css)).replace('__DRAG_CSS__', repr(drag_css)).replace('__ZOOM_CSS__', repr(zoom_css))
+
+        self.assertIn(
+            'focused board card stacking ok',
+            _run_node_harness(harness, 'focused board card stacking DOM test'),
+        )
+
     def test_turn_affordances_block_hand_cards_out_of_tab_order_and_restore_idempotently(self):
         import os
 
@@ -3884,7 +5234,7 @@ console.log('touch drag staging ok');
         )
         self.assertIn(
             '.playingCards.rotateHand .hand-scroll .hand-fan > li.cardContainer:not(.duplicate) {\n'
-            '    transition: transform 0.15s ease-out;\n}',
+            '    transition: transform var(--card-hover-lift-timing);\n}',
             cards_css,
         )
         self.assertIn(
@@ -3893,7 +5243,7 @@ console.log('touch drag staging ok');
         )
         self.assertIn(
             '.playingCards ul.cardRow li.cardContainer:not(.duplicate) {\n'
-            '    transition: transform 0.15s ease-out, filter 0.3s ease, box-shadow 0.3s ease;\n}',
+            '    transition: transform var(--card-hover-lift-timing), filter 0.3s ease, box-shadow 0.3s ease;\n}',
             cards_css,
         )
 
@@ -3906,7 +5256,7 @@ console.log('touch drag staging ok');
             card_row_hover_block,
         )
         self.assertIn(
-            'transition: transform 0.15s ease-out, filter 0.15s ease-out;',
+            'transition: transform var(--card-hover-lift-timing), filter 0.15s ease-out;',
             card_row_hover_block,
         )
         card_row_focus_block = cards_css[
@@ -5252,6 +6602,83 @@ console.log('space draw focus round trip ok');
             "fixed visible size"
         )
 
+    def test_lanes_share_one_desktop_width_contract_across_boards(self):
+        """Player and enemy lane lists follow one shared desktop width contract.
+
+        User story: on a desktop monitor the player's four lanes and every
+        enemy's four lanes span the same 90vw strip with 5% side padding and
+        1.5% gaps, so all boards show identical equal-width lanes that keep
+        scaling with the viewport on 4K screens; on a phone the lanes keep
+        their full-width compact layout with the rem-sized gaps.
+        """
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+
+        lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
+        self.assertIsNotNone(lanes_rule, "ul.lanes rule missing from cards.css")
+        lanes_body = lanes_rule.group(0)
+        self.assertIn('width: 90vw', lanes_body)
+        self.assertIn('padding: 0 5%', lanes_body)
+        self.assertIn('gap: 1.5%', lanes_body)
+        self.assertIn('display: flex', lanes_body)
+        self.assertIn('flex-direction: row', lanes_body)
+        self.assertIn('align-items: stretch', lanes_body)
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])max-width\s*:', lanes_body),
+            "the lane strip must not cap its width; it scales with the "
+            "viewport on 4K and larger screens"
+        )
+
+        lane_rule = re.search(r'ul\.lanes li\.lane\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(lane_rule, "ul.lanes li.lane rule missing from cards.css")
+        lane_body = lane_rule.group(0)
+        self.assertIn('flex: 1', lane_body)
+        self.assertIn('min-width: 8rem', lane_body)
+        self.assertIn('position: relative', lane_body)
+        self.assertIsNone(
+            re.search(r'(^|[^-\w])width\s*:', lane_body),
+            "li.lane must not declare a width; flex: 1 is what keeps the "
+            "four lanes equal-width"
+        )
+
+        enemy_lanes_rule = re.search(r'\.enemyBoard ul\.lanes\s*\{[^}]*\}', cards_css)
+        self.assertIsNotNone(
+            enemy_lanes_rule, ".enemyBoard ul.lanes rule missing from cards.css"
+        )
+        self.assertIsNone(
+            re.search(
+                r'(^|[^-\w])(width|max-width|gap|padding)\s*:',
+                enemy_lanes_rule.group(0),
+            ),
+            "the enemy lane list must not override the shared width, gap or "
+            "horizontal padding contract; only its vertical padding-top "
+            "adjustment may differ"
+        )
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        mobile_block = css_block(cards_css, '@media (max-width: 41rem) {')
+        mobile_lanes_rule = re.search(r'ul\.lanes\s*\{[^}]*\}', mobile_block)
+        self.assertIsNotNone(
+            mobile_lanes_rule, "mobile ul.lanes rule missing from cards.css"
+        )
+        mobile_lanes_body = mobile_lanes_rule.group(0)
+        self.assertIn('width: 100%', mobile_lanes_body)
+        self.assertIn('padding: 0;', mobile_lanes_body)
+        self.assertIn('gap: 0.5rem;', mobile_lanes_body)
+
     def test_board_fits_mobile_viewport_without_overflow(self):
         """The board fits phone screens with no overflow and no scroll fighting.
 
@@ -5260,7 +6687,7 @@ console.log('space draw focus round trip ok');
         stay inside the viewport. Lanes may not force a 536px minimum row, the
         fixed player table may not park itself on top of the enemy board, and
         excess hand cards scroll inside the hand region instead of spilling
-        over the document. A desktop window keeps the original 82vw layout,
+        over the document. A desktop window keeps the 90vw lanes layout,
         the fixed player table, and the unclipped hand row.
 
         The board shrinks on short narrow screens through a single
@@ -5353,7 +6780,7 @@ console.log('space draw focus round trip ok');
         self.assertIn('overflow: visible', board_hand_scroll_rule.group(0))
 
         lanes_rule = re.search(r'^ul\.lanes\s*\{[^}]*\}', cards_css, re.MULTILINE)
-        self.assertIn('width: 82vw', lanes_rule.group(0))
+        self.assertIn('width: 90vw', lanes_rule.group(0))
         player_table_rule = re.search(
             r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
         )
@@ -5375,6 +6802,181 @@ console.log('space draw focus round trip ok');
             re.search(r'--deck-indicator-offset: -\d+(\.\d+)?em;"', content),
             "deck indicator offsets must follow the board font (em) so the "
             "fanned indicator piles track the scaled deck on phones"
+        )
+
+    def test_short_viewport_board_scrolls_document_to_the_player_board(self):
+        """Short viewports scroll the page to reach both boards and open on the player board.
+
+        User story: open the board on a 1280x700 laptop. The player table
+        no longer parks itself fixed over the enemy board — the document
+        grows tall enough to scroll between the enemy and player boards,
+        and the page opens with the player board, its lanes, the deck,
+        the hand and the end-turn control in view. On a screen taller
+        than 770px the single fixed-anchor layout without scrolling
+        stays exactly as it was, and narrow phone screens keep their
+        own 100dvh fit.
+        """
+        import os
+        import re
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        with open(os.path.join(static_dir, 'boardScroll.js')) as scroll_js_file:
+            scroll_js = scroll_js_file.read()
+
+        def css_block(source, opener):
+            start = source.index(opener)
+            depth = 0
+            for offset in range(source.index('{', start), len(source)):
+                depth += source[offset] == '{'
+                depth -= source[offset] == '}'
+                if depth == 0:
+                    return source[start:offset + 1]
+            raise AssertionError(f'unclosed css block for {opener}')
+
+        short_block = css_block(cards_css, '@media (max-height: 48.125rem) {')
+        self.assertIn(
+            '.playerScreen > ul:not(.enemyBoards)', short_block,
+            "the short-viewport block must unanchor the player table so it "
+            "joins the document flow below the enemy boards"
+        )
+        self.assertIn(
+            'position: relative', short_block,
+            "the player table must stay in document flow while remaining a "
+            "positioned anchor for the end-turn cardActionForm"
+        )
+        self.assertIn('height: auto', short_block)
+        self.assertNotIn(
+            'max-width', short_block.split('{', 1)[0],
+            "the breakpoint is height-only; narrow screens keep the mobile fit"
+        )
+        self.assertIn('div.playerScreen', short_block)
+        self.assertLess(
+            cards_css.index('@media (max-height: 48.125rem)'),
+            cards_css.index('@media (max-width: 41rem)'),
+            "the short-viewport rules must come before the mobile block so "
+            "narrow screens keep overriding them"
+        )
+
+        player_table_rule = re.search(
+            r'\.playerScreen\s*>\s*ul:not\(\.enemyBoards\)\s*\{[^}]*\}', cards_css
+        )
+        self.assertIn(
+            'position: fixed', player_table_rule.group(0),
+            "viewports taller than the breakpoint keep the fixed player table"
+        )
+        self.assertIn('bottom: 0', player_table_rule.group(0))
+
+        self.assertIn(
+            '(max-height: 48.125rem)', scroll_js,
+            "the scroll script must gate on the same height breakpoint the "
+            "CSS uses"
+        )
+        self.assertIn(
+            "getElementById('playerBoard')", scroll_js,
+            "the scroll script must target the stable player-board anchor"
+        )
+        self.assertIn("scrollIntoView({ block: 'start' })", scroll_js)
+        self.assertNotIn("behavior: 'smooth'", scroll_js)
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        response = self.client.get(board_url)
+        content = response.content.decode()
+        self.assertIsNotNone(
+            re.search(r'<li class="playerBoard[^"]*"[^>]*\bid="playerBoard"', content),
+            "the rendered player board must carry the stable scroll target"
+        )
+        self.assertRegex(
+            content, r'<script type="module" src="[^"]*/static/boardScroll\.js">',
+            "the board page must ship the short-viewport scroll script"
+        )
+
+    def test_short_viewport_board_scroll_runs_only_for_player_views(self):
+        """The page-load scroll runs on short viewports for player views only.
+
+        User story: loading the board at 1280x700 lands the player board
+        at the top of the window without animation; taller viewports keep
+        the browser's own scroll position, and the enemy phase keeps its
+        top-of-page view for the enemy move animations.
+        """
+        scroll_js = _read_static_asset('boardScroll.js')
+
+        harness = r"""
+const domListeners = {};
+const scrolls = [];
+let viewportShort = false;
+let turnPhaseElement = null;
+
+const playerBoard = {
+    scrollIntoView: (options) => scrolls.push(options),
+};
+
+global.document = {
+    getElementById: (id) => {
+        if (id === 'playerBoard') return playerBoard;
+        return turnPhaseElement;
+    },
+    addEventListener: (event, handler) => { (domListeners[event] ??= []).push(handler); },
+};
+global.window = {
+    matchMedia: (query) => ({ matches: viewportShort, media: query }),
+};
+
+eval(__BOARD_SCROLL_JS__);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+const runLoad = () => {
+    for (const handler of domListeners['DOMContentLoaded'] ?? []) handler();
+};
+const setPhase = (phase) => {
+    turnPhaseElement = phase === null ? null : { dataset: { phase } };
+};
+
+scrolls.length = 0;
+setPhase(null);
+viewportShort = true;
+runLoad();
+assert('a plain load on a short viewport scrolls to the player board',
+    scrolls.length === 1 && scrolls[0].block === 'start');
+
+scrolls.length = 0;
+viewportShort = false;
+runLoad();
+assert('a tall viewport keeps the browser scroll position untouched',
+    scrolls.length === 0);
+
+scrolls.length = 0;
+viewportShort = true;
+setPhase('enemy');
+runLoad();
+assert('the enemy phase keeps its top-of-page view',
+    scrolls.length === 0);
+
+scrolls.length = 0;
+setPhase('player');
+runLoad();
+assert('the start of the player turn scrolls to the player board',
+    scrolls.length === 1);
+
+scrolls.length = 0;
+setPhase('playerMoves');
+runLoad();
+assert('the player moves phase scrolls to the player board',
+    scrolls.length === 1);
+
+console.log('board scroll rehearsal ok');
+""".replace('__BOARD_SCROLL_JS__', repr(scroll_js))
+
+        self.assertIn(
+            'board scroll rehearsal ok',
+            _run_node_harness(harness, 'board page scroll rehearsal'),
         )
 
     def test_card_art_fits_face_without_cropping_or_overflow(self):
@@ -13401,9 +15003,10 @@ class TitleGreetingTests(TestCase):
 
 class BoardCardPresentationTests(BattleBoardFixture):
     """Board presentation: trusted cards render on both boards in their own
-    rows, hover zoom ships enabled by default with a session toggle, the D and
-    E shortcut holds share one session-set duration, and staged plays and flips
-    move real board cards."""
+    rows, hover zoom ships enabled by default with a session toggle and its
+    entry grows in sync with the hand lift's shared transition timing, the D
+    and E shortcut holds share one session-set duration, and staged plays and
+    flips move real board cards."""
 
     def _confirm_and_get_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -13411,9 +15014,7 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.client.post(confirm_url)
         return self.client.get(board_url).content.decode()
 
-    def test_trusted_cards_render_for_both_participants(self):
-        content = self._confirm_and_get_board()
-
+    def _enemy_and_own_sections(self, content):
         enemy_section = re.search(
             r'<ul class="enemyBoards.*?>(.*?)</ul>\s*<ul class="basic-mat table">',
             content, re.DOTALL,
@@ -13422,6 +15023,11 @@ class BoardCardPresentationTests(BattleBoardFixture):
             r'<li class="playerBoard.*?(?=<div class="[^"]*deckHand)',
             content, re.DOTALL,
         ).group(0)
+        return enemy_section, own_section
+
+    def test_trusted_cards_render_for_both_participants(self):
+        content = self._confirm_and_get_board()
+        enemy_section, own_section = self._enemy_and_own_sections(content)
 
         for section, participant in (
             (enemy_section, self.bot_participant),
@@ -13446,6 +15052,60 @@ class BoardCardPresentationTests(BattleBoardFixture):
             for card_title in trusted_titles:
                 self.assertIn(f'title="{card_title} of ', trusted_rows)
                 self.assertNotIn(f'title="{card_title} of ', lane_rows)
+
+    def test_trusted_cards_render_sideways_while_regular_cards_stay_upright(self):
+        """Trusted cards lie sideways on both boards while ordinary face-up
+        lane cards stay upright, so the two presentations stay tellable apart
+        at a glance."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        for participant, card in (
+            (self.human_participant, self.human_cards[1]),
+            (self.bot_participant, self.bot_cards[1]),
+        ):
+            game_card = GameCard.objects.get(
+                game_id=self.game.id,
+                user_id=participant.id,
+                card_id=card.id,
+            )
+            game_card.state.inDeck = False
+            game_card.state.lane = card.cardType + 1
+            game_card.state.laneOrdinal = 1
+            game_card.state.faceDown = False
+            game_card.state.trusted = False
+            game_card.state.save()
+
+        content = self.client.get(board_url).content.decode()
+        enemy_section, own_section = self._enemy_and_own_sections(content)
+
+        for section in (enemy_section, own_section):
+            trusted_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="trustedCards">(.*?)</ul>', section, re.DOTALL)
+            )
+            trusted_tags = re.findall(r'<li class="cardContainer[^>]*>', trusted_rows)
+            self.assertTrue(trusted_tags)
+            for tag in trusted_tags:
+                self.assertIn("trustedCard", re.search(r'class="([^"]*)"', tag).group(1).split())
+
+            lane_rows = "".join(
+                re.findall(r'<ul class="cardRow" title="cards">(.*?)</ul>', section, re.DOTALL)
+            )
+            lane_tags = re.findall(r'<li class="cardContainer[^>]*>', lane_rows)
+            self.assertTrue(lane_tags)
+            for tag in lane_tags:
+                self.assertNotIn("trustedCard", re.search(r'class="([^"]*)"', tag).group(1).split())
+                self.assertNotIn("90deg", tag)
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'cards.css')) as css_file:
+            cards_css = css_file.read()
+        self.assertIn(
+            '.playingCards ul.cardRow[title="trustedCards"] li.cardContainer.trustedCard {\n'
+            '    --card-rotation: 90deg;\n}',
+            cards_css,
+        )
 
     def test_board_zoom_is_on_by_default_and_togglable_per_session(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -13638,6 +15298,92 @@ class BoardCardPresentationTests(BattleBoardFixture):
 
         self.assertIn("Math.min(window.innerWidth, window.innerHeight)", zoom_js)
         self.assertIn("classList.contains('faceDown')", zoom_js)
+
+    def test_zoom_stage_grows_in_sync_with_the_hand_lift(self):
+        """Hovering a card zooms it in lockstep with its selection lift.
+
+        User story: with hover zoom enabled I move the pointer onto a hand
+        card; the card lifts while the zoomed copy grows from the card's own
+        size, both over the same shared timing, so the zoom never shows up at
+        full size ahead of the lifting card. With zoom disabled no zoom style
+        applies, so the hand lift alone remains.
+        """
+        with open(os.path.join(STATIC_TEST_DIR, "cards.css")) as cards_file:
+            cards_css = cards_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.css")) as zoom_file:
+            zoom_css = zoom_file.read()
+
+        lift_timing = re.search(
+            r'--card-hover-lift-timing:\s*0\.15s ease-out\s*;', cards_css
+        )
+        self.assertIsNotNone(
+            lift_timing,
+            "cards.css must declare --card-hover-lift-timing as 0.15s "
+            "ease-out, the hand lift's transition timing, so the zoom copies "
+            "one value instead of drifting"
+        )
+
+        hand_fan_transition = re.search(
+            r'\.playingCards\.rotateHand \.hand-scroll \.hand-fan > '
+            r'li\.cardContainer:not\(\.duplicate\)\s*\{[^}]*\}',
+            cards_css,
+        )
+        self.assertIsNotNone(
+            hand_fan_transition,
+            "rotated hand lift transition rule missing from cards.css"
+        )
+        self.assertIn(
+            'transition: transform var(--card-hover-lift-timing);',
+            hand_fan_transition.group(0),
+            "the rotated hand lift must transition over the shared "
+            "--card-hover-lift-timing"
+        )
+
+        for lift_selector in (
+            r'\.playingCards ul\.cardRow li\.cardContainer:not\(\.duplicate\)\s*\{[^}]*\}',
+            r'\.playingCards ul\.cardRow li\.cardContainer:not\(\.blocked\)\.card-hover\s*\{[^}]*\}',
+        ):
+            lift_rule = re.search(lift_selector, cards_css)
+            self.assertIsNotNone(
+                lift_rule,
+                f"lift transition rule missing from cards.css: {lift_selector}"
+            )
+            self.assertIn(
+                'transform var(--card-hover-lift-timing),',
+                lift_rule.group(0),
+                "every zoomable card's lift transition must share "
+                "--card-hover-lift-timing with the zoom stage"
+            )
+
+        zoom_stage_rule = re.search(
+            r'\.playerScreen\.zoomCards \.cardZoomStage li\.cardContainer\s*\{[^}]*\}',
+            zoom_css,
+        )
+        self.assertIsNotNone(
+            zoom_stage_rule, "zoom stage card rule missing from cardZoom.css"
+        )
+        self.assertIn(
+            'animation: cardZoomIn var(--card-hover-lift-timing);',
+            zoom_stage_rule.group(0),
+            "the zoom stage must enter over the same shared timing as the "
+            "hand lift so zoom and lift begin together"
+        )
+        self.assertIn(
+            'transform: scale(var(--card-zoom-scale));',
+            zoom_stage_rule.group(0),
+            "the zoomed card must rest at its full zoomed scale once the "
+            "entry animation ends"
+        )
+
+        zoom_entry = re.search(
+            r'@keyframes cardZoomIn\s*\{[^}]*transform: scale\(1\);', zoom_css
+        )
+        self.assertIsNotNone(
+            zoom_entry,
+            "the zoom must enter from scale(1) so it starts at the hovered "
+            "card's own size and grows with the lift instead of appearing at "
+            "full size before the card has lifted"
+        )
 
     def test_staged_play_moves_hand_card(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])

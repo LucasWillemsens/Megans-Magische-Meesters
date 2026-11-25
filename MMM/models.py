@@ -2,6 +2,7 @@ import datetime
 import enum
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 import random
@@ -377,23 +378,21 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         self.flippedCardsAmount = 0
         self.save()
 
+    def getShuffleEligibleCards(self):
+        return GameCard.objects.filter(
+            Q(state__trusted=False, state__inDeck=False, state__faceDown=False)
+            | Q(state__lane=0),
+            game_id=self.getGame().id,
+            user_id=self.id,
+        )
+
     def shuffleBoard(self):
-        boardCards = GameCard.objects.filter(
-            game_id=self.getGame().id, 
-            user_id=self.id, 
-            state__trusted=False,
-            state__inDeck=False,
-            state__faceDown=False)
-        handCards = GameCard.objects.filter(
-            game_id=self.getGame().id, 
-            user_id=self.id, 
-            state__lane=0)
-        if (boardCards is None or len(boardCards) < 1) and (handCards is None or len(handCards) < 1):
+        eligibleCards = list(self.getShuffleEligibleCards())
+        if not eligibleCards:
             return
-        for card in boardCards:
-            card.state.shuffleBack()
-        for card in handCards:
-            card.state.shuffleBack()
+        random.shuffle(eligibleCards)
+        for deckPosition, card in enumerate(eligibleCards, start=1):
+            card.state.shuffleBack(deckPosition * -1)
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data
@@ -510,10 +509,9 @@ class CardState(models.Model):
     faceDown = models.BooleanField(default=True)
     trusted = models.BooleanField(default=False)
 
-    def reset(self):
-        # print(f"reset state of card {self.laneOrdinal} in {self.lane}")
+    def reset(self, lane=-1):
         self.inDeck = True 
-        self.lane = -1 #-1: default state unordered in deck. 0 (in hand) or < -1 (order in deck), else in play
+        self.lane = lane #negative lane = deck position, -1 is drawn first; 0 in hand, else lane in play
         self.laneOrdinal = 0
         self.faceDown = True
         self.trusted = False
@@ -530,14 +528,14 @@ class CardState(models.Model):
             self.laneOrdinal = 0
         else: self.laneOrdinal = numberInLaneOrHand
 
-    def shuffleBack(self):
+    def shuffleBack(self, deckLane=-1):
         if (self.inDeck): 
             raise Exception("inDeck")
         if (self.faceDown and self.lane != 0): 
             raise Exception("faceDown")
         if (self.trusted): 
             raise Exception("trusted")
-        self.reset()
+        self.reset(deckLane)
     
     def changeLane(self, lane:int, playClause:bool=False):
         if (lane < 1 or lane > 4 ): 

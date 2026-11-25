@@ -16,8 +16,15 @@
     align-items: center;
     justify-content: center;
     transform: scale(var(--card-zoom-scale));
+    animation: cardZoomIn var(--card-hover-lift-timing);
 }
 
 .playerScreen.zoomCards .cardZoomStage li.cardContainer > .card{
     margin: 0;
+}
+
+@keyframes cardZoomIn{
+    from{
+        transform: scale(1);
+    }
 }

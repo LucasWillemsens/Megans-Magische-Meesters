@@ -101,6 +101,9 @@ def consume_staged_plays(game, staged_plays, participant):
         )
 
 
+SPECIAL_WAITING_MESSAGE = "A special is waiting for input; continue it first."
+
+
 def perform_board_action(game, participant, action_name, staged_plays, specials_autochoose=True):
     """Consume the staged plays, then execute one supported board action.
 
@@ -117,7 +120,7 @@ def perform_board_action(game, participant, action_name, staged_plays, specials_
             else:
                 timeline_steps = resume_pending_special(game, pending_special)
         elif pending_special is not None:
-            error_message = "A special is waiting for input; continue it first."
+            error_message = SPECIAL_WAITING_MESSAGE
         else:
             consume_staged_plays(game, staged_plays, participant)
             if action_name == "draw":
