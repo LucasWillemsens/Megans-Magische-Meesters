@@ -28,7 +28,6 @@ body.demoPage a.backlink{
 .demoNav{
     display: flex;
     max-height: 100%;
-    /* border-radius: 0.5rem; */
     background: var(--demo-nav-background);
     border-radius: 0% 0 0% 100%;
     position: absolute;
@@ -59,11 +58,6 @@ body.demoPage a.backlink{
                     
         &[open]
         {   
-            &:n-th-child(1)
-            {
-                content: "close menu";
-            }
-
             &>summary
             {
                 margin-right: 0.3rem;

@@ -4018,7 +4018,7 @@ console.log('enemy turn end-turn skip ok');
         self.assertNotIn(drawable_draw + ':hover', cards_css)
         self.assertIn(drawable_draw + '.card-hover', cards_css)
         self.assertIn(drawable_draw + ':focus-visible', cards_css)
-        self.assertIn('transition: transform 0.15s ease-out', cards_css)
+        self.assertIn('transition: transform var(--card-hover-lift-timing)', cards_css)
         self.assertIn('transform: rotate(', cards_css)
 
     def test_played_hand_ghost_cards_never_show_grab_cursor(self):
@@ -5464,7 +5464,7 @@ console.log('focused board card stacking ok');
             card_row_hover_block,
         )
         self.assertIn(
-            'transition: transform var(--card-hover-lift-timing), filter 0.15s ease-out;',
+            'transition: transform var(--card-hover-lift-timing), filter var(--card-hover-lift-timing);',
             card_row_hover_block,
         )
         card_row_focus_block = cards_css[
@@ -5544,7 +5544,7 @@ console.log('focused board card stacking ok');
             drag_css.index('ul.hologramRow .hologram.card-hover {')
         ]
         self.assertIn(
-            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            'transition: transform var(--card-hover-lift-timing), opacity var(--card-hover-lift-timing);',
             hologram_rest_block,
         )
         hologram_hover_block = drag_css[
@@ -5556,7 +5556,7 @@ console.log('focused board card stacking ok');
             hologram_hover_block,
         )
         self.assertIn(
-            'transition: transform 0.15s ease-out, opacity 0.15s ease-out;',
+            'transition: transform var(--card-hover-lift-timing), opacity var(--card-hover-lift-timing);',
             hologram_hover_block,
         )
         self.assertIn(

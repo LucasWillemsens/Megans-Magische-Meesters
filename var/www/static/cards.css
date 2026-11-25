@@ -12,7 +12,6 @@
 ********************************************************************/
 :root{
     --card-background: #c7dce0;
-    --blocked-card-background: #7b8287;
     --card-background-highlight: #d1e1ea;
     --card-font-size: 1.2em; /* @change: adjust this value to make bigger or smaller cards */
     --card-hover-lift-timing: 0.15s ease-out;
@@ -90,7 +89,7 @@
         z-index: 1000;
         transform: translateY(calc(var(--card-hover-lift, 0px) - 1.5em)) rotate(var(--card-rotation, 0deg));
         filter: drop-shadow(0.2em 0.2em 0.3em rgba(0,0,0,0.4));
-        transition: transform var(--card-hover-lift-timing), filter 0.15s ease-out;
+        transition: transform var(--card-hover-lift-timing), filter var(--card-hover-lift-timing);
     }
     .playingCards.zoomCards ul.cardRow li.cardContainer:not(.blocked).card-hover {
         transform: translateY(var(--card-hover-lift, 0px)) rotate(var(--card-rotation, 0deg));
@@ -150,14 +149,9 @@
         opacity: 0.55 !important;
         z-index: 999;
     }
-    li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard{
+    li.cardContainer:not(.blocked):not(.faceDown).card-hover > .smallCard,
+    li.cardContainer:not(.blocked):not(.faceDown):focus-within > .smallCard{
         background: var(--card-background-highlight);
-    }
-    li.cardContainer:not(.blocked):not(.faceDown):focus-within
-    {
-        & .smallCard{
-            background: var(--card-background-highlight);
-        }
     }
 
 .playingCards label.card {
@@ -733,9 +727,6 @@ li.cardContainer{
         max-height: 6rem;
         max-width: 10rem;
     }
-    li.cardContainer.blocked > .smallCard{
-        background: var(--blocked-card-background) !important;
-    }
     li.cardContainer > .smallCard a{
         text-align: center;
     }
@@ -788,16 +779,6 @@ li.cardContainer > .smallCard a, li.cardContainer > .smallCard p:is(:not(.cardTy
     font-size: 0.73rem;
     margin-block-start: 0;
     margin-block-end: 0;
-}
-
-.playerScreen li.cardContainer.card-hover > .smallCard a::after{
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    border-radius: 0.5rem;
-    background-color: rgba(255, 255, 255, 0.3);
 }
 
 ul.hand li.cardContainer > .card.smallCard::after{
@@ -861,7 +842,6 @@ ul.hand li.cardContainer > .card.smallCard::after{
 }
 
     .playerScreen ul.deck.blocked button.draw:disabled {
-        filter: grayscale(0.85);
         cursor: not-allowed;
     }
 
@@ -1367,7 +1347,7 @@ button.draw{
 }
 
 .playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled) {
-    transition: transform 0.15s ease-out;
+    transition: transform var(--card-hover-lift-timing);
 }
 
 .playerBoard .deck-stack .active-deck:not(.blocked) button.draw:not(.blocked):not(:disabled):focus-visible {

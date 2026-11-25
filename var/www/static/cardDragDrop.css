@@ -162,14 +162,14 @@ ul.hologramRow .hologram:nth-child(25) { left: 35.4em; z-index: 25; }
 ul.hologramRow .hologram {
     transform: rotate(var(--card-rotation, 0deg));
     /* Lets the .card-hover lift animate off as well as on. */
-    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+    transition: transform var(--card-hover-lift-timing), opacity var(--card-hover-lift-timing);
 }
 /* Class-driven hover state applied by hoverCooldown.js. */
 ul.hologramRow .hologram.card-hover {
     z-index: 100;
     transform: translateY(-1.5em) rotate(var(--card-rotation, 0deg));
     opacity: 1;
-    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+    transition: transform var(--card-hover-lift-timing), opacity var(--card-hover-lift-timing);
 }
 .playerScreen.zoomCards ul.hologramRow .hologram.card-hover {
     transform: rotate(var(--card-rotation, 0deg));
