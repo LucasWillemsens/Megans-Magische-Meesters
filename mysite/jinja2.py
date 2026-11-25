@@ -7,6 +7,8 @@ from django.urls import reverse
 
 from django.utils.timezone import localtime
 
+from MMM.models import possessive
+
 
 _RANK_CLASSES = (
     "rank-2", "rank-3", "rank-4", "rank-5", "rank-6", "rank-7",
@@ -85,5 +87,6 @@ def environment(**options):
         "playing_card_suit_class": playing_card_suit_class,
         "playing_card_suit_display": playing_card_suit_display,
         "playing_card_default_name": playing_card_default_name,
+        "possessive": possessive,
     })
     return env

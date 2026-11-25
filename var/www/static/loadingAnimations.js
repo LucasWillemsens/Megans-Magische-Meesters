@@ -436,7 +436,7 @@ class loadingAnimationsSystem {
                     : 0;
                 const boardWindow = markerWindow + Math.max(movesWindow, delay / 2);
                 schedule(() => {
-                    turnMarker(boardWindow - 300, `${name}'s turn`, this._scheduler);
+                    turnMarker(boardWindow - 300, `${possessive(name)} turn`, this._scheduler);
                 }, cursor);
                 if (boardElements.length > 0) {
                     schedule(() => {
@@ -899,6 +899,11 @@ class loadingAnimationsSystem {
             board.classList.add('board-dimmed');
         }
     }
+}
+
+function possessive(name) {
+    const trimmed = name.trim();
+    return /s$/i.test(trimmed) ? `${trimmed}'` : `${trimmed}'s`;
 }
 
 function showBanner(text, holdMs = 2000, variant = 'special', scheduler = null) {

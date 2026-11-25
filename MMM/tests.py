@@ -1507,6 +1507,15 @@ class BattleFlowTests(BattleBoardFixture):
         self.game.refresh_from_db()
         self.assertEqual(self.game.roundNumber, 2)
 
+    def test_enemy_turn_marker_uses_apostrophe_only_for_s_names(self):
+        """Names ending in "s" get "lucas' turn", not "lucas's turn"."""
+        loading_js = _read_static_asset('loadingAnimations.js')
+        self.assertIn("function possessive(name)", loading_js)
+        self.assertIn("/s$/i.test(trimmed)", loading_js)
+        enemy_phase_block = _extract_js_brace_block(loading_js, "if (phase === 'enemy')")
+        self.assertIn("${possessive(name)} turn", enemy_phase_block)
+        self.assertNotIn("'s turn", enemy_phase_block)
+
     def test_enemy_phase_end_turn_click_skips_animation_without_resubmit(self):
         """Clicking Skip during the enemy animation cancels it and reloads once.
 
@@ -2910,6 +2919,26 @@ console.log('enemy turn end-turn skip ok');
         self.assertNotContains(response, "specialPending")
         self.assertNotContains(response, "timelineSteps")
 
+    def test_possessive_owner_names_use_apostrophe_only(self):
+        """A user story: when Lucas owns the pending special, the board reads
+        "Lucas' special is waiting for your input" — never "Lucas's"."""
+        self.human.name = "Lucas"
+        self.human.save()
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        self._stage_last_card_draw(self.human_participant, [3], 3)
+        self.client.post(draw_url, {"action": "draw"})
+
+        content = self.client.get(board_url).content.decode()
+        self.assertIn("Lucas&#39; special is waiting for your input", content)
+        self.assertNotIn("Lucas&#39;s", content)
+
     def test_continue_special_render_keeps_cards_where_the_special_found_them(self):
         """A user story: with specials autochoose off, continuing my paused
         special resolves it over the board exactly as I left it: my lane
@@ -2992,7 +3021,7 @@ console.log('enemy turn end-turn skip ok');
         )
         self.assertIsNotNone(loading_tag)
         self.assertIn('data-source-lane="-1"', loading_tag.group(0))
-        self.assertIn(f"{self.bot.name}'s special is waiting for your input", content)
+        self.assertIn(f"{self.bot.name}&#39;s special is waiting for your input", content)
         self.assertEqual(
             Game.objects.get(pk=self.game.id).pendingSpecial_id,
             self.bot_participant.id,
@@ -13287,10 +13316,10 @@ class PlayerPageTests(TestCase):
         )
 
         self.assertContains(lucas_response, "<h1>Lucas' page</h1>")
-        self.assertContains(meg_response, "<h1>Meg's page</h1>")
+        self.assertContains(meg_response, "<h1>Meg&#39;s page</h1>")
         self.assertContains(uppercase_response, "<h1>MARS' page</h1>")
-        self.assertContains(lucas_response, 'alt="Lucas\'s profile picture"')
-        self.assertContains(meg_response, 'alt="Meg\'s profile picture"')
+        self.assertContains(lucas_response, 'alt="Lucas&#39; profile picture"')
+        self.assertContains(meg_response, 'alt="Meg&#39;s profile picture"')
 
     def test_player_profile_alt_text_is_escaped_without_changing_name(self):
         player = Player.objects.create(name="O'Reilly & Co")
@@ -13299,7 +13328,7 @@ class PlayerPageTests(TestCase):
 
         self.assertContains(
             response,
-            'alt="O&#39;Reilly &amp; Co\'s profile picture"',
+            'alt="O&#39;Reilly &amp; Co&#39;s profile picture"',
         )
         self.assertContains(response, "Welcome O&#39;Reilly &amp; Co")
 
@@ -16257,7 +16286,7 @@ class DemoNavigationTests(TestCase):
         self.assertEqual(Deck.objects.count(), deck_count_after_first_selection + 1)
         self.assertNotEqual(second_deck.id, first_deck.id)
         self.assertEqual(len(self._deck_card_ids(second_deck)), DEMO_DECK_CARD_COUNT)
-        self.assertEqual(second_deck.description, "ten cards from Lucas's collection")
+        self.assertEqual(second_deck.description, "ten cards from Lucas' collection")
         self.assertTrue(set(self._deck_card_ids(second_deck)) <= set(self.lucas_card_ids))
 
     def test_changing_team_leaves_the_old_scenario_and_enters_the_new_one(self):

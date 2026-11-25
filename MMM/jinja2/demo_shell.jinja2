@@ -31,10 +31,10 @@
         <h2>{{ player.name }}</h2>
         {% if player.profilePictureSource == "" %}
         <img draggable="false" class="fit-picture" src="{{ static('MMM/profile.jpg')}}"
-            alt="{{player.name}}'s profile picture" />
+            alt="{{player.name | possessive }} profile picture" />
         {% else %}
         <img draggable="false" class="fit-picture" src="{{ static('MMM/' ~ player.profilePictureSource)}}"
-            alt="{{player.name}}'s profile picture" />
+            alt="{{player.name | possessive }} profile picture" />
         {% endif %}
     </div>
     {% endif %}

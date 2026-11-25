@@ -11,7 +11,7 @@
 
     {% if pendingSpecial %}
     <div class="specialPending" data-participant-id="{{ pendingSpecial.id }}">
-        <p>{{ pendingSpecial.player.name }}'s special is waiting for your input.</p>
+        <p>{{ pendingSpecial.player.name | possessive }} special is waiting for your input.</p>
         <form method="post" action="{{ actionUrl }}" class="cardActionForm">
             {{ csrf_input }}
             <input type="hidden" name="action" value="continue_special">

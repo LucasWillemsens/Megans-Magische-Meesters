@@ -9,6 +9,12 @@ import random
 
 # #main game classes
 
+
+def possessive(name):
+    """Return the possessive form of a name: "lucas" -> "lucas'"."""
+    trimmed = str(name).strip()
+    return f"{trimmed}'" if trimmed.lower().endswith("s") else f"{trimmed}'s"
+
 class CardType(enum.Enum):
     Intelligence = 0, #brainpower Ψ ψ
     Speed = 1, #bodily abillity
@@ -96,7 +102,7 @@ class Deck(models.Model):
         playerOwner = Player.objects.get(pk=player_id)
         if newDeckCards is None:
             newDeckCards = playerOwner.getCollection()
-        if deckTitle == "": deckTitle = f"{playerOwner.name}'s new deck"
+        if deckTitle == "": deckTitle = f"{possessive(playerOwner.name)} new deck"
         if newDescription == "": newDescription = f"all cards of {playerOwner.name}"
         newDeck =  cls(title=deckTitle, player=playerOwner, description=newDescription)
         newDeck.save()
@@ -149,8 +155,8 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         timestamp = timezone.now().strftime("%d %B %Y %H:%M")
         deck = Deck.create(
             player_id=player_id,
-            deckTitle=f"{player.name}'s {deck_label} {timestamp}",
-            newDescription=f"random subset of {player.name}'s collection",
+            deckTitle=f"{possessive(player.name)} {deck_label} {timestamp}",
+            newDescription=f"random subset of {possessive(player.name)} collection",
             newDeckCards=[starting_card] + remaining_cards,
         )
         return starting_card, deck

@@ -1,12 +1,12 @@
 import random
 
 from .battle_services import game_outcome
-from .models import BattleHistory, Deck, Game, GameCard, Player
+from .models import BattleHistory, Deck, Game, GameCard, Player, possessive
 
 DEMO_DECK_CARD_COUNT = 10
 ANNABEL_NAME = "Annabel"
 LUCAS_NAME = "Lucas"
-DEMO_DECK_DESCRIPTION = f"ten cards from {LUCAS_NAME}'s collection"
+DEMO_DECK_DESCRIPTION = f"ten cards from {possessive(LUCAS_NAME)} collection"
 TEAM_BOTS = {
     "Owlbears": "Lucasbot",
     "Hunters": "Annabelbot",
@@ -44,7 +44,7 @@ def fresh_demo_deck(player):
     cards = random.sample(lucas_collection_cards(), DEMO_DECK_CARD_COUNT)
     return Deck.create(
         player_id=player.id,
-        deckTitle=f"{player.name}'s demo deck",
+        deckTitle=f"{possessive(player.name)} demo deck",
         newDescription=DEMO_DECK_DESCRIPTION,
         newDeckCards=cards,
     )
