@@ -1,13 +1,26 @@
 {% extends 'demo_shell.jinja2' %}
 
 {% block content %}
-<div class="playerScreen playingCards rotateHand{% if cardZoomEnabled %} zoomCards{% endif %}">
+<div class="playerScreen playingCards rotateHand{% if cardZoomEnabled %} zoomCards{% endif %}" data-shortcut-hold-ms="{{ shortcutHoldMs }}">
     <div class="players">
         <div class="title">
             <h1>{{ game.title }}</h1>
             <p>Round {{ game.roundNumber }}</p>
         </div>
     </div>
+
+    {% if pendingSpecial %}
+    <div class="specialPending" data-participant-id="{{ pendingSpecial.id }}">
+        <p>{{ pendingSpecial.player.name }}'s special is waiting for your input.</p>
+        <form method="post" action="{{ actionUrl }}" class="cardActionForm">
+            {{ csrf_input }}
+            <input type="hidden" name="action" value="continue_special">
+            <button type="submit" class="continue-special" title="Continue the special">
+                Continue
+            </button>
+        </form>
+    </div>
+    {% endif %}
 
     {% if enemyBoards %}
     <ul class="enemyBoards basic-mat table">

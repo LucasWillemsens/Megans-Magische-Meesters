@@ -1,0 +1,51 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{% block head_title %}Magical Masters{% endblock %}</title>
+    <link rel="icon" href="{% static 'favicon.png' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <link rel="stylesheet" href="{% static 'demoNavigation.css' %}">
+    <link rel="stylesheet" href="{% static 'account.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="demoPage">
+    <nav class="demoNav">
+        <details>
+            <summary>
+                <p class="invisible">
+                    open menu
+                </p>
+            </summary>
+            <a href="{% url 'MMM:titlePage' %}">Title</a>
+            <a href="{% url 'MMM:deckPage' %}">Deck</a>
+            <a href="{% url 'MMM:demoSettings' %}">Settings</a>
+            {% if user.is_authenticated %}
+            <a href="{% url 'socialaccount_connections' %}">Connections</a>
+            <a href="{% url 'account_logout' %}">Sign out</a>
+            {% endif %}
+        </details>
+    </nav>
+    <img draggable="false" class="fit-picture fullpage-background" src="{% static 'woodtextureorangedark2.jpg' %}" />
+    <a class="backlink" href="{% url 'MMM:titlePage' %}">back</a>
+    <div class="demoSettings">
+        <div class="title">
+            <h1> Account </h1>
+            <p>
+                {% block account_subtitle %}{% endblock %}
+            </p>
+        </div>
+        {% if messages %}
+        <ul class="accountMessages">
+            {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="demoSettingsPanel">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    {% block extra_body %}{% endblock %}
+</body>
+</html>

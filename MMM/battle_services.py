@@ -101,27 +101,41 @@ def consume_staged_plays(game, staged_plays, participant):
         )
 
 
-def perform_board_action(game, participant, action_name, staged_plays):
-    """Consume the staged plays, then execute one supported board action."""
+def perform_board_action(game, participant, action_name, staged_plays, specials_autochoose=True):
+    """Consume the staged plays, then execute one supported board action.
+
+    While a special is paused waiting for input, continuing it is the only
+    action that runs; every other action reports the waiting special."""
     error_message = ""
     action_plays = []
     timeline_steps = []
+    pending_special = game.pendingSpecial
     try:
-        consume_staged_plays(game, staged_plays, participant)
-        if action_name == "draw":
-            action_plays, timeline_steps, error_message = resolve_draw(participant)
-        elif action_name == "end_turn":
-            participant.resetTurn()
-        elif action_name == "play":
-            pass
+        if action_name == "continue_special":
+            if pending_special is None:
+                error_message = "No special is waiting for input."
+            else:
+                timeline_steps = resume_pending_special(game, pending_special)
+        elif pending_special is not None:
+            error_message = "A special is waiting for input; continue it first."
         else:
-            error_message = "Unknown action."
+            consume_staged_plays(game, staged_plays, participant)
+            if action_name == "draw":
+                action_plays, timeline_steps, error_message = resolve_draw(
+                    participant, specials_autochoose
+                )
+            elif action_name == "end_turn":
+                participant.resetTurn()
+            elif action_name == "play":
+                pass
+            else:
+                error_message = "Unknown action."
     except Exception as action_error:
         error_message = str(action_error)
     return action_plays, timeline_steps, error_message
 
 
-def resolve_draw(participant):
+def resolve_draw(participant, specials_autochoose=True):
     next_deck_card = participant.getNextDeckCard()
     source_lane = next_deck_card.state.lane if next_deck_card else None
     source_ordinal = next_deck_card.state.laneOrdinal if next_deck_card else None
@@ -140,13 +154,37 @@ def resolve_draw(participant):
         "flipFaceUp": False,
     })
     if participant.getNextDeckCard() is None:
-        timeline_steps = []
-        run_specials(participant, timeline_steps)
-        from MMM.special_timeline import build_shuffle_step
-        timeline_steps.extend(build_shuffle_step(participant))
-        participant.shuffleBoard()
-        participant.resetTurn()
+        if specials_autochoose:
+            timeline_steps = resolve_special_sequence(participant)
+        else:
+            pause_special_sequence(participant)
     return action_plays, timeline_steps, ""
+
+
+def resolve_special_sequence(participant):
+    """Run a last-card special sequence to its end: the specials, the
+    shuffle-back timeline, the board shuffle, and the turn reset."""
+    timeline = []
+    run_specials(participant, timeline)
+    from MMM.special_timeline import build_shuffle_step
+    timeline.extend(build_shuffle_step(participant))
+    participant.shuffleBoard()
+    participant.resetTurn()
+    return timeline
+
+
+def pause_special_sequence(participant):
+    """Hold the participant's special sequence until the user continues it."""
+    game = participant.getGame()
+    game.pendingSpecial = participant
+    game.save(update_fields=["pendingSpecial"])
+
+
+def resume_pending_special(game, participant):
+    timeline = resolve_special_sequence(participant)
+    game.pendingSpecial = None
+    game.save(update_fields=["pendingSpecial"])
+    return timeline
 
 
 def run_specials(participant, timeline=None):
@@ -258,7 +296,7 @@ def get_trustable_cards(participant, lane_numbers=(1, 2, 3, 4)):
     return trustable_cards
 
 
-def run_bot_turn(game, human_player_id):
+def run_bot_turn(game, human_player_id, specials_autochoose=True):
     bot_participants = game.history.participants.exclude(player_id=human_player_id).filter(computerControlled=True)
     bot_actions = []
     bot_timelines = []
@@ -271,31 +309,28 @@ def run_bot_turn(game, human_player_id):
         if hand_card is None:
             next_deck_card = bot_participant.getNextDeckCard()
             if bot_participant.drawCard() is not None:
+                bot_actions.append(
+                    {
+                        "participantId": bot_participant.id,
+                        "playerId": bot_participant.player_id,
+                        "cardId": next_deck_card.id,
+                        "laneValue": 0,
+                        "sourceLane": next_deck_card.state.lane,
+                        "sourceOrdinal": next_deck_card.state.laneOrdinal,
+                        "flipFaceUp": False,
+                    }
+                )
                 if bot_participant.getNextDeckCard() is None:
-                    timeline = []
-                    run_specials(bot_participant, timeline)
-                    from MMM.special_timeline import build_shuffle_step
-                    timeline.extend(build_shuffle_step(bot_participant))
-                    bot_participant.shuffleBoard()
-                    if timeline:
-                        bot_timelines.extend(timeline)
-                else:
-                    bot_actions.append(
-                        {
-                            "participantId": bot_participant.id,
-                            "playerId": bot_participant.player_id,
-                            "cardId": next_deck_card.id,
-                            "laneValue": 0,
-                            "sourceLane": next_deck_card.state.lane,
-                            "sourceOrdinal": next_deck_card.state.laneOrdinal,
-                            "flipFaceUp": False,
-                        }
-                    )
-            hand_card = (
-                GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
-                .select_related("card")
-                .first()
-            )
+                    if specials_autochoose:
+                        bot_timelines.extend(resolve_special_sequence(bot_participant))
+                    else:
+                        pause_special_sequence(bot_participant)
+                        return bot_actions, bot_timelines
+                hand_card = (
+                    GameCard.objects.filter(game_id=game.id, user_id=bot_participant.id, state__lane=0)
+                    .select_related("card")
+                    .first()
+                )
         if hand_card is not None:
             source_lane = hand_card.state.lane
             source_ordinal = hand_card.state.laneOrdinal
@@ -365,8 +400,25 @@ def chunk_hand_cards(hand_cards):
     ] or [[]]
 
 
-def context_board(game_cards, participant_id):
+def context_board(game_cards, participant_id, pre_shuffle_cards=None):
+    """Build one participant's board render.
+
+    pre_shuffle_cards holds the shuffle-back timeline entries of a special
+    sequence (cardId, sourceLane, sourceOrdinal) for cards the server has
+    already shuffled into the deck: they render back on their pre-shuffle
+    lane or hand position and stay out of the deck presentation, so the
+    board keeps its pre-shuffle look until the client plays the
+    shuffle-back step that flies them into the deck."""
     user_cards = [gameCard for gameCard in game_cards if gameCard.user_id == participant_id]
+    pre_shuffle_entries = {card["cardId"]: card for card in pre_shuffle_cards or []}
+    for game_card in user_cards:
+        pre_shuffle_entry = pre_shuffle_entries.get(game_card.id)
+        if pre_shuffle_entry is not None:
+            game_card.state.inDeck = False
+            game_card.state.lane = pre_shuffle_entry["sourceLane"]
+            game_card.state.laneOrdinal = pre_shuffle_entry["sourceOrdinal"]
+            if pre_shuffle_entry["sourceLane"] > 0:
+                game_card.state.faceDown = False
     hand_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 0]
     intelligence_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 1]
     speed_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 2]

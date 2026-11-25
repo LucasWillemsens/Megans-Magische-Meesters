@@ -147,6 +147,15 @@ body.demoPage a.backlink{
     outline-offset: 1px;
 }
 
+.demoNameForm input[type="range"]{
+    flex: 1 1 12rem;
+    accent-color: #777;
+}
+
+.demoNameForm output{
+    font-weight: 600;
+}
+
 .demoSettingsPanel .demoSettingState{
     font-weight: 600;
 }

@@ -1,16 +1,23 @@
 :root{
-    --card-zoom-scale: 1.45;
+    --card-zoom-scale: 5;
 }
 
-.playerScreen.zoomCards li.cardContainer:not(.duplicate) > .card {
-    transition: transform 0.12s ease-out;
+.playerScreen.zoomCards .cardZoomStage{
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    z-index: 2000;
+    pointer-events: none;
 }
 
-.playerScreen.zoomCards li.cardContainer.card-zoomed:not(.faceDown) {
-    z-index: 300;
-}
-
-.playerScreen.zoomCards li.cardContainer.card-zoomed:not(.faceDown) > .card {
+.playerScreen.zoomCards .cardZoomStage li.cardContainer{
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transform: scale(var(--card-zoom-scale));
-    z-index: 6;
+}
+
+.playerScreen.zoomCards .cardZoomStage li.cardContainer > .card{
+    margin: 0;
 }

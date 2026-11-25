@@ -42,6 +42,12 @@ from .models import (
 
 TURN_PHASE_COOKIE = "turn_phase"
 CARD_ZOOM_SESSION_KEY = "card_zoom"
+SPECIALS_AUTOCHOOSE_SESSION_KEY = "specials_autochoose"
+SHORTCUT_HOLD_SESSION_KEY = "shortcut_hold_ms"
+SHORTCUT_HOLD_MIN_MS = 0
+SHORTCUT_HOLD_MAX_MS = 2000
+SHORTCUT_HOLD_STEP_MS = 100
+SHORTCUT_HOLD_DEFAULT_MS = 1000
 OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
 DEMO_PLAYER_SESSION_KEY = "demo_player_id"
 TITLE_VISITED_SESSION_KEY = "title_visited"
@@ -122,11 +128,23 @@ def card_zoom_enabled(request):
     return bool(request.session.get(CARD_ZOOM_SESSION_KEY, True))
 
 
+def specials_autochoose(request):
+    return bool(request.session.get(SPECIALS_AUTOCHOOSE_SESSION_KEY, True))
+
+
+def shortcut_hold_ms(request):
+    return request.session.get(SHORTCUT_HOLD_SESSION_KEY, SHORTCUT_HOLD_DEFAULT_MS)
+
+
 def demoSettings(request):
     context = {
         "player": current_demo_player(request),
         "cardZoomEnabled": card_zoom_enabled(request),
         "toggleZoomUrl": reverse("MMM:toggleCardZoom"),
+        "shortcutHoldMs": shortcut_hold_ms(request),
+        "saveHoldUrl": reverse("MMM:setShortcutHold"),
+        "specialsAutochoose": specials_autochoose(request),
+        "toggleSpecialsUrl": reverse("MMM:toggleSpecialsAutochoose"),
     }
     return _render(request, "MMM/settings.jinja2", context)
 
@@ -135,6 +153,27 @@ def toggleCardZoom(request):
     if request.method != "POST":
         return redirect(reverse("MMM:demoSettings"))
     request.session[CARD_ZOOM_SESSION_KEY] = request.POST.get("enable", "") == "true"
+    return redirect(reverse("MMM:demoSettings"))
+
+
+def toggleSpecialsAutochoose(request):
+    if request.method != "POST":
+        return redirect(reverse("MMM:demoSettings"))
+    request.session[SPECIALS_AUTOCHOOSE_SESSION_KEY] = (
+        request.POST.get("enable", "") == "true"
+    )
+    return redirect(reverse("MMM:demoSettings"))
+
+
+def setShortcutHold(request):
+    if request.method != "POST":
+        return redirect(reverse("MMM:demoSettings"))
+    try:
+        requested_ms = int(request.POST.get("hold_ms", ""))
+    except ValueError:
+        requested_ms = shortcut_hold_ms(request)
+    clamped_ms = max(SHORTCUT_HOLD_MIN_MS, min(SHORTCUT_HOLD_MAX_MS, requested_ms))
+    request.session[SHORTCUT_HOLD_SESSION_KEY] = clamped_ms - clamped_ms % SHORTCUT_HOLD_STEP_MS
     return redirect(reverse("MMM:demoSettings"))
 
 
@@ -420,15 +459,18 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
     bot_timelines = []
     if phase_from_cookie and turn_phase == "enemy":
         finished, _, _ = game_outcome(game)
-        if not finished:
+        if not finished and game.pendingSpecial is None:
             try:
-                bot_actions, bot_timelines = run_bot_turn(game, player_id)
+                bot_actions, bot_timelines = run_bot_turn(
+                    game, player_id, specials_autochoose(request)
+                )
             except Exception as exc:
                 bot_actions = []
                 bot_timelines = []
                 error_message = str(exc)
             game.roundNumber = max(game.roundNumber, 1) + 1
             game.save(update_fields=["roundNumber"])
+            game.refresh_from_db(fields=["pendingSpecial"])
         plays_by_card = {}
         for bot_action in bot_actions:
             play = plays_by_card.setdefault(str(bot_action["cardId"]), dict(bot_action))
@@ -450,10 +492,11 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
         return response
 
-    own_board = context_board(gameCards, current_participant.id)
+    pre_shuffle_cards = _pre_shuffle_cards_by_participant(timeline_steps, action_plays)
+    own_board = context_board(gameCards, current_participant.id, pre_shuffle_cards.get(current_participant.id))
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
-        enemy_board = context_board(gameCards, enemy_participant.id)
+        enemy_board = context_board(gameCards, enemy_participant.id, pre_shuffle_cards.get(enemy_participant.id))
 
         enemy_boards.append(
             {
@@ -488,10 +531,12 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "turnAllowances": current_participant.getTurnAllowances(),
         "enemyBoards": enemy_boards,
         "turnPhase": turn_phase,
+        "pendingSpecial": game.pendingSpecial,
         "nextUrl": result_url if finished and turn_phase != "playerMoves" else board_url,
         "actionPlays": action_plays or [],
         "timelineSteps": timeline_steps or [],
         "cardZoomEnabled": card_zoom_enabled(request),
+        "shortcutHoldMs": shortcut_hold_ms(request),
     }
     response = _render(request, "MMM/battle/viewBoard.jinja2", context, clear_cookies=clear_cookies)
 
@@ -525,6 +570,7 @@ def boardAction(request, game_id, player_id):
         current_participant,
         action,
         cookie_staged_plays(request.COOKIES, game),
+        specials_autochoose=specials_autochoose(request),
     )
 
     request.session['plays'] = []
@@ -610,6 +656,9 @@ def _addLoadingAnimations(context, request):
             }
         )
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
+    context["handCards"] = _restore_shuffled_drawn_cards(
+        context["handCards"], plays, context["current_participant"].id
+    )
     context["handFans"] = chunk_hand_cards(context["handCards"])
     context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
     for enemy_board in context.get("enemyBoards", []):
@@ -623,8 +672,20 @@ def _addLoadingAnimations(context, request):
             enemy_board["handCards"] = _update_moved_hand_cards(
                 enemy_board["handCards"], enemy_plays
             )
+            enemy_board["handCards"] = _restore_shuffled_drawn_cards(
+                enemy_board["handCards"], plays, enemy_board["participant"].id
+            )
+            enemy_board["handCount"] = len(enemy_board["handCards"])
             enemy_board["handFans"] = chunk_hand_cards(enemy_board["handCards"])
     return context
+
+
+def _mark_card_as_loading(card, play):
+    if play["sourceLane"] is not None:
+        card.state.lane = play["sourceLane"]
+    if play["sourceOrdinal"] is not None:
+        card.state.laneOrdinal = play["sourceOrdinal"]
+    card.cssClass = "loading"
 
 
 def _update_moved_hand_cards(hand_cards, plays):
@@ -632,12 +693,58 @@ def _update_moved_hand_cards(hand_cards, plays):
         card_id = int(play["cardId"])
         for card in hand_cards:
             if card.id == card_id:
-                if play["sourceLane"] is not None:
-                    card.state.lane = play["sourceLane"]
-                if play["sourceOrdinal"] is not None:
-                    card.state.laneOrdinal = play["sourceOrdinal"]
-                card.cssClass = "loading"
+                _mark_card_as_loading(card, play)
     return hand_cards
+
+
+def _drawn_card_ids(plays, participant_id):
+    return {
+        int(play["cardId"])
+        for play in plays
+        if play["participantId"] == participant_id
+        and play["laneValue"] == 0
+        and play["sourceLane"] is not None
+        and play["sourceLane"] < 0
+    }
+
+
+def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
+    """A draw that empties the deck runs the special sequence, which shuffles
+    the drawn card back into the deck before this render; the drawn card still
+    renders in the hand with its deck position as source, so the draw's
+    deck->hand flight plays before the special timeline. Serves the player's
+    own hand and every enemy hand."""
+    hand_card_ids = {card.id for card in hand_cards}
+    missing_card_ids = _drawn_card_ids(plays, participant_id) - hand_card_ids
+    if not missing_card_ids:
+        return hand_cards
+    plays_by_card = {int(play["cardId"]): play for play in plays}
+    shuffled_back_cards = GameCard.objects.filter(
+        pk__in=missing_card_ids, state__inDeck=True
+    ).select_related("state", "card")
+    for card in shuffled_back_cards:
+        _mark_card_as_loading(card, plays_by_card[card.id])
+        hand_cards.append(card)
+    return hand_cards
+
+
+def _pre_shuffle_cards_by_participant(timeline_steps, action_plays):
+    """Group the timeline's shuffle-back entries per participant, leaving out
+    the cards the draw plays already restore into the hand for their
+    deck->hand flight; context_board renders the remaining shuffled-back
+    cards on their pre-shuffle lanes."""
+    pre_shuffle_cards = {}
+    for step in timeline_steps or []:
+        if step["kind"] != "shuffle-back":
+            continue
+        drawn_card_ids = _drawn_card_ids(action_plays or [], step["participantId"])
+        entries = pre_shuffle_cards.setdefault(step["participantId"], [])
+        entries.extend(
+            card
+            for card in step["affectedCards"]
+            if card["cardId"] not in drawn_card_ids
+        )
+    return pre_shuffle_cards
 
 
 def _update_played_cards(lane_rows, plays):
@@ -646,9 +753,5 @@ def _update_played_cards(lane_rows, plays):
         for row in lane_rows:
             for card in row["cards"]:
                 if card.id == card_id:
-                    if play["sourceLane"] is not None:
-                        card.state.lane = play["sourceLane"]
-                    if play["sourceOrdinal"] is not None:
-                        card.state.laneOrdinal = play["sourceOrdinal"]
-                    card.cssClass = "loading"
+                    _mark_card_as_loading(card, play)
     return lane_rows

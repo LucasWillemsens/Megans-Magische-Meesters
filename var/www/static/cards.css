@@ -1131,6 +1131,36 @@ li.playerBoard > ul.basic-mat{
     transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out;
 }
 
+.playerScreen .specialPending {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 1em;
+    margin: 0 auto 1em;
+    max-width: 40em;
+    padding: 0.6em 1.2em;
+    border: 3px solid gold;
+    border-radius: 0.5em;
+    background: linear-gradient(135deg, #2a1a00, #4a3000);
+    box-shadow: 0 0 1em rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-weight: bold;
+    text-align: center;
+}
+
+.playerScreen .specialPending button.continue-special {
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: bold;
+    padding: 0.4em 1.2em;
+    border: 2px solid gold;
+    border-radius: 0.4em;
+    background: #4a3000;
+    color: #fff;
+    box-shadow: .2em .2em .35em #333;
+}
+
 .playingCards ul.deck li:nth-child(1)  { left: 0;    bottom: 0; }
 .playingCards ul.deck li:nth-child(2)  { left: 2px;  bottom: 1px; }
 .playingCards ul.deck li:nth-child(3)  { left: 4px;  bottom: 2px; }

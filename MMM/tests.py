@@ -15,6 +15,7 @@ import mysite.settings
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
@@ -1292,6 +1293,97 @@ class BattleFlowTests(BattleBoardFixture):
             1,
         )
 
+    def test_depleted_deck_draw_renders_drawn_card_loading_before_specials(self):
+        """The last card's deck->hand flight still plays before the specials.
+
+        Drawing the deck's last card runs the special sequence, which
+        shuffles the drawn card back into the deck before the response
+        renders. The render must still show that card in the hand, marked
+        loading with the deck position as its source, so the player sees
+        the draw flight before the special timeline takes over.
+        """
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self._replace_deck_with_count(self.human_participant, 1)
+        deck_card = GameCard.objects.get(
+            game_id=self.game.id,
+            user_id=self.human_participant.id,
+            state__inDeck=True,
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertContains(response, '"shuffle-back"')
+        self.assertIn(f'"cardId": {deck_card.id},', content)
+        self.assertContains(
+            response, '<button type="submit" class="card back draw" title="Draw card">'
+        )
+
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_card.id}"', loading_tag.group(0))
+        self.assertIn('data-source-lane="-', loading_tag.group(0))
+        self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
+        self.assertNotContains(response, '<div class="card back emptyHand">')
+
+        deck_card.state.refresh_from_db()
+        self.assertTrue(deck_card.state.inDeck)
+
+    def test_special_sequence_render_keeps_board_cards_on_lanes_until_shuffle_back(self):
+        """A user story: my deck runs out mid-draw and my special fires. The
+        board I get back still shows my untrusted lane cards face up on
+        their lanes, with only the drawn card flying out of the deck; the
+        timeline's shuffle-back step carries every shuffled card's lane,
+        ordinal and deck destination, so the cards vanish into the deck
+        only when that step plays."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [0, 0], 0
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        for ordinal, lane_game_card in enumerate(lane_game_cards, start=1):
+            card_tags = self._visible_card_tags(lane_game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+        loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
+        self.assertIn("Deck: 1 | Hand: 1", content)
+
+        timeline = self._board_timeline(content)
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
+        )
+
+        for game_card in lane_game_cards + [deck_game_card]:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.inDeck)
+
     def test_static_hand_card_uses_the_same_css_face_as_field_cards(self):
         for card in self.human_cards + self.bot_cards:
             card.artSource = "static"
@@ -1589,6 +1681,52 @@ class BattleFlowTests(BattleBoardFixture):
         response = self.client.get(board_url)
         self.assertNotContains(response, "data-phase=")
 
+    def test_enemy_phase_greys_player_hand_cards_until_turn_resumes(self):
+        """Hand cards grey out through the end-turn and enemy phases and
+        clear once the player's action board settles."""
+        with open(os.path.join(STATIC_TEST_DIR, "style.css")) as style_file:
+            style_content = style_file.read()
+
+        grey_out_selector = (
+            'body:has(#turnPhase:not([data-phase="player"])) '
+            '.playerScreen .deckHand .hand li.cardContainer:not(.duplicate)'
+        )
+        grey_out_rule = re.search(
+            re.escape(grey_out_selector) + r"\s*\{(.*?)\}",
+            style_content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(grey_out_rule, "hand grey-out rule missing from style.css")
+        self.assertIn("filter: grayscale(", grey_out_rule.group(1))
+        self.assertIn("opacity:", grey_out_rule.group(1))
+
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._initialize_with_hand_card(self.human_participant, self.human_cards[1])
+
+        greyed_hand_pattern = re.compile(
+            r'<div class="deckHand[^>]*>.*?<ul class="hand hand-fan"[^>]*>.*?'
+            r'<li class="cardContainer',
+            re.DOTALL,
+        )
+
+        response = self.client.post(end_turn_url, {"action": "end_turn"})
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertRegex(response.content.decode(), greyed_hand_pattern)
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="enemy"')
+
+        response = self.client.get(board_url)
+        self.assertContains(response, 'data-phase="player"')
+
+        self.client.cookies = SimpleCookie()
+        settled_response = self.client.get(board_url)
+        self.assertNotContains(settled_response, "data-phase=")
+        self.assertRegex(settled_response.content.decode(), greyed_hand_pattern)
+
     def test_enemy_phase_renders_even_without_bot_actions(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1661,6 +1799,453 @@ class BattleFlowTests(BattleBoardFixture):
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="player"')
         self.assertEqual(response.cookies["turn_phase"].value, "")
+
+    def _stage_last_card_draw(self, participant, lane_card_types, deck_card_type):
+        """Replace the participant's game cards with untrusted face-up lane
+        cards of the given types plus exactly one deck card, so their next
+        draw empties the deck and fires the special sequence."""
+        GameCard.objects.filter(
+            game_id=self.game.id, user_id=participant.id
+        ).delete()
+        lane_game_cards = []
+        for ordinal, card_type in enumerate(lane_card_types, start=1):
+            card = Card.objects.create(
+                title=f"{participant.player.name}-lane-{card_type}-{ordinal}",
+                artSource="",
+                cardType=card_type,
+            )
+            game_card = GameCard.create(card.id, self.game.id, participant.id)
+            game_card.save()
+            game_card.state.inDeck = False
+            game_card.state.lane = card_type + 1
+            game_card.state.laneOrdinal = ordinal
+            game_card.state.faceDown = False
+            game_card.state.trusted = False
+            game_card.state.save()
+            lane_game_cards.append(game_card)
+        deck_card = Card.objects.create(
+            title=f"{participant.player.name}-deck-last-{deck_card_type}",
+            artSource="",
+            cardType=deck_card_type,
+        )
+        deck_game_card = GameCard.create(
+            deck_card.id, self.game.id, participant.id
+        )
+        deck_game_card.save()
+        deck_game_card.state.inDeck = True
+        deck_game_card.state.lane = -1
+        deck_game_card.state.laneOrdinal = 0
+        deck_game_card.state.faceDown = True
+        deck_game_card.state.trusted = False
+        deck_game_card.state.save()
+        return lane_game_cards, deck_game_card
+
+    def _board_timeline(self, content):
+        """The board render's parsed special timeline, or None."""
+        timeline_match = re.search(
+            r'<script id="timelineSteps" type="application/json">(.*?)</script>',
+            content,
+            re.DOTALL,
+        )
+        return (
+            json.loads(timeline_match.group(1)) if timeline_match else None
+        )
+
+    def _visible_card_tags(self, game_card_id, content):
+        """The rendered li tags of a card that are not loading-hidden."""
+        return [
+            tag
+            for tag in re.findall(
+                r'<li[^>]*data-card-id="%d"[^>]*>' % game_card_id, content
+            )
+            if "loading" not in tag
+        ]
+
+    def _enemy_phase_timeline(self):
+        """End the player's turn and read the enemy-phase board render with
+        its parsed special timeline."""
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        response = self.client.get(board_url)
+        return response, self._board_timeline(response.content.decode())
+
+    def test_bot_last_card_draw_renders_drawn_card_loading_before_specials(self):
+        """The bot's last-card draw plays its deck->hand flight before the
+        specials, exactly like the player's own last-card draw.
+
+        The special sequence shuffles the drawn card back into the deck before
+        the enemy-phase render, so the render must still show that card in the
+        bot's hand, marked loading with the deck position as its source."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        _, deck_game_card = self._stage_last_card_draw(self.bot_participant, [0, 0], 0)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIsNotNone(timeline)
+        self.assertIn("enacts master plan", content)
+
+        enemy_hand = re.search(
+            r'<ul class="hand enemyHand">(.*?)</ul>', content, re.DOTALL
+        )
+        self.assertIsNotNone(enemy_hand)
+        self.assertEqual(enemy_hand.group(1).count("cardContainer"), 1)
+        loading_tag = re.search(
+            r'<li class="cardContainer faceDown loading"[^>]*>',
+            enemy_hand.group(1),
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+        self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
+        self.assertIn("Hand: 1", content)
+
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+
+    def test_bot_int_special_renders_specials_and_shuffle_during_enemy_phase(self):
+        """A bot whose intelligence lane dominates fires the master-plan
+        special during its own turn, and the enemy-phase render carries the
+        full timeline: trigger banner, hand->lane card flights, shuffle-back."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        _, deck_game_card = self._stage_last_card_draw(self.bot_participant, [0, 0], 0)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertEqual(
+            [step["kind"] for step in timeline],
+            ["special-trigger", "card-effect", "shuffle-back"],
+        )
+        self.assertIn("enacts master plan", content)
+        int_effect = timeline[1]["affectedCards"]
+        self.assertEqual(int_effect[0]["cardId"], deck_game_card.id)
+        self.assertEqual(int_effect[0]["destinationLane"], 1)
+        self.assertTrue(int_effect[0]["flipFaceUp"])
+        self.assertIn(
+            deck_game_card.id,
+            [card["cardId"] for card in timeline[2]["affectedCards"]],
+        )
+
+    def test_bot_special_sequence_render_keeps_bot_board_cards_on_lanes(self):
+        """The bot's special plays out over an intact bot board: its
+        untrusted lane cards stay face up on their lanes and only the drawn
+        card flies out of the bot's deck, so the timeline's shuffle-back
+        step alone carries the cards into the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.bot_participant, [0, 0], 0
+        )
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        for ordinal, lane_game_card in enumerate(lane_game_cards, start=1):
+            card_tags = self._visible_card_tags(lane_game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+        self.assertIn("Deck: 1 | Hand: 1", content)
+
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
+        )
+
+    def test_bot_spd_special_renders_flee_timeline_during_enemy_phase(self):
+        """A bot whose speed lane dominates and who cannot rush the player
+        down flees instead; the enemy-phase render carries the flee banner,
+        the participant effect, and the shuffle-back."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        _, deck_game_card = self._stage_last_card_draw(self.bot_participant, [1, 1], 1)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIn("flees from", content)
+        kinds = [step["kind"] for step in timeline]
+        self.assertEqual(kinds[0], "special-trigger")
+        self.assertEqual(kinds[1], "participant-effect")
+        self.assertEqual(kinds[-1], "shuffle-back")
+        self.assertEqual(timeline[1]["fledParticipantId"], self.bot_participant.id)
+        self.bot_participant.refresh_from_db()
+        self.assertTrue(self.bot_participant.fled)
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+
+    def test_bot_spd_rush_down_renders_opponent_specials_during_enemy_phase(self):
+        """A bot whose speed special rushes the player down chains into the
+        player's own special; both participants' trigger steps ride the one
+        timeline that the enemy-phase render plays."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        self._stage_last_card_draw(self.bot_participant, [1, 1, 3], 1)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIn("rushes down", content)
+        self.assertIn("enacts master plan", content)
+        trigger_participants = [
+            step["participantId"]
+            for step in timeline
+            if step["kind"] == "special-trigger"
+        ]
+        self.assertEqual(
+            trigger_participants,
+            [self.bot_participant.id, self.human_participant.id],
+        )
+        self.assertEqual(timeline[-1]["kind"], "shuffle-back")
+        self.bot_participant.refresh_from_db()
+        self.assertFalse(self.bot_participant.fled)
+        self.human_participant.refresh_from_db()
+        self.assertFalse(self.human_participant.defeated)
+
+    def test_bot_vis_special_renders_attack_timeline_during_enemy_phase(self):
+        """A bot whose viciousness lane dominates spends a resolve card to
+        attack the player; the enemy-phase render carries the attack banner,
+        the resolve trust glow, the player's defeat, and the shuffle-back."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(self.bot_participant, [2, 2, 3], 2)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIn("attacks and defeats", content)
+        kinds = [step["kind"] for step in timeline]
+        self.assertEqual(kinds[0], "special-trigger")
+        self.assertEqual(kinds[1], "card-effect")
+        self.assertEqual(kinds[2], "participant-effect")
+        self.assertEqual(kinds[-1], "shuffle-back")
+        resolve_spent = [
+            card
+            for card in timeline[1]["affectedCards"]
+            if card["cardId"] == lane_game_cards[2].id
+        ]
+        self.assertEqual(len(resolve_spent), 1)
+        self.assertTrue(resolve_spent[0]["trust"])
+        self.assertEqual(timeline[2]["defeatedParticipantId"], self.human_participant.id)
+        self.human_participant.refresh_from_db()
+        self.assertTrue(self.human_participant.defeated)
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+
+    def test_bot_res_special_renders_trust_timeline_during_enemy_phase(self):
+        """A bot whose resolve lane dominates trusts its own board cards; the
+        enemy-phase render carries the trust banner, the trust glows, and the
+        shuffle-back."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+        lane_game_cards, _ = self._stage_last_card_draw(self.bot_participant, [3, 3], 3)
+
+        response, timeline = self._enemy_phase_timeline()
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertIn("holds and trusts", content)
+        kinds = [step["kind"] for step in timeline]
+        self.assertEqual(kinds[0], "special-trigger")
+        self.assertEqual(kinds[1], "card-effect")
+        self.assertEqual(kinds[-1], "shuffle-back")
+        trusted_ids = {
+            card["cardId"]
+            for card in timeline[1]["affectedCards"]
+            if card["trust"]
+        }
+        self.assertEqual(
+            trusted_ids, {game_card.id for game_card in lane_game_cards}
+        )
+        for game_card in lane_game_cards:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.trusted)
+
+    def test_autochoose_off_pauses_own_special_until_continue(self):
+        """A user story: with specials autochoose off, drawing my deck's last
+        card waits for me. The board says a special is waiting, every other
+        action is refused, and continuing resolves the special with its
+        animations while the drawn card flies back into the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        lane_game_cards, deck_card = self._stage_last_card_draw(
+            self.human_participant, [3], 3
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertNotIn("timelineSteps", content)
+        loading_tag = re.search(
+            r'<li class="cardContainer loading"[^>]*>', content
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_card.id}"', loading_tag.group(0))
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+        self.assertIn("special is waiting for your input", content)
+        self.assertIn(
+            '<input type="hidden" name="action" value="continue_special">', content
+        )
+        self.assertIn("Continue", content)
+        self.assertEqual(
+            Game.objects.get(pk=self.game.id).pendingSpecial_id,
+            self.human_participant.id,
+        )
+        deck_card.state.refresh_from_db()
+        self.assertFalse(deck_card.state.inDeck)
+        self.assertEqual(deck_card.state.lane, 0)
+
+        blocked = self.client.post(draw_url, {"action": "draw"})
+        self.assertContains(blocked, "A special is waiting for input")
+
+        response = self.client.post(draw_url, {"action": "continue_special"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertContains(response, '"shuffle-back"')
+        self.assertNotIn("special is waiting for your input", content)
+        self.assertIsNone(Game.objects.get(pk=self.game.id).pendingSpecial)
+        deck_card.state.refresh_from_db()
+        self.assertTrue(deck_card.state.inDeck)
+
+        response = self.client.get(board_url)
+        self.assertNotContains(response, "specialPending")
+        self.assertNotContains(response, "timelineSteps")
+
+    def test_continue_special_render_keeps_board_cards_on_lanes(self):
+        """A user story: with specials autochoose off, continuing my paused
+        special resolves it over an intact board: every card the special
+        shuffles back still sits face up on its pre-shuffle lane —
+        including the drawn card the master plan played — so only the
+        timeline's shuffle-back step flies them into the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [0, 0], 0
+        )
+
+        self.client.post(draw_url, {"action": "draw"})
+        response = self.client.post(draw_url, {"action": "continue_special"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertIn("Deck: 0 | Hand: 0", content)
+        for ordinal, game_card in enumerate(lane_game_cards + [deck_game_card], start=1):
+            card_tags = self._visible_card_tags(game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="1"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+
+        timeline = self._board_timeline(content)
+        shuffle_cards = {
+            card["cardId"]: (
+                card["sourceLane"], card["sourceOrdinal"], card["destinationLane"]
+            )
+            for card in timeline[-1]["affectedCards"]
+        }
+        self.assertEqual(
+            shuffle_cards,
+            {
+                lane_game_cards[0].id: (1, 1, -1),
+                lane_game_cards[1].id: (1, 2, -1),
+                deck_game_card.id: (1, 3, -1),
+            },
+        )
+
+    def test_autochoose_off_pauses_bot_special_until_continue(self):
+        """A user story: with specials autochoose off, the bot's last-card
+        draw halts its turn at the special. The enemy-phase render shows the
+        bot's draw flight and a waiting special; continuing resolves the bot's
+        special with its animations."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        end_turn_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        _, deck_game_card = self._stage_last_card_draw(self.bot_participant, [0, 0], 0)
+
+        self.client.post(end_turn_url, {"action": "end_turn"})
+        response = self.client.get(board_url)
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="enemy"')
+        self.assertNotContains(response, "timelineSteps")
+        enemy_hand = re.search(
+            r'<ul class="hand enemyHand">(.*?)</ul>', content, re.DOTALL
+        )
+        self.assertIsNotNone(enemy_hand)
+        loading_tag = re.search(
+            r'<li class="cardContainer faceDown loading"[^>]*>',
+            enemy_hand.group(1),
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+        self.assertIn(f"{self.bot.name}'s special is waiting for your input", content)
+        self.assertEqual(
+            Game.objects.get(pk=self.game.id).pendingSpecial_id,
+            self.bot_participant.id,
+        )
+        deck_game_card.state.refresh_from_db()
+        self.assertEqual(deck_game_card.state.lane, 0)
+        self.assertEqual(response.cookies["turn_phase"].value, "player")
+
+        response = self.client.post(end_turn_url, {"action": "continue_special"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertContains(response, 'id="timelineSteps"')
+        self.assertIn("enacts master plan", content)
+        self.assertContains(response, '"shuffle-back"')
+        self.assertNotIn("special is waiting for your input", content)
+        self.assertIsNone(Game.objects.get(pk=self.game.id).pendingSpecial)
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+
+    def test_continue_special_without_pending_special_errors(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        action_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        response = self.client.post(action_url, {"action": "continue_special"})
+
+        self.assertContains(response, "No special is waiting for input")
+        self.assertNotContains(response, "timelineSteps")
+        self.assertIsNone(Game.objects.get(pk=self.game.id).pendingSpecial)
 
     def test_enemy_hand_cards_can_be_marked_loading(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -4420,7 +5005,7 @@ console.log('space draw focus round trip ok');
         with open(os.path.join(static_dir, 'cardDragDrop.css')) as css_file:
             drag_css = css_file.read()
 
-        self.assertIn('this.drawHold = new ShortcutHoldAction();', drag_js)
+        self.assertIn('this.drawHold = new ShortcutHoldAction({duration: shortcutHoldMs});', drag_js)
         self.assertIn("event.key.toLowerCase() === 'd'", drag_js)
         self.assertIn("document.querySelector('.playerBoard .deck-stack .active-deck')", drag_js)
         self.assertIn("deck.querySelector('button.draw')", drag_js)
@@ -5192,6 +5777,31 @@ console.log('enemy deck play flight face ok');
         player_moves = _extract_js_brace_block(loading_js, "if (phase === 'playerMoves')")
         self.assertIn('startFlights(runPlayerMoves)', player_moves)
         self.assertIn('startFlights(runFlights)', loading_js)
+
+    def test_shuffle_back_wave_hides_the_hand_card_it_flies_away(self):
+        """The shuffle-back wave's clone replaces the real card in its slot.
+
+        The depleted-deck draw renders the drawn card in the hand for its
+        deck->hand flight; when the wave later flies that card back to the
+        deck, the real hand card must go hidden with the loading class as
+        the clone departs, so the hand reads empty before the reload lands
+        on the shuffled board.
+        """
+        import os
+
+        static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
+        with open(os.path.join(static_dir, 'loadingAnimations.js')) as js_file:
+            loading_js = js_file.read()
+
+        fly_to_deck = _extract_js_brace_block(loading_js, '_flyCardToDeck(cardInfo')
+        self.assertIn('document.body.appendChild(duplicate)', fly_to_deck)
+        self.assertIn('[data-card-id="${cardInfo.cardId}"]', fly_to_deck)
+        self.assertIn("classList.add('loading')", fly_to_deck)
+        self.assertLess(
+            fly_to_deck.index('document.body.appendChild(duplicate)'),
+            fly_to_deck.index('[data-card-id="${cardInfo.cardId}"]'),
+            "the real card may only hide once the clone has taken over its slot",
+        )
 
     def test_animation_skip_and_pause_controls(self):
         """Enemy-turn/timeline sequences can be skipped and paused from the keyboard."""
@@ -12791,8 +13401,9 @@ class TitleGreetingTests(TestCase):
 
 class BoardCardPresentationTests(BattleBoardFixture):
     """Board presentation: trusted cards render on both boards in their own
-    rows, hover zoom ships enabled by default with a session toggle, and
-    staged plays and flips move real board cards."""
+    rows, hover zoom ships enabled by default with a session toggle, the D and
+    E shortcut holds share one session-set duration, and staged plays and flips
+    move real board cards."""
 
     def _confirm_and_get_board(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -12841,12 +13452,12 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.client.post(confirm_url)
 
         fresh_content = self._confirm_and_get_board()
-        self.assertIn('<div class="playerScreen playingCards rotateHand zoomCards">', fresh_content)
+        self.assertIn('<div class="playerScreen playingCards rotateHand zoomCards"', fresh_content)
 
         toggle_url = reverse("MMM:toggleCardZoom")
         self.client.post(toggle_url, {"enable": "false"})
         disabled_content = self._confirm_and_get_board()
-        self.assertIn('<div class="playerScreen playingCards rotateHand">', disabled_content)
+        self.assertIn('<div class="playerScreen playingCards rotateHand"', disabled_content)
         self.assertNotIn("zoomCards", disabled_content)
 
         self.client.post(toggle_url, {"enable": "true"})
@@ -12871,6 +13482,115 @@ class BoardCardPresentationTests(BattleBoardFixture):
 
         response = self.client.get(reverse("MMM:toggleCardZoom"))
         self.assertEqual(response.status_code, 302)
+
+    def test_specials_autochoose_toggle_lives_on_the_settings_page_session_roundtrip(self):
+        """Specials autochoose ships enabled by default and toggles per
+        session like the other demo preferences."""
+        settings_url = reverse("MMM:demoSettings")
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-specials-autochoose="enabled"')
+        self.assertRegex(
+            content,
+            r'<form method="post"[^>]*action="%s"'
+            % re.escape(reverse("MMM:toggleSpecialsAutochoose")),
+        )
+        self.assertIn('<input type="hidden" name="enable" value="false">', content)
+        self.assertIn("Disable specials autochoose", content)
+
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "false"}
+        )
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertRegex(content, r'data-specials-autochoose="disabled"')
+        self.assertIn('<input type="hidden" name="enable" value="true">', content)
+        self.assertIn("Enable specials autochoose", content)
+
+        self.client.post(
+            reverse("MMM:toggleSpecialsAutochoose"), {"enable": "true"}
+        )
+        response = self.client.get(settings_url)
+        self.assertRegex(
+            response.content.decode(), r'data-specials-autochoose="enabled"'
+        )
+
+        response = self.client.get(reverse("MMM:toggleSpecialsAutochoose"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_shortcut_hold_slider_lives_on_the_settings_page_session_roundtrip(self):
+        settings_url = reverse("MMM:demoSettings")
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertIn('<input type="range" id="shortcutHoldRange" name="hold_ms"', content)
+        self.assertIn('min="0"', content)
+        self.assertIn('max="2000"', content)
+        self.assertIn('step="100"', content)
+        self.assertIn('value="1000"', content)
+        self.assertIn('<output id="shortcutHoldOutput" for="shortcutHoldRange">1000 ms</output>', content)
+        self.assertRegex(content, r'<form method="post"[^>]*action="%s"' % re.escape(reverse("MMM:setShortcutHold")))
+        self.assertIn("Apply hold duration", content)
+        self.assertIn('<script type="module" src="/static/demoSettings.js">', content)
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "1500"})
+        response = self.client.get(settings_url)
+        content = response.content.decode()
+        self.assertIn('value="1500"', content)
+        self.assertRegex(content, r'data-shortcut-hold-ms="1500"')
+        self.assertIn('<output id="shortcutHoldOutput" for="shortcutHoldRange">1500 ms</output>', content)
+
+        response = self.client.get(reverse("MMM:setShortcutHold"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_shortcut_hold_post_clamps_out_of_range_values_into_the_range(self):
+        settings_url = reverse("MMM:demoSettings")
+
+        def rendered_hold_ms():
+            content = self.client.get(settings_url).content.decode()
+            return re.search(r'data-shortcut-hold-ms="(\d+)"', content).group(1)
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "2500"})
+        self.assertEqual(rendered_hold_ms(), "2000")
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "-100"})
+        self.assertEqual(rendered_hold_ms(), "0")
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "1540"})
+        self.assertEqual(rendered_hold_ms(), "1500")
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "not-a-number"})
+        self.assertEqual(rendered_hold_ms(), "1500")
+
+    def test_board_page_carries_the_session_shortcut_hold_duration(self):
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+        self.client.post(confirm_url)
+
+        default_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-shortcut-hold-ms="1000"', default_content)
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "300"})
+        set_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-shortcut-hold-ms="300"', set_content)
+
+        self.client.post(reverse("MMM:setShortcutHold"), {"hold_ms": "0"})
+        instant_content = self.client.get(board_url).content.decode()
+        self.assertIn('data-shortcut-hold-ms="0"', instant_content)
+
+    def test_both_board_holds_share_the_one_session_shortcut_hold_duration(self):
+        with open(os.path.join(STATIC_TEST_DIR, "cardDragDrop.js")) as js_file:
+            drag_js = js_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "demoSettings.js")) as js_file:
+            settings_js = js_file.read()
+
+        self.assertIn("dataset?.shortcutHoldMs", drag_js)
+        self.assertIn("const shortcutHoldMs = this._shortcutHoldDuration();", drag_js)
+        self.assertEqual(drag_js.count("new ShortcutHoldAction({duration: shortcutHoldMs})"), 2)
+        self.assertIn("if (this.duration <= 0) {", drag_js)
+        self.assertIn("this._complete();", drag_js)
+
+        self.assertIn("addEventListener('input'", settings_js)
+        self.assertIn("holdOutput.textContent = `${holdRange.value} ms`;", settings_js)
 
     def test_zoom_feature_files_and_board_wiring_contract(self):
         with open(os.path.join(STATIC_TEST_DIR, "cardZoom.css")) as css_file:
@@ -12901,6 +13621,23 @@ class BoardCardPresentationTests(BattleBoardFixture):
         self.assertIn("zoomCards", content)
         self.assertIn('<script type="module" src="/static/cardZoom.js">', content)
         self.assertIn('<link rel="stylesheet" type="text/css" href="/static/cardZoom.css">', content)
+
+    def test_zoomed_card_is_a_centered_overlay_sized_by_the_screen(self):
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.css")) as css_file:
+            zoom_css = css_file.read()
+        with open(os.path.join(STATIC_TEST_DIR, "cardZoom.js")) as js_file:
+            zoom_js = js_file.read()
+
+        self.assertIn(".playerScreen.zoomCards .cardZoomStage", zoom_css)
+        self.assertIn("position: fixed", zoom_css)
+        self.assertIn("inset: 0", zoom_css)
+        self.assertIn("place-items: center", zoom_css)
+        self.assertIn("pointer-events: none", zoom_css)
+        self.assertIn("transform: scale(var(--card-zoom-scale));", zoom_css)
+        self.assertNotIn("px", zoom_css)
+
+        self.assertIn("Math.min(window.innerWidth, window.innerHeight)", zoom_js)
+        self.assertIn("classList.contains('faceDown')", zoom_js)
 
     def test_staged_play_moves_hand_card(self):
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
@@ -13003,7 +13740,32 @@ class DemoNavigationTests(TestCase):
         self.assertEqual(docs_response.status_code, 200)
         self.assertIn("Game action API", docs_response.content.decode())
 
-    def test_settings_page_holds_only_the_card_zoom_preference(self):
+    def test_admin_pages_render_through_the_settings_page_shell(self):
+        """The admin pages wear the settings look: the demo shell body and
+        menu, the settings column of white panels, and their usual content."""
+        self._sign_in_admin()
+        for page_url, own_content in (
+            (reverse("MMM:index"), "Please select the player you want to play as:"),
+            (reverse("MMM:viewPlayer", args=[self.lucas.id]), "Challenges"),
+            (reverse("MMM:viewCard", args=[self.lucas_card_ids[0]]), "Owner history"),
+        ):
+            content = self.client.get(page_url).content.decode()
+            self.assertIn('<body class="demoPage">', content, page_url)
+            self.assertIn(
+                '<link rel="stylesheet" href="/static/demoNavigation.css">',
+                content,
+                page_url,
+            )
+            self.assertIn('class="demoNav"', content, page_url)
+            self.assertIn(f'href="{reverse("MMM:index")}"', content, page_url)
+            self.assertIn('class="fit-picture fullpage-background"', content, page_url)
+            self.assertIn('<div class="demoSettings">', content, page_url)
+            self.assertGreaterEqual(
+                content.count('class="demoSettingsPanel"'), 2, page_url
+            )
+            self.assertIn(own_content, content, page_url)
+
+    def test_settings_page_holds_the_card_zoom_and_hold_duration_preferences(self):
         self._sign_in_admin()
         response = self.client.get(reverse("MMM:demoSettings"))
         self.assertEqual(response.status_code, 200)
@@ -13013,6 +13775,8 @@ class DemoNavigationTests(TestCase):
         self.assertContains(response, "Card zoom")
         self.assertContains(response, '<input type="hidden" name="enable" value="false">')
         self.assertContains(response, "Disable hover card zoom")
+        self.assertContains(response, "Hold duration")
+        self.assertContains(response, '<input type="range"')
         self.assertNotIn("cardContainer", content)
 
     def test_settings_page_toggles_card_zoom_from_the_demo_menu(self):
@@ -13092,13 +13856,42 @@ class DemoNavigationTests(TestCase):
         self.assertEqual(game_page.count('class="backlink"'), 1)
         self.assertIn(entry_backlink, game_page)
 
+    def test_result_page_back_button_returns_to_the_previous_game_page(self):
+        rival = Player.objects.create(name="Rival")
+        rival_owner = CardOwnerHistory.objects.create(cardOwner=rival)
+        rival_cards = [
+            Card.objects.create(title=f"Rival-{index}", artSource="", cardType=index % 4)
+            for index in range(4)
+        ]
+        for card in rival_cards:
+            card.ownerHistory.add(rival_owner)
+
+        game = Game.createHumanChallenge(player_id=self.lucas.id)
+        game.save()
+        game.history.addHumanChallenger(self.lucas.id, self.lucas_card_ids[0])
+        robot = game.history.addRobotChallenger(rival.id)
+        robot.defeated = True
+        robot.save()
+
+        result = self.client.get(reverse("MMM:viewResult", args=[game.id, self.lucas.id]))
+        self.assertEqual(result.status_code, 200)
+        content = result.content.decode()
+        self.assertEqual(content.count('class="backlink"'), 1)
+        self.assertIn(
+            f'<a class="backlink" href="{reverse("MMM:viewGameAsPlayer", args=[game.id, self.lucas.id])}">back</a>',
+            content,
+        )
+
     def test_back_button_lies_after_admin_page_content_instead_of_over_it(self):
         """A long collection must never run under the back button.
 
         The link used generic absolute positioning, so it floated over the
         viewport corner and the player page's cards ran right under it. The
-        admin pages now render the link at the end of the document in normal
-        flow; only the demo shell pages keep the floating corner link.
+        plain pages now render the link at the end of the document in normal
+        flow, while the demo shell pages float it to the corner where the
+        settings column's bottom padding keeps it clear of the panels — and
+        the admin pages render through that shell with the rest of the demo
+        pages.
         """
         self._sign_in_admin()
         static_dir = os.path.join(os.path.dirname(__file__), '..', 'var', 'www', 'static')
@@ -13116,21 +13909,29 @@ class DemoNavigationTests(TestCase):
         self.assertIsNotNone(demo_backlink_rule, "demo pages lost their corner back link")
         self.assertIn("position: absolute", demo_backlink_rule.group(0))
 
-        for admin_url in (
+        demo_settings_rule = re.search(r'\.demoSettings\{[^}]*\}', demo_css)
+        self.assertIsNotNone(demo_settings_rule, "demo pages lost their settings column")
+        self.assertIn(
+            "padding: 2.5rem 1rem 3rem", demo_settings_rule.group(0),
+            "the settings column must pad its panels clear of the corner link",
+        )
+
+        docs_content = self.client.get(reverse("MMM:apiSwaggerUI")).content.decode()
+        self.assertIn('<body class="">', docs_content)
+        self.assertGreater(
+            docs_content.index('class="backlink"'),
+            docs_content.rindex("</div>"),
+            "back button must follow the content on the API docs page",
+        )
+
+        for demo_url in (
+            reverse("MMM:deckPage"),
+            reverse("MMM:demoSettings"),
             reverse("MMM:index"),
             reverse("MMM:viewPlayer", args=[self.lucas.id]),
-            reverse("MMM:apiSwaggerUI"),
         ):
-            content = self.client.get(admin_url).content.decode()
-            self.assertIn('<body class="">', content)
-            self.assertGreater(
-                content.index('class="backlink"'),
-                content.rindex("</div>"),
-                f"back button must follow the content on {admin_url}",
-            )
-
-        for demo_url in (reverse("MMM:deckPage"), reverse("MMM:demoSettings")):
-            self.assertIn('<body class="demoPage">', self.client.get(demo_url).content.decode())
+            content = self.client.get(demo_url).content.decode()
+            self.assertIn('<body class="demoPage">', content, demo_url)
 
     def test_admin_pages_never_scroll_horizontally(self):
         """Admin and swagger pages fit the viewport width, vertically only.
@@ -13474,6 +14275,18 @@ class BandSiteTests(TestCase):
             if url != self.BAND_PAGES["contact"]:
                 self.assertNotIn('href="/accounts/login/"', content, url)
 
+    def test_every_band_page_except_home_carries_the_back_link_to_the_band_home(self):
+        home = self._page_content("home")
+        self.assertNotIn('class="backlink"', home)
+
+        band_home_backlink = f'<a class="backlink" href="{reverse("band_home")}">back</a>'
+        for url in self._band_urls():
+            if url == self.BAND_PAGES["home"]:
+                continue
+            content = self.client.get(url).content.decode()
+            self.assertEqual(content.count('class="backlink"'), 1, url)
+            self.assertIn(band_home_backlink, content, url)
+
     def test_songs_alias_serves_the_releases_page(self):
         for url in (self.BAND_PAGES["music"], self.BAND_PAGES["songs"]):
             response = self.client.get(url)
@@ -13624,7 +14437,7 @@ class BandSiteTests(TestCase):
         self.assertIn("Lucas Willemsens", content)
         self.assertIn("drummer, poet and computer whisperer", content)
 
-    def test_contact_offers_social_links_without_a_submission_form(self):
+    def test_contact_offers_social_links_and_no_form_to_anonymous_visitors(self):
         content = self._page_content("contact")
         self.assertIn("https://www.instagram.com/paintedpillars/", content)
         self.assertIn("https://open.spotify.com/artist/7FQFAibyxDa9kBjFjSgYpH", content)
@@ -13667,6 +14480,69 @@ class BandSiteTests(TestCase):
         self.assertContains(response, "Magical Masters")
 
 
+class ContactFormTests(TestCase):
+    """The contact page's mail form is for signed-in accounts only: a signed
+    in visitor writes the band at the configured contact address with a copy
+    to their own email, an incomplete submission reports what is missing
+    without sending anything, and anonymous visitors neither see the form
+    nor trigger a mail."""
+
+    def test_signed_in_accounts_see_the_mail_form(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+
+        content = self.client.get(reverse("band_contact")).content.decode()
+        self.assertIn("<form", content)
+        self.assertIn('name="subject"', content)
+        self.assertIn('name="message"', content)
+        self.assertIn('type="submit"', content)
+        self.assertIn("someone.else@gmail.com", content)
+
+    def test_a_valid_submission_mails_the_band_with_a_copy_to_the_sender(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+
+        response = self.client.post(
+            reverse("band_contact"),
+            {"subject": "Booking question", "message": "Can you play our party in March?"},
+        )
+
+        self.assertRedirects(response, f"{reverse('band_contact')}?sent=1")
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.subject, "Booking question")
+        self.assertEqual(sent.body, "Can you play our party in March?")
+        self.assertEqual(sent.from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(sent.to, [settings.CONTACT_EMAIL])
+        self.assertEqual(sent.cc, ["someone.else@gmail.com"])
+
+        confirmation = self.client.get(f"{reverse('band_contact')}?sent=1").content.decode()
+        self.assertIn("Your message has been mailed to the band", confirmation)
+
+    def test_an_incomplete_submission_reports_the_error_and_sends_nothing(self):
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+
+        response = self.client.post(
+            reverse("band_contact"), {"subject": "Hello", "message": ""}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("both a subject and a body", content)
+        self.assertIn('value="Hello"', content)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_anonymous_visitors_never_see_the_form_or_mail_the_band(self):
+        content = self.client.get(reverse("band_contact")).content.decode()
+        self.assertNotIn("<form", content)
+        self.assertNotIn("<input", content)
+
+        response = self.client.post(
+            reverse("band_contact"), {"subject": "Hi", "message": "Hello"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+
 def _link_account(email, player_name):
     """Run the controlled account-to-player link operation the way the
     operator does, and return what it reported."""
@@ -13678,7 +14554,8 @@ def _link_account(email, player_name):
 class AccountRoutesTests(TestCase):
     """The allauth account routes are served at the domain root next to the
     band site and the game at /MMM/: the login page offers Google sign-in,
-    and local signups and password logins stay off."""
+    local signups and password logins stay off, and the pages render through
+    the demo shell styling."""
 
     def test_account_routes_resolve_at_the_domain_root(self):
         self.assertEqual(reverse("account_login"), "/accounts/login/")
@@ -13696,6 +14573,21 @@ class AccountRoutesTests(TestCase):
         self.assertEqual(reverse("band_home"), "/")
         self.assertEqual(reverse("MMM:home"), "/MMM/")
         self.assertEqual(self.client.get(reverse("MMM:titlePage")).status_code, 200)
+
+    def test_the_account_pages_render_through_the_demo_shell(self):
+        login = self.client.get(reverse("account_login")).content.decode()
+        self.assertIn('<body class="demoPage">', login)
+        self.assertIn('href="/static/style.css"', login)
+        self.assertIn('href="/static/demoNavigation.css"', login)
+        self.assertIn("demoSettingsPanel", login)
+
+        self.client.force_login(_verified_account("someone.else", "someone.else@gmail.com"))
+        for account_url in (reverse("account_logout"), reverse("socialaccount_connections")):
+            page = self.client.get(account_url).content.decode()
+            self.assertIn('<body class="demoPage">', page, account_url)
+            self.assertIn("demoSettingsPanel", page, account_url)
+        logout = self.client.get(reverse("account_logout")).content.decode()
+        self.assertIn('class="demoNameForm"', logout)
 
 
 class AccountPlayerLinkingTests(TestCase):
@@ -14165,6 +15057,143 @@ console.log('end turn release keys ok');
 
         self.assertIn('end turn release keys ok', _run_node_harness(
             harness, 'end-turn release-key hold rehearsal'))
+
+    def test_hover_zoom_opens_a_centered_viewport_sized_stage_and_releases_it(self):
+        zoom_js = _read_static_asset('cardZoom.js')
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r"""
+const documentListeners = {};
+const body = new FakeElement('body');
+const screen = new FakeElement('div', 'playerScreen playingCards rotateHand zoomCards');
+body.appendChild(screen);
+const hand = new FakeElement('ul', 'hand hand-fan');
+screen.appendChild(hand);
+
+const stripNotSegments = (part) => part.replace(/:not\([^)]*\)/g, ' ');
+FakeElement.prototype.matches = function (selector) {
+    return String(selector).split(',').some((part) => part.trim() &&
+        matchChainFrom(this, tokenizeChain(stripNotSegments(part.trim()))));
+};
+
+const zoomScaleValues = [];
+const fakeDocument = {
+    querySelector(selector) { return body.querySelector(selector); },
+    createElement(tag) {
+        const element = new FakeElement(tag);
+        element.style = {
+            setProperty(name, value) {
+                if (name === '--card-zoom-scale') zoomScaleValues.push(value);
+            },
+        };
+        return element;
+    },
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+};
+global.document = fakeDocument;
+global.window = { cardZoomManager: null, innerWidth: 1280, innerHeight: 720 };
+
+eval(__ZOOM_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((entry) => entry());
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+const manager = global.window.cardZoomManager;
+assert('the zoom manager boots on the zoomCards screen', Boolean(manager));
+
+const hover = (target) => {
+    screen.eventHandlers['mouseover'].forEach((entry) => entry({ target, relatedTarget: null }));
+};
+const leave = (target, relatedTarget = null) => {
+    screen.eventHandlers['mouseout'].forEach((entry) => entry({ target, relatedTarget }));
+};
+const pressEscape = () => {
+    documentListeners['keydown'].forEach((entry) => entry({ key: 'Escape' }));
+};
+const zoomStage = () =>
+    screen.children.find((child) => child.classes.has('cardZoomStage')) ?? null;
+
+const card = new FakeElement('li', 'cardContainer');
+card.offsetHeight = 90;
+const cardFace = new FakeElement('div', 'card smallCard');
+card.appendChild(cardFace);
+hand.appendChild(card);
+const secondCard = new FakeElement('li', 'cardContainer');
+secondCard.offsetHeight = 45;
+secondCard.appendChild(new FakeElement('div', 'card smallCard'));
+hand.appendChild(secondCard);
+const hiddenCard = new FakeElement('li', 'cardContainer faceDown');
+hiddenCard.appendChild(new FakeElement('div', 'card smallCard'));
+hand.appendChild(hiddenCard);
+
+hover(card);
+const stage = zoomStage();
+assert('hovering a card opens exactly one zoom stage on the board screen',
+    stage !== null &&
+    screen.children.filter((child) => child.classes.has('cardZoomStage')).length === 1);
+assert('the stage shows a clone of the hovered card, not the board card itself',
+    stage.children.length === 1 && stage.children[0] !== card &&
+    stage.children[0].classes.has('cardContainer') && stage.children[0].children[0] !== cardFace);
+assert('the clone lives inside the playingCards root so it keeps the card styling',
+    stage.children[0].closest('.playingCards') === screen);
+assert('the zoom size follows the smaller viewport side: 70% of 720 over a 90px card',
+    zoomScaleValues.length === 1 && zoomScaleValues[0] === '5.6');
+assert('the hovered board card is marked as the zoom source', card.classes.has('card-zoomed'));
+
+hover(card);
+assert('re-hovering the same card keeps the one stage',
+    zoomStage() === stage && zoomScaleValues.length === 1);
+
+hover(secondCard);
+const secondStage = zoomStage();
+assert('hovering another card swaps in a fresh stage sized for that card',
+    secondStage !== null && secondStage !== stage &&
+    zoomScaleValues.length === 2 && zoomScaleValues[1] === '11.2');
+assert('the swap unmarks the previous source card and marks the new one',
+    !card.classes.has('card-zoomed') && secondCard.classes.has('card-zoomed'));
+
+global.window.innerHeight = 360;
+hover(card);
+assert('a viewport that shrinks to 360px tall shrinks the zoomed card with it',
+    zoomScaleValues.length === 3 && zoomScaleValues[2] === '2.8');
+
+leave(secondCard, null);
+assert('leaving a card that is not zoomed changes nothing', zoomStage() !== null);
+
+leave(card, cardFace);
+assert('a wiggle between the innards of the zoomed card keeps the zoom',
+    zoomStage() !== null && zoomScaleValues.length === 3);
+
+const sizedStage = zoomStage();
+leave(card, null);
+assert('leaving the zoomed card closes the stage and unmarks the source',
+    zoomStage() === null && !card.classes.has('card-zoomed') &&
+    sizedStage.parentNode === null && sizedStage.removed);
+
+hover(card);
+assert('hovering again reopens the stage', zoomStage() !== null);
+pressEscape();
+assert('Escape releases the zoomed card',
+    zoomStage() === null && !card.classes.has('card-zoomed'));
+
+hover(hiddenCard);
+assert('a face down card never opens a stage',
+    zoomStage() === null && !hiddenCard.classes.has('card-zoomed'));
+
+hover(card);
+hover(hiddenCard);
+assert('moving from a zoomed card onto a face down card releases the zoom',
+    zoomStage() === null && !card.classes.has('card-zoomed'));
+
+console.log('hover zoom centering ok');
+""".replace('__ZOOM_JS__', repr(zoom_js))
+
+        self.assertIn('hover zoom centering ok', _run_node_harness(
+            harness, 'hover zoom centered stage rehearsal'))
 
     def test_loading_phases_suppress_key_release_end_turn_submits(self):
         drag_js = _read_static_asset('cardDragDrop.js')
