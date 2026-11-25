@@ -11039,82 +11039,10 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
         with open(js_path) as js_file:
             return js_file.read()
 
-    def _slice_on_keyboard_key_down(self, drag_js):
-        return drag_js[
-            drag_js.index('    onKeyboardKeyDown(event)'):
-            drag_js.index('    selectOrderedCard(')
-        ]
-
     def _slice_js_method(self, source, signature, end_marker):
         start = source.index(signature)
         end = source.index(end_marker, start)
         return source[start:end]
-
-    def _read_cards_css(self):
-        import os
-
-        css_path = os.path.join(
-            os.path.dirname(__file__), '..', 'var', 'www', 'static', 'cards.css'
-        )
-        with open(css_path) as css_file:
-            return css_file.read()
-
-    def _css_rules_for_selector(self, cards_css, selector):
-        """(start_index, body) of every rule whose selector list uses only `selector`."""
-        return [
-            (match.start(), match.group(2).strip())
-            for match in re.finditer(r'([^{}]+)\{([^{}]+)\}', cards_css)
-            if all(part.strip() == selector for part in match.group(1).split(','))
-        ]
-
-    def test_backtick_overlay_keydown_branch_toggles_three_targets(self):
-        drag_js = self._read_card_drag_drop_js()
-        keydown_code = self._slice_on_keyboard_key_down(drag_js)
-
-        self.assertIn("event.key === '`'", keydown_code)
-        self.assertIn("event.code === 'Backquote'", keydown_code)
-        self.assertIn("event.key !== '~'", keydown_code)
-        self.assertNotIn("event.key === '~'", keydown_code)
-        self.assertIn("classList.toggle('debug-overlay-visible'", keydown_code)
-
-        for selector in (
-            ".playerScreen .deckHand > p",
-            ".playerScreen .enemyDeckHand > p",
-            ".playerScreen .lanes .lane > p",
-        ):
-            self.assertIn(selector, keydown_code)
-
-        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
-        self.assertIn('event.preventDefault()', keydown_code[:toggle_index])
-
-    def test_backtick_overlay_skips_text_controls(self):
-        drag_js = self._read_card_drag_drop_js()
-        keydown_code = self._slice_on_keyboard_key_down(drag_js)
-
-        backtick_index = keydown_code.index("event.key === '`'")
-        toggle_index = keydown_code.index("classList.toggle('debug-overlay-visible'")
-        self.assertLess(backtick_index, toggle_index)
-
-        guard_block = keydown_code[backtick_index:toggle_index]
-        self.assertIn('_isTextControlTarget', guard_block)
-        self.assertIn('event.preventDefault()', guard_block)
-
-    def test_backtick_overlay_css_rule_uses_absolute_white_z3(self):
-        cards_css = self._read_cards_css()
-
-        overlay_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
-        self.assertNotEqual(
-            overlay_rules, [],
-            "No .debug-overlay CSS rule found for the debug overlay box",
-        )
-
-        rule_body = overlay_rules[0][1]
-        self.assertIn('position: absolute', rule_body)
-        self.assertIn('background: white', rule_body)
-        self.assertIn('z-index: 3', rule_body)
-
-        for forbidden in ('top:', 'width: ', 'left: ', 'height: '):
-            self.assertNotIn(forbidden, rule_body)
 
     def test_backtick_overlay_targets_exist_in_rendered_board(self):
         self.client.post(reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id]))
@@ -11183,56 +11111,6 @@ class BattlePagePolishBacktickOverlayTests(TestCase):
                 rf'<p class="debug-overlay">\s*\d+ \| {lane_name}\s*</p>',
                 f"Lane <p> for {lane_name} must not be inside dev-only blocks",
             )
-
-    def test_backtick_debug_branch_toggles_only_paragraph_groups_without_panel(self):
-        drag_js = self._read_card_drag_drop_js()
-        keydown_code = self._slice_on_keyboard_key_down(drag_js)
-
-        self.assertNotIn('debugOverlay', keydown_code)
-        self.assertNotIn('getElementById', keydown_code)
-
-        branch_index = keydown_code.index(
-            "event.key === '`' || (event.code === 'Backquote' && event.key !== '~')"
-        )
-        toggle_call_index = keydown_code.index(
-            'this.toggleDebugParagraphOverlay()', branch_index
-        )
-        end_of_branch = keydown_code.index('if (this._isEndTurnKey(event))', branch_index)
-        branch = keydown_code[branch_index:end_of_branch]
-        self.assertIn('event.preventDefault()', branch)
-        self.assertIn('this.toggleDebugParagraphOverlay();', branch)
-
-        self.assertEqual(
-            keydown_code.count("classList.toggle('debug-overlay-visible'"), 1
-        )
-        self.assertEqual(keydown_code.count('document.querySelectorAll'), 1)
-
-        combined_selector = keydown_code[keydown_code.index('.playerScreen .deckHand > p'):]
-        combined_selector = combined_selector[:combined_selector.index(')')]
-        for selector in (
-            ".playerScreen .deckHand > p",
-            ".playerScreen .enemyDeckHand > p",
-            ".playerScreen .lanes .lane > p",
-        ):
-            self.assertIn(selector, combined_selector)
-
-    def test_backtick_debug_paragraph_css_styling_applies_visibility_class(self):
-        cards_css = self._read_cards_css()
-
-        hidden_rules = self._css_rules_for_selector(cards_css, '.debug-overlay')
-        visible_rules = self._css_rules_for_selector(cards_css, '.debug-overlay-visible')
-        self.assertNotEqual(hidden_rules, [], "No .debug-overlay CSS rule found")
-        self.assertNotEqual(
-            visible_rules, [], "No .debug-overlay-visible CSS rule found"
-        )
-
-        self.assertIn('display:none', hidden_rules[0][1])
-        self.assertIn('display:block', visible_rules[0][1])
-        self.assertLess(
-            hidden_rules[0][0], visible_rules[0][0],
-            "The display:block rule must come after the display:none rule "
-            "so toggling debug-overlay-visible wins the cascade",
-        )
 
     def test_backtick_dead_key_and_grave_dispatch_toggles_paragraphs_via_dom(self):
         import os

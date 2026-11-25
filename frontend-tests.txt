@@ -1,7 +1,8 @@
 frontend-tests.txt — working notes on frontend (board HTML/JS/CSS) testing in this repo
-Last updated: 2026-11-25 (from the layer-C source-text contract removal). Update this
-file when you add or change a frontend testing method; it exists so the next agent
-iterates on working patterns instead of rediscovering them.
+Last updated: 2026-11-25 (layer-C source-text contract removal, including the
+backtick-overlay cluster). Update this file when you add or change a frontend
+testing method; it exists so the next agent iterates on working patterns
+instead of rediscovering them.
 
 There is NO real browser in this repo. "Frontend tests" are two layers, all in
 MMM/tests.py (no separate frontend runner, per AGENTS.md):
@@ -93,7 +94,7 @@ Shared harness cores (module-level string constants in MMM/tests.py):
   - FAKE_ELEMENT_DATASET_CORE (line 272): the variant used by the
     BoardViewportShortcut tests.
   Several older test groups keep PRIVATE inline copies of FakeElement (around
-  lines 4800, 6393, 7338, 7794, 8298, 14315) — historical duplication; prefer
+  lines 4800, 6393, 7338, 7794, 8298, 14179) — historical duplication; prefer
   the shared constants when writing new tests.
 
 Harness skeleton (copy from test_space_draw_stages_and_restores_draw_button_focus_via_dom
@@ -123,7 +124,7 @@ or test_enemy_deck_play_flight_clone_keeps_the_landed_card_face):
   7. assert(label, condition) throws 'FAILED: <label>' and console.log('ok: …')
      per check; end with a sentinel console.log('… ok') line.
 
-Runner: _run_node_harness(harness, label) (MMM/tests.py, line 13565) writes a
+Runner: _run_node_harness(harness, label) (MMM/tests.py, line 13429) writes a
 temp .js file, runs node, SKIPS the test when node is absent, raises
 AssertionError with full stdout/stderr on non-zero exit, returns stdout.
 Python side then asserts the sentinel: self.assertIn('… ok', stdout).
