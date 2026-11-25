@@ -12,6 +12,7 @@
 ********************************************************************/
 :root{
     --card-background: #c7dce0;
+    --blocked-card-background: #7b8287;
     --card-background-highlight: #d1e1ea;
     --card-font-size: 1.2em; /* @change: adjust this value to make bigger or smaller cards */
     --card-hover-lift-timing: 0.15s ease-out;
@@ -726,6 +727,9 @@ li.cardContainer{
         border: 3px solid black;
         max-height: 6rem;
         max-width: 10rem;
+    }
+    .hand li.cardContainer.blocked > .smallCard{
+        background: var(--blocked-card-background);
     }
     li.cardContainer > .smallCard a{
         text-align: center;
