@@ -1,6 +1,6 @@
 ---
 name: Coding
-description: Write and refactor code for Megans Magische Meesters — function structure that keeps sequential logic and rule execution state evident in one function body, factoring out only pure functions, plus naming, duplication, views, Django/Jinja2, styling, errors, and testing and verification standards. Use when implementing or changing application code.
+description: Write and refactor code for Megans Magische Meesters — function structure that keeps sequential logic and rule execution state evident in one function body, factoring out only pure functions, plus naming, duplication, views, Django/Jinja2, styling, blocked-control affordances, errors, and testing and verification standards. Use when implementing or changing application code.
 ---
 
 # Coding
@@ -36,6 +36,10 @@ How code is written in this repo. These standards apply to every change; followi
 
 - Minimize inline styling — prefer css usage over styling in html. CSS files are logically structured with files scoped to features that require styling. Styling cascades down from generality and importance, with static variables on top for easy customization; the further down in the file, the more specific the styling. Styling is maximally re-used. Refactor styling if css files can be shrunk down without losing maintainability, even if website appearance is impacted. Templates and JS use css classes whenever possible.
 
+## Blocked controls
+
+- Everything in view works: an interactive control that cannot be used makes clear and logical why it cannot — for example, the player has used up their moves for that turn. Such controls are unmistakably blocked: greyed out, unresponsive, and on hover showing the disabled/forbidden pointer symbol together with the explanation in the title attribute of the element. A state that disables actions blocks every affected control this way; nothing appears clickable that does not work.
+
 ## Errors
 
 - Let exceptions surface or handle them explicitly with a clear message; never swallow an exception into silent no-op behavior.
@@ -46,7 +50,10 @@ How code is written in this repo. These standards apply to every change; followi
 
 ## Testing
 
-- Write unit tests for new logic to ensure functionality. It is never a problem to refactor code for your purpose and break old unit tests; the broken unit tests should be logical with the changes made. Always make end-to-end tests for new features based on a clear understandable user story for the change you are implementing. End-to-end tests maximize implementation-independent solutions so they don't require updates constantly; they are larger and tackle complex behavior of the program after multiple user interactions; they do not test small snippets of code.
+- Testing is the art of having less: tests are not encouraged. Spend your thoughts on the easiest correct solution, not on tests. When the work is done, check that it actually solved the goal by writing one broad end-to-end test that only works if the goal is done — based on a clear understandable user story, implementation-independent, tackling the program's behavior after multiple user interactions, never small snippets of code. Writing it before implementation, test-driven style, is allowed and deliberately understated: it is a completion check, never the center of the work.
+- Unit tests are near-useless beyond verifying your own work while coding: do not add them as a deliverable. It is never a problem to refactor code for your purpose and break old unit tests; the broken unit tests should be logical with the changes made. When touching tests, clean them up or merge them into more meaningful ones rather than adding new ones.
+- A test that is kept asserts the user-visible rendered behavior — a user-visible feature's rendered face or content, rendered-DOM contracts that survive renames — never markup shells that outlive their content or source-grep assertions pinning literal JS method bodies, selectors, or CSS rule text.
+- Test exemplars: good — assert the `#turnLimits` element exposes the enforced allowances as data, or that the persisted focus slot exists in exactly one DOM location; bad — reading `cards.css` in a Python test to assert it contains `width: 90vw`, or reading `cardDragDrop.js` to assert a method's body.
 
 ## Verification
 

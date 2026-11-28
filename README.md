@@ -56,6 +56,13 @@ Polish the battle page to make the game feel responsive, readable, and exciting.
 - [x] Show hologram cards in a dedicated row above the lane cards so the board layout is clearer and holograms stand out, and add a flip hologram that shows a face-up preview when a lane card is flipped.
 - [x] The four player lanes are too narrow: at 56% field width with 14% horizontal padding on each side, only ~5 cards fit per row before the lane-stacking JS adds an overflow row. The field should be wider so each lane fits ~9 cards per row on a 1920px monitor. (Verified implemented: `ul.lanes` now spans 82vw with `flex: 1` lanes, `MAX_CARDS_PER_ROW = 25`, cardContainer `nth-child` offsets through 25 and hologram `nth-child` through 25 - the pinned 56%-width starting state no longer exists, and the line-pinned inventory below predates the landing.)
 
+#### Board State Single Source 20261109
+
+Make the battle board's turn state single-source and split the monolithic board script along its seams. Explicitly behavior-preserving — no product changes: every player-visible behavior stays exactly as it is today.
+
+- [ ] Split the battle board script along its seams — keyboard selection, region navigation, shortcut hold, and hologram arrows each become their own module, and the cascading keydown handler becomes a data-driven key-route table. Behavior-preserving — no product changes; every keyboard, drag, and flip behavior works exactly as before, and the board's script entry points stay stable for the other board scripts and the test harnesses.
+- [ ] Turn state single source: one carrier element is both the storage for the turn state and the toggleable backtick overlay, the client consumes the server-computed allowances plus staged deltas instead of re-deriving the server's formula, and the persisted focus slot exists in exactly one DOM location. Behavior-preserving — no product changes; the overlay, the affordances, and the end-turn round trip behave exactly as today.
+
 #### Defer Enemy Turn Calculation
 
 Remove the action-URL board veil again and defer the enemy turn calculation: 'end turn' renders only the player's own moves, and the bot moves are computed in the board GET that renders the enemy phase (after the browser has left the action URL), passed straight into that render via the server-side actionPlays mechanism instead of bot action cookies.
