@@ -1,0 +1,3 @@
+Polish the battle page to make the game feel responsive, readable, and exciting.
+
+This stage focuses on animation, card layout, turn clarity.

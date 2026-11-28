@@ -275,7 +275,7 @@ def api_board_state(request, game_id, player_id):
     bot_turn_ran = False
     if turn_phase == "enemy":
         finished, _, _ = game_outcome(game)
-        if not finished:
+        if not finished and game.pendingSpecial is None:
             bot_plays, _ = run_bot_turn(game, viewer_participant.player_id)
             game.roundNumber = max(game.roundNumber, 1) + 1
             game.save(update_fields=["roundNumber"])

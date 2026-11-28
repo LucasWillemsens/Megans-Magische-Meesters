@@ -1,0 +1,27 @@
+Make the battle board's turn state single-source and split the monolithic board script along its seams. Explicitly behavior-preserving — no product changes: every player-visible behavior stays exactly as it is today.
+
+Objective + end-to-end intent: after this goal, the backtick debug overlay's numbers always agree with what the server enforces (mid-turn included), the persisted hand-card focus slot lives in exactly one DOM location and survives the end-turn round trip, the client no longer re-implements the server's turn-allowance arithmetic, and the board's keyboard/drag/flip surface behaves identically while living in focused modules with a data-driven key router.
+
+## Context — fault history (why this goal exists)
+
+- viewBoard.jinja2 stores the turn state three times over: the persisted focus slot renders both as a data attribute on the hidden turn-limits block and as a hidden input on the end-turn form — only the input is ever written after a selection, so the attribute copy goes stale on every selection; the hidden block also ships remaining-allowance attributes no JavaScript ever reads (they appear only in a mutation-observer watch list, and the tests pin them as if they were a live contract); and the backtick overlay displays per-turn counters the JavaScript never updates, so its numbers are only true at render time.
+- The turn-allowance arithmetic is duplicated: the server computes the remaining draw/play/flip budgets in one place (the same values the enforcement in the card-draw/card-play rules uses), and the client re-derives the same formula from raw stat and count attributes to track staged plays and flips. AGENTS.md warns these must stay in sync — this goal removes the duplication instead of maintaining it.
+- The board script has grown into one file holding many concerns, a triple-indirection predicate shim layer, and a single cascading keydown handler; the completed keyboard-navigation goals' tests pin that source shape, which is what makes restructuring risky today.
+
+## Context — the one lane-row contract (supersedes stale sibling criteria)
+
+The completed siblings under done/battle-page-polish/ — board-overflow-into-enemy-20261012 and horizontal-lane-spread-20261012 — state contradictory criteria for the lane row's height: one requires the height cap removed, the other's replacement rule keeps a height declaration, and HEAD matches neither as written. This goal locks the single contract, matching HEAD: the lane row (ul.lanes) carries no fixed height cap; the four lanes equalize height via stretch; the player board grows downward with its content and the deck/hand row stays pinned at the bottom. The siblings' criteria are superseded by this contract — treat it as the truth when touching the stylesheet or its tests, and correct or supersede their done/ descriptions rather than reintroducing a height cap to satisfy them.
+
+## Subgoals
+
+1. turn-state-single-source — one carrier element is both the storage and the toggleable backtick overlay; exactly one focus-slot copy in the DOM; dead attributes deleted; the client consumes server-computed allowances plus staged deltas.
+2. card-drag-drop-split — extract keyboard selection (killing the shim layer), region navigation, shortcut hold, and hologram arrows into their own modules, and decompose the keydown if-chain into a data-driven key-route table.
+
+Order: land the turn-state carrier first; the split then moves already-clean code.
+
+## Acceptance criteria (goal-wide gate — true after each subgoal lands)
+
+- [ ] The backtick overlay always shows numbers matching what the server enforces, at any point mid-turn (including after staged plays/flips).
+- [ ] The persisted focus slot survives end-turn, and exists in exactly one DOM location.
+- [ ] All 20261012 keyboard/drag/flip behaviors are unchanged after the split (route-by-route list in the card-drag-drop-split subgoal).
+- [ ] python3 manage.py test is fully green, and no test slices JS method bodies or pins selectors/CSS rule text — tests assert rendered-DOM contracts and survive renames. This criterion is what un-reds the suite and prevents recurrence: it is the gate that lets the restructure keep the suite green instead of re-pinning each new source shape, and every other criterion in this goal is verified through it.

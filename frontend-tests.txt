@@ -1,13 +1,19 @@
 frontend-tests.txt — working notes on frontend (board HTML/JS/CSS) testing in this repo
-Last updated: 2026-11-18 (from the bot deck->lane play styling fix). Update this file
-when you add or change a frontend testing method; it exists so the next agent
-iterates on working patterns instead of rediscovering them.
+Last updated: 2026-11-25 (layer-C source-text contract removal, including the
+backtick-overlay cluster). Update this file when you add or change a frontend
+testing method; it exists so the next agent iterates on working patterns
+instead of rediscovering them.
 
-There is NO real browser in this repo. "Frontend tests" are three layers, all in
+There is NO real browser in this repo. "Frontend tests" are two layers, all in
 MMM/tests.py (no separate frontend runner, per AGENTS.md):
   A. Rendered-HTML end-to-end through the Django test client (real view render)
   B. Executing the real static JS files in node against a hand-rolled fake DOM
-  C. JS/CSS source-text contract assertions (wiring only, no execution)
+JS/CSS source-text contract assertions (reading a static file and pinning its
+literal text — selectors, rule values, method bodies) were removed as a layer:
+they broke on every rename or styling-only change and proved wiring, not
+behavior. Do not reintroduce them; cover behavior in layer B, rendered markup
+in layer A. CSS-only visuals (pixels, layout, cursors) have no automated
+coverage until real browser E2E lands (see "Future direction").
 For real automated front-end E2E later (clicks, animation, layout), see the
 "Future direction" section at the bottom.
 
@@ -25,7 +31,7 @@ before vs. after your change (git stash helps).
 
 A. Rendered-HTML end-to-end (Django test client)
 ---------------------------------------------------------------------------
-Fixture: BattleBoardFixture (MMM/tests.py, ~line 461). Two players, 4 cards each
+Fixture: BattleBoardFixture (MMM/tests.py, ~line 657). Two players, 4 cards each
 (Card.artSource=""), a deck per player, BattleHistory + Game(roundNumber=0),
 one human and one robot participant. BattleFlowTests / BoardCardPresentationTests
 / GameActionApiTests / BoardViewportShortcutEndToEndTests subclass it.
@@ -78,17 +84,17 @@ This is the closest thing to frontend behavior testing today: the ACTUAL files
 from var/www/static are eval'd inside node against a FakeElement DOM.
 
 Shared harness cores (module-level string constants in MMM/tests.py):
-  - FAKE_ELEMENT_NAVIGATION_CORE (line 42): FakeElement with classList,
+  - FAKE_ELEMENT_NAVIGATION_CORE (line 66): FakeElement with classList,
     dataset, attribute map, appendChild/insertBefore/remove/replaceChildren/
     cloneNode(deep)/contains/firstChild, matches/closest, querySelector(All),
     getBoundingClientRect -> constant {0,0,10,10}; plus a mini selector engine
     supporting tag, #id, .class (multiple), [attr], [attr="value"],
     :not(.class), child (>) and descendant combinators, and :scope handling;
     plus descendantsInOrder() for document-order traversal.
-  - FAKE_ELEMENT_DATASET_CORE (line 248): the variant used by the
+  - FAKE_ELEMENT_DATASET_CORE (line 272): the variant used by the
     BoardViewportShortcut tests.
   Several older test groups keep PRIVATE inline copies of FakeElement (around
-  lines 319, 3144, 5309, 6555, 7511, 12816) — historical duplication; prefer
+  lines 4800, 6393, 7338, 7794, 8298, 14179) — historical duplication; prefer
   the shared constants when writing new tests.
 
 Harness skeleton (copy from test_space_draw_stages_and_restores_draw_button_focus_via_dom
@@ -118,7 +124,7 @@ or test_enemy_deck_play_flight_clone_keeps_the_landed_card_face):
   7. assert(label, condition) throws 'FAILED: <label>' and console.log('ok: …')
      per check; end with a sentinel console.log('… ok') line.
 
-Runner: _run_node_harness(harness, label) (MMM/tests.py, line 12577) writes a
+Runner: _run_node_harness(harness, label) (MMM/tests.py, line 13429) writes a
 temp .js file, runs node, SKIPS the test when node is absent, raises
 AssertionError with full stdout/stderr on non-zero exit, returns stdout.
 Python side then asserts the sentinel: self.assertIn('… ok', stdout).
@@ -131,25 +137,11 @@ FakeElement limits to know before writing assertions:
     duplicate.style.position = 'fixed' -> assertable; getBoundingClientRect
     geometry is constant, so flight math/--move-x values cannot be verified)
   - no CSS cascade and no layout: you can assert DOM placement, classes,
-    attributes and inline styles, but NEVER visual appearance — for that use
-    layer A (rendered markup) plus layer C (CSS rules exist)
+    attributes and inline styles, but NEVER visual appearance — layer A covers
+    the rendered markup, and CSS-only visuals have no automated coverage until
+    real browser E2E lands
   - selector engine supports only the subset listed above; complex selectors
     will silently not match
-
-
-C. JS/CSS source-text contract tests
----------------------------------------------------------------------------
-Helpers: _read_static_asset(file_name) reads var/www/static/<file>;
-_extract_js_brace_block(source, opener) (line 9693) returns source from an
-opener string through its balanced closing brace — used to pin one function's
-body (e.g. duplicateCard's deck branch must keep fixed-position overlay and
-never insertBefore into the pile). CSS rules are checked with regexes like
-re.search(r'\.playerScreen\.enemyTurnFocus[^{]*\{[^}]*\}', css).
-Use sparingly: string matching rots fast and proves wiring, not behavior.
-Prefer layer B for behavior; reach for layer C only to pin JS<->CSS couplings
-(class names a JS file relies on must exist in a stylesheet) — e.g.
-test_ghost_class_defined_in_stylesheet,
-test_deck_flight_clone_overlays_the_pile_inside_the_cards_scope.
 
 
 Board hooks reference (stable ids/classes/data attributes to drive or assert)

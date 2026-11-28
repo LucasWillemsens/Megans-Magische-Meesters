@@ -57,36 +57,13 @@ def build_participant_effect_step(participant, banner, defeated_id=None, fled_id
 
 def build_shuffle_step(participant, order=0):
     """Build a shuffle-back step listing all untrusted face-up board cards + hand cards."""
-    game = participant.getGame()
-    board_cards = GameCard.objects.filter(
-        game_id=game.id,
-        user_id=participant.id,
-        state__trusted=False,
-        state__inDeck=False,
-        state__faceDown=False,
-    )
-    hand_cards = GameCard.objects.filter(
-        game_id=game.id,
-        user_id=participant.id,
-        state__lane=0,
-    )
     affected = []
-    for card in board_cards:
+    for card in participant.getShuffleEligibleCards():
         affected.append({
             "cardId": card.id,
             "sourceLane": card.state.lane,
             "sourceOrdinal": card.state.laneOrdinal,
             "destinationLane": -1,  # -1 means deck
-            "destinationOrdinal": 0,
-            "flipFaceUp": False,
-            "trust": False,
-        })
-    for card in hand_cards:
-        affected.append({
-            "cardId": card.id,
-            "sourceLane": card.state.lane,
-            "sourceOrdinal": card.state.laneOrdinal,
-            "destinationLane": -1,
             "destinationOrdinal": 0,
             "flipFaceUp": False,
             "trust": False,
@@ -103,23 +80,26 @@ def build_shuffle_step(participant, order=0):
     }]
 
 
-def build_int_timeline(participant, count, timeline, card_ids=None):
+def build_int_timeline(participant, count, timeline, played_cards=None):
     """Append intSpecial steps to the timeline.
 
     Args:
-        card_ids: Optional list of GameCard PKs that were played by intSpecial.
-                  If provided, the function re-queries with fresh state (after
-                  playCard has updated the DB). If None, queries for cards
-                  currently in hand (for backward compatibility / testing).
+        played_cards: the hand cards the special played, each carrying the
+            hand ordinal it left (the card-effect flight's source). The cards
+            are re-queried fresh (after playCard updated the DB) for their
+            played lane positions. When omitted, the cards currently in hand
+            stand in (for backward compatibility / testing).
     """
-    if card_ids:
-        hand_cards = list(GameCard.objects.filter(pk__in=card_ids).select_related("state", "card"))
+    if played_cards:
+        hand_cards = list(GameCard.objects.filter(pk__in=[card["cardId"] for card in played_cards]).select_related("state", "card"))
+        hand_ordinals = {card["cardId"]: card["sourceOrdinal"] for card in played_cards}
     else:
         hand_cards = list(GameCard.objects.filter(
             game_id=participant.getGame().id,
             user_id=participant.id,
             state__lane=0,
-        ))
+        ).select_related("state", "card"))
+        hand_ordinals = {card.id: card.state.laneOrdinal for card in hand_cards}
     import random
     random.shuffle(hand_cards)
     chosen = hand_cards[:min(count, len(hand_cards))]
@@ -135,10 +115,10 @@ def build_int_timeline(participant, count, timeline, card_ids=None):
             affected.append({
                 "cardId": card.id,
                 "sourceLane": 0,
-                "sourceOrdinal": card.state.laneOrdinal,
+                "sourceOrdinal": hand_ordinals[card.id],
                 "destinationLane": card.state.lane,
                 "destinationOrdinal": card.state.laneOrdinal,
-                "flipFaceUp": True,
+                "flipFaceUp": False,
                 "trust": False,
             })
         timeline.append(build_card_effect_step(participant, affected))

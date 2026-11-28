@@ -13,10 +13,10 @@
             <div class="playerInfo">
                 <h2> {{player.name}} </h2>
                 {% if player.profilePictureSource == "" %}
-                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}" alt="{{player.name}}'s profile picture" />
+                <img class="fit-picture" src="{{ static(assestsDir ~ 'profile.jpg')}}" alt="{{player.name | possessive }} profile picture" />
                 {% else %}
                 <img class="fit-picture" src="{{ static(assestsDir ~ player.profilePictureSource)}}"
-                alt="{{player.name}}'s profile picture" />
+                alt="{{player.name | possessive }} profile picture" />
                 {% endif %}
             </div>
         {% else %}

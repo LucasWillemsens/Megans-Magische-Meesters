@@ -3,6 +3,7 @@
 {% block body_class %}demoPage{% endblock %}
 
 {% block extra_head %}
+<link rel="preload" as="image" href="{{ static('woodtextureorangedark2.jpg') }}">
 <link rel="stylesheet" href="{{ static('demoNavigation.css') }}">
 {% endblock %}
 
@@ -30,10 +31,10 @@
         <h2>{{ player.name }}</h2>
         {% if player.profilePictureSource == "" %}
         <img draggable="false" class="fit-picture" src="{{ static('MMM/profile.jpg')}}"
-            alt="{{player.name}}'s profile picture" />
+            alt="{{player.name | possessive }} profile picture" />
         {% else %}
         <img draggable="false" class="fit-picture" src="{{ static('MMM/' ~ player.profilePictureSource)}}"
-            alt="{{player.name}}'s profile picture" />
+            alt="{{player.name | possessive }} profile picture" />
         {% endif %}
     </div>
     {% endif %}

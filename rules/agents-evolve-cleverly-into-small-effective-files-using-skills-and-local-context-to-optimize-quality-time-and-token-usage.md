@@ -10,3 +10,4 @@ Agent definitions evolve cleverly over time: every engineering pass leaves the f
 ## Context
 - Introducing the rules framework while engineering the agent-engineer agent (2026-11-11)
 - The agent-loops goal's PR #28 review — its three candidates (agent-bodies-point-dont-duplicate, scoped-agent-permissions, delegate-substantive-work) proved to be substance of this rule and were absorbed into it (2026-11-17)
+- The agent-loops goal's PR #32 review — the ship-operational-scripts candidate: consequential operational tooling such as scripts/production.py and scripts/pr_environments.py ships wired with an on-demand skill pointing at its canonical docs (scripts/production.md, scripts/pr_environments.md), a dedicated deployment agent, and devops delegation — proved substance of this rule and was absorbed into it (2026-11-25)

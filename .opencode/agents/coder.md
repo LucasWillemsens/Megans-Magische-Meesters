@@ -34,4 +34,6 @@ You are the on-demand coding agent for **Megans Magische Meesters** — a Django
 
 1. Load the `coding` skill and follow it for every change you make, including its verification flow.
 2. If the prompt leaves a material decision open, stop and ask the requester instead of inventing one.
-3. Report the files you created or modified and the verification results.
+3. Write few, contract-level tests: assert observable behavior or rendered-DOM contracts that survive renames — never source-grep assertions pinning literal JS method bodies, selectors, or CSS rule text.
+4. After implementing and verifying a change, push the branch and run the PR-environment sync (`python3 scripts/pr_environments.py sync`) following the `deployment` skill — the fixed finishing step of implementation, so the PR test environment serves the new head.
+5. Report the files you created or modified and the verification results.

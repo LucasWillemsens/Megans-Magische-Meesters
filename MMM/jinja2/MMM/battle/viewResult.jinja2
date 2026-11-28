@@ -1,5 +1,7 @@
 {% extends 'demo_shell.jinja2' %}
 
+{% block back_button %}<a class="backlink" href="{{ url('MMM:viewGameAsPlayer', args=[game.id, player.id]) }}">back</a>{% endblock %}
+
 {% block content %}
 <div class="title">
     <h1>{{ game.title }} result</h1>

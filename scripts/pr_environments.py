@@ -443,16 +443,20 @@ def build_environment(state, pull):
             if exit_status:
                 raise BuildFailure(f"git clone failed with exit status {exit_status}\n{output_tail(output)}")
         update_checkout(pull, checkout)
-        gate_environment = deployment_environment(entry)
-        for command in GATES:
-            exit_status, output = run_command((sys.executable, *command), cwd=checkout, env=gate_environment)
-            if exit_status:
-                raise BuildFailure(f"{command[1]} failed with exit status {exit_status}\n{output_tail(output)}")
         if not EXTRA_STATIC_DIR.is_dir():
             print(f"PR {number}: extra static files not found at {EXTRA_STATIC_DIR}; building without them")
         else:
             try:
                 shutil.copytree(EXTRA_STATIC_DIR, checkout / "assets" / "downloaded", dirs_exist_ok=True)
+            except OSError as error:
+                raise BuildFailure(f"copying extra static files from {EXTRA_STATIC_DIR} failed\n{error}") from error
+        gate_environment = deployment_environment(entry)
+        for command in GATES:
+            exit_status, output = run_command((sys.executable, *command), cwd=checkout, env=gate_environment)
+            if exit_status:
+                raise BuildFailure(f"{command[1]} failed with exit status {exit_status}\n{output_tail(output)}")
+        if EXTRA_STATIC_DIR.is_dir():
+            try:
                 shutil.copytree(EXTRA_STATIC_DIR, pr_static_root(number), dirs_exist_ok=True)
             except OSError as error:
                 raise BuildFailure(f"copying extra static files from {EXTRA_STATIC_DIR} failed\n{error}") from error

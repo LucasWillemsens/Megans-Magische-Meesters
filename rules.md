@@ -3,3 +3,9 @@
 - 2026-11-11 — sequential-side-effecting-wholes-and-rule-execution-state-stay-evident-in-one-function-body v1
 - 2026-11-17 — agents-evolve-cleverly-into-small-effective-files-using-skills-and-local-context-to-optimize-quality-time-and-token-usage v2 — absorbed the three PR #28 candidates into description and implementation
 - 2026-11-18 — sequential-side-effecting-wholes-and-rule-execution-state-stay-evident-in-one-function-body v2 — wholesale revert (35d05ea) restored the v1 description and removed the 2026-11-17 v2 log entry with its absorbed candidate
+- 2026-11-25 — everything-in-view-works-or-is-clearly-blocked-greyed-out-unresponsive-with-disabled-pointer-and-title-explanation v1
+- 2026-11-25 — everything-in-view-works-or-is-clearly-blocked-greyed-out-unresponsive-with-disabled-pointer-and-title-explanation v2 — scope narrowed from repo wide to task specific: coding at user request
+- 2026-11-25 — agents-evolve-cleverly-into-small-effective-files-using-skills-and-local-context-to-optimize-quality-time-and-token-usage v3 — absorbed the ship-operational-scripts candidate (PR #32) — sources added to the context, substance already covered by the description and the deployment wiring
+- 2026-11-25 — user-centric-requirements-and-planning v1 — merges the same-day tests-assert-user-visible-behavior-never-markup-shells-or-literal-source-text rule (removed with its log entry) and absorbs the pr-35-polish roadmap-descriptions candidate (PR #36)
+- 2026-11-25 — user-centric-requirements-and-planning v2 — absorbed the painted-pillars-site preserve-user-intent candidate (PR #32) into description and context
+- 2026-11-25 — user-centric-requirements-and-planning v3 — description sharpened at user direction: example lists moved to the context and testing reframed as the art of having less — not encouraged, unit tests near-useless beyond the coding agent verifying itself, only meaningful end-to-end tests and cleanup or merging

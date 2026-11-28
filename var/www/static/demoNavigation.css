@@ -2,6 +2,11 @@
     --demo-nav-background: #a447b636;
     --demo-nav-border: #2b0320;
     --demo-settings-page-background: linear-gradient(160deg, #2b0320 0%, #4a122e 55%, #6b2a1f 100%);
+    --demo-page-background-color: #7f4e43;
+}
+
+body.demoPage{
+    background-color: var(--demo-page-background-color);
 }
 
 .fullpage-background{
@@ -23,7 +28,6 @@ body.demoPage a.backlink{
 .demoNav{
     display: flex;
     max-height: 100%;
-    /* border-radius: 0.5rem; */
     background: var(--demo-nav-background);
     border-radius: 0% 0 0% 100%;
     position: absolute;
@@ -54,11 +58,6 @@ body.demoPage a.backlink{
                     
         &[open]
         {   
-            &:n-th-child(1)
-            {
-                content: "close menu";
-            }
-
             &>summary
             {
                 margin-right: 0.3rem;
@@ -145,6 +144,15 @@ body.demoPage a.backlink{
 .demoNameForm input[type="text"]:focus-visible{
     outline: 3px solid var(--demo-nav-border);
     outline-offset: 1px;
+}
+
+.demoNameForm input[type="range"]{
+    flex: 1 1 12rem;
+    accent-color: #777;
+}
+
+.demoNameForm output{
+    font-weight: 600;
 }
 
 .demoSettingsPanel .demoSettingState{

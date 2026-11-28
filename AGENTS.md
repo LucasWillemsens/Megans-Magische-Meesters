@@ -12,6 +12,11 @@
 - Turn limits are enforced by `BattleParticipant.drawCard()` / `playCard()`; `getTurnAllowances()` feeds the board's `#turnLimits` data and client-side staged-action guards. Keep these limits in sync.
 - Plays/flips are staged in cookies keyed by `GameCard` ID with a JSON payload (`laneValue`, `sourceLane`, `sourceOrdinal`, `flipFaceUp`); `boardAction()` consumes them via `playcards()`. On `end_turn`, the POST does not run the bot: it marks the enemy phase, and the next `viewBoard()` GET runs `_run_bot_turn()`. Preserve this phase/animation flow when changing board actions.
 
+## User-centric requirements, plans, and tests
+
+- Requirements and plans come from the user and speak in terms of what the user sees and can do: agent-derived scoping is never encoded as agreed specification — preserve user input and mark unresolved choices as open. Roadmap descriptions and their acceptance criteria specify user-visible, checkable behavior that survives renames; naming files and describing seams and concerns is the allowed specificity, and a one-line fix never becomes a roadmap entry.
+- Testing is the art of having less: tests are not encouraged. When the work is done, check it actually solved the goal with one broad end-to-end test that only works if the goal is done; when touching tests, clean them up or merge them into more meaningful ones; unit tests are near-useless beyond the coding agent verifying itself. A test that is kept asserts what the user sees — rendered, observable behavior — never the literal text of sources or markup shells. The `coding` skill's Testing section carries the detail with good/bad exemplars.
+
 ## Generated roadmap and CI
 - `README.md`'s `## Roadmap` section is generated from `roadmap/` and `done/` by `python3 scripts/update_roadmap.py`; edit those source descriptions instead. The updater also moves flat `done/` entries into the roadmap's nested structure.
 - `python3 scripts/ci.py` can fetch, update `done/` and the README, stage **all** changes, commit, push, and open a PR; run it only when explicitly requested. `--dry-run` still runs tests and the README updater, which can move `done/` entries.

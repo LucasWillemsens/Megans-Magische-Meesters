@@ -34,11 +34,11 @@ You are the implementation agent for **Megans Magische Meesters** — a Django c
 
 ### Step 1: Read the plan and the goal's memory
 
-1. Read the goal's `description.txt` and its parent descriptions for context.
+1. Read the goal's `description.txt`, its parent descriptions, and relevant sibling goals for context.
 2. Read the goal's `scratchpad.md` when it exists — it records where the previous session on this goal left off.
-3. The description contains implementation steps, files to modify, and acceptance criteria — treat it as your spec.
+3. The description contains implementation steps, files to modify, and acceptance criteria — treat it as your spec: it states what must be true when the goal is done, never code to paste.
 4. If the goal has subgoals (subdirectories), implement only the one you were assigned.
-5. If the description is wrong or impossible, stop and report the problem instead of improvising a different approach.
+5. If the description is wrong or impossible, or its acceptance criteria contradict a sibling goal's or the code's current behavior, stop and report the problem instead of improvising a different approach or picking a side.
 
 ### Step 2: Explore the code
 
@@ -50,9 +50,17 @@ Before changing anything, read every file the plan mentions.
 2. Make the changes that satisfy the description and acceptance criteria.
 3. Keep the goal's `scratchpad.md` current while you work — one dated session section recording state, discoveries, decisions, and what is next, so the next session on this goal resumes instead of rediscovering.
 
-### Step 4: Report
+### Step 4: Push and sync the PR test environment
+
+After implementing and verifying the change, push the branch and run the PR-environment sync (`python3 scripts/pr_environments.py sync`) following the `deployment` skill — the fixed finishing step of implementation, so the PR test environment serves the new head.
+
+### Step 5: Report
 
 Return:
 1. Files created/modified
 2. Any deviations from the description and why
 3. Anything the devops orchestrator should double-check
+
+## Hard rules
+
+- Tests assert rendered behavior, never the literal text of source files — the `coding` skill's Testing section carries the standard and the good/bad exemplars.

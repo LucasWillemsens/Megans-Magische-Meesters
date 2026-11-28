@@ -30,6 +30,45 @@
         </form>
     </div>
 
+    <div class="demoSettingsPanel">
+        <h2> Specials autochoose </h2>
+        <p>
+            When a special action fires, it resolves automatically. Turn this
+            off to pause each special the moment it fires and continue it
+            yourself.
+        </p>
+        <p class="demoSettingState" data-specials-autochoose="{{ 'enabled' if specialsAutochoose else 'disabled' }}">
+            Specials autochoose is {% if specialsAutochoose %}enabled{% else %}disabled{% endif %}.
+        </p>
+        <form method="post" class="demoNameForm" action="{{ toggleSpecialsUrl }}">
+            {{ csrf_input }}
+            <input type="hidden" name="enable" value="{{ 'false' if specialsAutochoose else 'true' }}">
+            <button type="submit" draggable="false">
+                {% if specialsAutochoose %}Disable specials autochoose{% else %}Enable specials autochoose{% endif %}
+            </button>
+        </form>
+    </div>
+
+    <div class="demoSettingsPanel">
+        <h2> Hold duration </h2>
+        <p>
+            How long the D (draw) and E (end turn) board shortcuts must be held
+            down before they fire. Both shortcuts share this one duration, and
+            0 ms makes them fire instantly.
+        </p>
+        <p class="demoSettingState" data-shortcut-hold-ms="{{ shortcutHoldMs }}">
+            Shortcut holds fire after {{ shortcutHoldMs }} ms.
+        </p>
+        <form method="post" class="demoNameForm" action="{{ saveHoldUrl }}">
+            {{ csrf_input }}
+            <label for="shortcutHoldRange">Hold duration</label>
+            <input type="range" id="shortcutHoldRange" name="hold_ms" min="0" max="2000" step="100"
+                value="{{ shortcutHoldMs }}" draggable="false">
+            <output id="shortcutHoldOutput" for="shortcutHoldRange">{{ shortcutHoldMs }} ms</output>
+            <button type="submit" draggable="false">Apply hold duration</button>
+        </form>
+    </div>
+
     {% if user.is_authenticated %}
     <div class="demoSettingsPanel">
         <h2> Account </h2>
@@ -43,4 +82,5 @@
     </div>
     {% endif %}
 </div>
+<script type="module" src="{{ static('demoSettings.js')}}"></script>
 {% endblock %}

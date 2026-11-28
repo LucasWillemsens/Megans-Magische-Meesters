@@ -1,0 +1,15 @@
+Allow vertical scrolling on the battle board below 770px viewport height and focus the player board on load.
+
+Objective + intent of end-to-end test: at a short viewport such as 1280×700, the document scrolls to make both boards accessible and opens with the player board in view; above 770px, the existing single-viewport layout remains unchanged.
+
+Implementation:
+1. In `var/www/static/cards.css`, add height-based rules below 770px that permit document scrolling and prevent the player board/deck-hand region from remaining fixed over the enemy board. Keep existing layout rules for heights above 770px unchanged. Scope changes to the board page selectors; do not alter the narrow-width mobile screen-fit behavior.
+2. In `MMM/jinja2/MMM/battle/viewBoard.jinja2`, give the player-board region a stable scroll target and add minimal page-load behavior to scroll it into view on short viewports. Respect reduced motion if smooth scrolling is used, and do not interfere with the board's existing animation scripts.
+3. Add a focused board-page contract test in `MMM/tests.py` for the height breakpoint, player-board scroll target, and automatic scroll behavior.
+4. Manually verify a loaded battle at 1280×700 and at a viewport taller than 770px.
+
+Acceptance criteria:
+- [ ] Below 770px viewport height, document-level vertical scrolling is available and the enemy and player boards are both reachable without the player board/deck hand overlaying the enemy board.
+- [ ] On initial load below 770px, the page automatically scrolls to the player board; its lanes, deck, hand, and end-turn control remain usable.
+- [ ] At heights above 770px, the existing single-viewport layout and no-scroll behavior are unchanged.
+- [ ] Manual verification at 1280×700 confirms initial player-board positioning and scrolling to the enemy board; manual verification above 770px confirms no layout/scroll regression.

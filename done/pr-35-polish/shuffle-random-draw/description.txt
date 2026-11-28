@@ -1,0 +1,15 @@
+On a depleted-deck draw, animate the final card into the hand, then include it in the shuffle-back flight and draw a randomized replacement from the shuffled deck.
+
+Objective + end-to-end test: When drawing the last deck card, the client shows that exact card fly deck→hand→deck during the special sequence, then the refreshed hand contains the next card selected from the randomized shuffled deck rather than deterministically returning the just-drawn card.
+
+Implementation:
+1. In `MMM/special_timeline.py` `build_shuffle_step()` and `MMM/views.py` `_pre_shuffle_cards_by_participant()` / `_restore_shuffled_drawn_cards()`, preserve the existing timeline source lane/ordinal for the drawn card, ensuring it is included in the shuffle-back step after its deck→hand action and appears at the hand source position for the return flight.
+2. In `MMM/models.py` `BattleParticipant.shuffleBoard()` combine eligible untrusted face-up board cards and hand cards, randomize their order with `random.shuffle`, then call `shuffleBack()`; retain current eligibility rules. This also satisfies `roadmap/tests-and-reliability/random-shuffle-order` and must not be implemented twice.
+3. Ensure `BattleParticipant.getNextDeckCard()` / `drawCard()` selects from the randomized shuffled deck order rather than a fixed card ID/order. Preserve the existing deck ordinal contract while assigning randomized positions as cards are shuffled back.
+4. Keep `var/www/static/loadingAnimations.js` shuffle-back animation aligned with the timeline: the drawn card is visibly hidden only when its clone departs the hand; replacement draw occurs after the shuffle animation/reload flow. Extend relevant tests in `MMM/tests.py` for timeline inclusion, source lane, and resulting randomized draw behavior.
+
+Acceptance criteria:
+- [ ] The last drawn card appears in the shuffle-back timeline with its actual hand source lane/ordinal and deck destination, and is not omitted by render-context restoration.
+- [ ] During the depleted-deck animation, the final card visibly flies from deck to hand and then hand to deck before the refreshed board is shown.
+- [ ] Shuffling returns eligible board and hand cards in randomized deck order; a subsequent draw selects according to that randomized order, not a fixed card-ID ordering.
+- [ ] A focused regression test covers depleted-deck draw, the drawn card's two animation legs, and a subsequent draw from the shuffled deck; shuffle-order behavior is covered here rather than duplicated in `random-shuffle-order`.

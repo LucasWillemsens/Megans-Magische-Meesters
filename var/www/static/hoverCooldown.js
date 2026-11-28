@@ -8,6 +8,7 @@ const CARD_HOVER_TARGET_SELECTOR = [
 
 const HOVER_REMOVE_COOLDOWN_MS = 500;
 const HOVER_CLASS = 'card-hover';
+const ZOOM_SCREEN_CLASS = 'zoomCards';
 
 class CardHoverManager {
     constructor(container) {
@@ -15,6 +16,7 @@ class CardHoverManager {
         this.hoveredCard = null;
         this.onMouseMove = null;
         this.onMouseLeave = null;
+        this.hoverListeners = [];
     }
 
     start() {
@@ -23,7 +25,22 @@ class CardHoverManager {
         this.onMouseLeave = () => this.handleMouseLeave();
         this.container.addEventListener('mousemove', this.onMouseMove, { passive: true });
         this.container.addEventListener('mouseleave', this.onMouseLeave);
+        if (this.container.classList.contains(ZOOM_SCREEN_CLASS)) {
+            this.container.addEventListener('focusin', (event) => this.handleFocusIn(event));
+            this.container.addEventListener('focusout', (event) => this.handleFocusOut(event));
+        }
         return true;
+    }
+
+    addHoverListener(listener) {
+        this.hoverListeners.push(listener);
+        listener(this.hoveredCard);
+    }
+
+    notifyHoverListeners() {
+        for (const listener of this.hoverListeners) {
+            listener(this.hoveredCard);
+        }
     }
 
     handleMouseMove(event) {
@@ -45,11 +62,29 @@ class CardHoverManager {
         this.releaseHover();
     }
 
+    handleFocusIn(event) {
+        const target = this.focusHoverTarget(event.target);
+        if (this.hoveredCard && this.hoveredCard !== target) this.clearAllHover();
+        this.applyHover(target);
+    }
+
+    handleFocusOut(event) {
+        if (!this.hoveredCard) return;
+        if (this.focusHoverTarget(event.target) !== this.hoveredCard) return;
+        if (this.focusHoverTarget(event.relatedTarget)) return;
+        this.clearAllHover();
+    }
+
+    focusHoverTarget(element) {
+        return element?.closest?.(CARD_HOVER_TARGET_SELECTOR) ?? null;
+    }
+
     applyHover(card) {
         if (this.hoveredCard === card) return;
         card.classList.add(HOVER_CLASS);
         this.hoveredCard = card;
         this.startedAt = Date.now();
+        this.notifyHoverListeners();
     }
 
     releaseHover() {
@@ -66,6 +101,7 @@ class CardHoverManager {
             card.classList.remove(HOVER_CLASS);
         }
         this.hoveredCard = null;
+        this.notifyHoverListeners();
     }
 }
 

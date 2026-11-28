@@ -23,8 +23,12 @@ These managers touch the live production server and its SQLite database, and
 `sync` publishes PR comments. Every invocation requires an explicit user
 request: `deploy`, `stop`, `sync`, and `rebuild` run only when the user asks
 for that outcome; `status` runs when the user asks for the current deployment
-state or while handling their deployment request. Never run a manager as a
-side effect of code work or on your own initiative.
+state or while handling their deployment request. Never run a manager on your
+own initiative. The one standing exception is the fixed finishing step of
+implementation work: after implementing and verifying a change, the coder and
+build agents push its branch and run `scripts/pr_environments.py sync` so the
+PR test environment serves the new head; production (`scripts/production.py`)
+is never part of that step.
 
 `deploy` skips the rebuild when `main`'s head is already deployed and
 serving; `--force` re-runs the gates and swaps the server anyway. Pass

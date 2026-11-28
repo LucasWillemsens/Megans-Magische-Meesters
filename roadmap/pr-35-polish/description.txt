@@ -1,0 +1,12 @@
+Board UX polish batch for PR 35: implement and verify each independently actionable subgoal.
+
+- disabled-button-affordance (backed by a repo-wide UX rule)
+- enemy-turn-skip
+- lanes-layout-contract
+- zoom-selection-delay
+- shuffle-random-draw
+- focus-z-order
+- played-card-ghost-timing
+- board-reload-flash
+- trusted-cards-sideways
+- board-vertical-scroll
