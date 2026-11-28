@@ -301,8 +301,11 @@
                 <ul class="hand hand-fan" data-fan-index="{{ loop.index0 }}">
                     {% if handFan %}
                     {% for card in handFan %}
-                    <li class="cardContainer {{ card.cssClass }}{% if turnAllowances.plays_left <= 0 %} blocked{% endif %}" {% if
-                        turnAllowances.plays_left <=0 %}draggable="false" aria-disabled="true" title="{{ turnAllowances.blocked_titles.play }}" {% else
+                    {% set plays_blocked = turnAllowances.plays_left <= 0 %}
+                    {% set card_is_deck_card = card.state.inDeck %}
+                    <li class="cardContainer {{ card.cssClass }}{% if plays_blocked %} blocked{% endif %}" {% if
+                        plays_blocked %}draggable="false" aria-disabled="true" title="{{ turnAllowances.blocked_titles.play }}" {% elif
+                        card_is_deck_card %}draggable="false" aria-disabled="true" title="{{ handCardDeckBlockedTitle }}" {% else
                         %}draggable="true" tabindex="0" {% endif %} data-card-id="{{ card.id }}" data-source-lane="{{ card.state.lane }}"
                         data-source-ordinal="{{ card.state.laneOrdinal }}">
                         <div class="card smallCard{% if card.card.artSource == "static" %} staticCard {{ card.card|playing_card_rank_class }}

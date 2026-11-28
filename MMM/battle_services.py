@@ -412,14 +412,16 @@ def context_board(game_cards, participant_id, pre_shuffle_cards=None):
     sequence (cardId, sourceLane, sourceOrdinal) for cards the server has
     already shuffled into the deck: they render back on their pre-shuffle
     lane or hand position and stay out of the deck presentation, so the
-    board keeps its pre-shuffle look until the client plays the
-    shuffle-back step that flies them into the deck."""
+    board keeps its pre-shuffle look — including the emptied deck of the
+    draw that started the sequence — until the client plays the
+    shuffle-back step that flies them into the deck. Their inDeck truth is
+    left as the database holds it, so a hand card already swept into the
+    deck renders with the deck-card affordance instead of a drag hook."""
     user_cards = [gameCard for gameCard in game_cards if gameCard.user_id == participant_id]
     pre_shuffle_entries = {card["cardId"]: card for card in pre_shuffle_cards or []}
     for game_card in user_cards:
         pre_shuffle_entry = pre_shuffle_entries.get(game_card.id)
         if pre_shuffle_entry is not None:
-            game_card.state.inDeck = False
             game_card.state.lane = pre_shuffle_entry["sourceLane"]
             game_card.state.laneOrdinal = pre_shuffle_entry["sourceOrdinal"]
             if pre_shuffle_entry["sourceLane"] > 0:
@@ -429,7 +431,11 @@ def context_board(game_cards, participant_id, pre_shuffle_cards=None):
     speed_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 2]
     visciousness_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 3]
     resolve_cards = [gameCard for gameCard in user_cards if gameCard.state.lane == 4]
-    deck_cards = [gameCard for gameCard in user_cards if gameCard.state.inDeck == True]
+    deck_cards = [
+        gameCard
+        for gameCard in user_cards
+        if gameCard.state.inDeck == True and gameCard.id not in pre_shuffle_entries
+    ]
     participant = BattleParticipant.objects.filter(pk=participant_id).first()
     next_deck_card = participant.getNextDeckCard() if participant is not None else None
     deck_stack, deck_indicators = _deck_presentation(deck_cards, next_deck_card)

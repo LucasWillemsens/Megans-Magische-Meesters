@@ -9,6 +9,7 @@ from .account_access import is_admin_account
 
 from .battle_services import (
     SPECIAL_WAITING_MESSAGE,
+    _ordered_lane_cards,
     chunk_hand_cards,
     context_board,
     cookie_staged_plays,
@@ -50,6 +51,7 @@ SHORTCUT_HOLD_MAX_MS = 2000
 SHORTCUT_HOLD_STEP_MS = 100
 SHORTCUT_HOLD_DEFAULT_MS = 1000
 END_TURN_MOVES_BLOCKED_TITLE = "End turn is unavailable while your moves animate"
+HAND_CARD_DECK_BLOCKED_TITLE = "This card is in the deck and cannot be played"
 OWNED_CARD_SORT_KEYS = {"name", "type", "date"}
 DEMO_PLAYER_SESSION_KEY = "demo_player_id"
 TITLE_VISITED_SESSION_KEY = "title_visited"
@@ -502,7 +504,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
             response.delete_cookie(TURN_PHASE_COOKIE, path=board_url)
         return response
 
-    pre_shuffle_cards = _pre_shuffle_cards_by_participant(timeline_steps, action_plays)
+    pre_shuffle_cards = _pre_shuffle_cards_by_participant(timeline_steps)
     own_board = context_board(gameCards, current_participant.id, pre_shuffle_cards.get(current_participant.id))
     enemy_boards = []
     for enemy_participant in game.history.participants.exclude(id=current_participant.id).select_related("player"):
@@ -544,6 +546,7 @@ def viewBoard(request, game_id, player_id, error_message="", clear_cookies=False
         "pendingSpecial": game.pendingSpecial,
         "end_turn_blocked_reason": end_turn_blocked_reason,
         "draw_blocked_reason": draw_blocked_reason,
+        "handCardDeckBlockedTitle": HAND_CARD_DECK_BLOCKED_TITLE,
         "nextUrl": result_url if finished and turn_phase != "playerMoves" else board_url,
         "actionPlays": action_plays or [],
         "timelineSteps": timeline_steps or [],
@@ -668,12 +671,19 @@ def _addLoadingAnimations(context, request):
             }
         )
     context["handCards"] = _update_moved_hand_cards(context["handCards"], plays)
-    context["handCards"] = _restore_shuffled_drawn_cards(
-        context["handCards"], plays, context["current_participant"].id
-    )
     context["handFans"] = chunk_hand_cards(context["handCards"])
-    context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"],plays)
+    trust_sources = _timeline_trust_sources(context.get("timelineSteps"))
+    context["ownLaneRows"] = _stage_trusted_cards_on_lanes(
+        context["ownLaneRows"],
+        trust_sources.get(context["current_participant"].id, {}),
+    )
+    context["ownLaneRows"] = _update_played_cards(context["ownLaneRows"], plays)
     for enemy_board in context.get("enemyBoards", []):
+        enemy_trust_sources = trust_sources.get(enemy_board["participant"].id, {})
+        if enemy_trust_sources:
+            enemy_board["laneRows"] = _stage_trusted_cards_on_lanes(
+                enemy_board["laneRows"], enemy_trust_sources
+            )
         enemy_plays = [
             play
             for play in plays
@@ -684,11 +694,6 @@ def _addLoadingAnimations(context, request):
             enemy_board["handCards"] = _update_moved_hand_cards(
                 enemy_board["handCards"], enemy_plays
             )
-            enemy_board["handCards"] = _restore_shuffled_drawn_cards(
-                enemy_board["handCards"], plays, enemy_board["participant"].id
-            )
-            enemy_board["handCount"] = len(enemy_board["handCards"])
-            enemy_board["handFans"] = chunk_hand_cards(enemy_board["handCards"])
     return context
 
 
@@ -709,45 +714,14 @@ def _update_moved_hand_cards(hand_cards, plays):
     return hand_cards
 
 
-def _drawn_card_ids(plays, participant_id):
-    return {
-        int(play["cardId"])
-        for play in plays
-        if play["participantId"] == participant_id
-        and play["laneValue"] == 0
-        and play["sourceLane"] is not None
-        and play["sourceLane"] < 0
-    }
-
-
-def _restore_shuffled_drawn_cards(hand_cards, plays, participant_id):
-    """A draw that empties the deck runs the special sequence, which shuffles
-    the drawn card back into the deck before this render; the drawn card still
-    renders in the hand with its deck position as source, so the draw's
-    deck->hand flight plays before the special timeline. Serves the player's
-    own hand and every enemy hand."""
-    hand_card_ids = {card.id for card in hand_cards}
-    missing_card_ids = _drawn_card_ids(plays, participant_id) - hand_card_ids
-    if not missing_card_ids:
-        return hand_cards
-    plays_by_card = {int(play["cardId"]): play for play in plays}
-    shuffled_back_cards = GameCard.objects.filter(
-        pk__in=missing_card_ids, state__inDeck=True
-    ).select_related("state", "card")
-    for card in shuffled_back_cards:
-        _mark_card_as_loading(card, plays_by_card[card.id])
-        hand_cards.append(card)
-    return hand_cards
-
-
-def _pre_shuffle_cards_by_participant(timeline_steps, action_plays):
-    """Group the timeline's shuffle-back entries per participant, leaving out
-    the cards the draw plays already restore into the hand for their
-    deck->hand flight; a card a card-effect step plays out of the hand
-    keeps its hand slot for the render instead of its played lane, so it
-    stays visible in the hand until its flight departs and lands in the
-    lane; context_board renders the remaining shuffled-back cards on their
-    pre-shuffle lanes and hand slots."""
+def _pre_shuffle_cards_by_participant(timeline_steps):
+    """Group the timeline's shuffle-back entries per participant; a card a
+    card-effect step plays out of the hand keeps its hand slot for the
+    render instead of its played lane, so it stays visible in the hand
+    until its flight departs and lands in the lane; context_board renders
+    the shuffled-back cards on their pre-shuffle lanes and hand slots —
+    the drawn card of the deck-emptying draw included, staged in the hand
+    for its deck->hand flight."""
     pre_shuffle_cards = {}
     played_hand_ordinals = {}
     for step in timeline_steps or []:
@@ -758,16 +732,48 @@ def _pre_shuffle_cards_by_participant(timeline_steps, action_plays):
             continue
         if step["kind"] != "shuffle-back":
             continue
-        drawn_card_ids = _drawn_card_ids(action_plays or [], step["participantId"])
         hand_ordinals = played_hand_ordinals.get(step["participantId"], {})
         entries = pre_shuffle_cards.setdefault(step["participantId"], [])
         for card in step["affectedCards"]:
-            if card["cardId"] in drawn_card_ids:
-                continue
             if card["cardId"] in hand_ordinals:
                 card = {**card, "sourceLane": 0, "sourceOrdinal": hand_ordinals[card["cardId"]]}
             entries.append(card)
     return pre_shuffle_cards
+
+
+def _timeline_trust_sources(timeline_steps):
+    """The timeline's trust card-effects per participant: which cards the
+    special newly trusted and the lane slot each one still sits on."""
+    trust_sources = {}
+    for step in timeline_steps or []:
+        if step["kind"] != "card-effect":
+            continue
+        for card in step["affectedCards"]:
+            if card["trust"]:
+                trust_sources.setdefault(step["participantId"], {})[card["cardId"]] = card
+    return trust_sources
+
+
+def _stage_trusted_cards_on_lanes(lane_rows, trust_sources):
+    """Render the timeline's newly trusted cards as untrusted lane cards on
+    their pre-trust slots, so the trust card-effect flight carries each one
+    into its lane's trusted row when the timeline plays."""
+    if not trust_sources:
+        return lane_rows
+    for row in lane_rows:
+        staged_cards = [card for card in row["trustedCards"] if card.id in trust_sources]
+        if not staged_cards:
+            continue
+        row["trustedCards"] = [
+            card for card in row["trustedCards"] if card.id not in trust_sources
+        ]
+        for card in staged_cards:
+            source = trust_sources[card.id]
+            card.state.trusted = False
+            card.state.lane = source["sourceLane"]
+            card.state.laneOrdinal = source["sourceOrdinal"]
+        row["cards"] = _ordered_lane_cards(row["cards"] + staged_cards)
+    return lane_rows
 
 
 def _update_played_cards(lane_rows, plays):

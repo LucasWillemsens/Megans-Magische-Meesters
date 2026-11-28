@@ -2,7 +2,7 @@ import datetime
 import enum
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import Min, Q
 from django.utils import timezone
 
 import random
@@ -305,6 +305,8 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
             game_id=self.getGame().id,
             user_id=self.id,
         )
+        if gameCard.state.inDeck:
+            raise Exception(f"{self.player.name} cannot play a card that is in the deck")
         if lane is None:
             lane = gameCard.card.cardType + 1
         if lane < 1 or lane > 4:
@@ -396,9 +398,15 @@ class BattleParticipant(models.Model): #1-to-1 with player, battlehistory and ca
         eligibleCards = list(self.getShuffleEligibleCards())
         if not eligibleCards:
             return
+        deepestDeckLane = GameCard.objects.filter(
+            game_id=self.getGame().id,
+            user_id=self.id,
+            state__inDeck=True,
+        ).aggregate(Min("state__lane"))["state__lane__min"]
+        deckBottom = 0 if deepestDeckLane is None else deepestDeckLane
         random.shuffle(eligibleCards)
         for deckPosition, card in enumerate(eligibleCards, start=1):
-            card.state.shuffleBack(deckPosition * -1)
+            card.state.shuffleBack(deckBottom - deckPosition)
 
 class BattleHistory(models.Model):
     challenger = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="challenges") #the participant matching the player_id is used for data

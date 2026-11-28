@@ -830,6 +830,10 @@ ul.hand li.cardContainer > .card.smallCard::after{
         transform: rotateY(90deg) !important;
     }
 
+    .duplicate.trust-flight.to-original {
+        transform: translate(var(--move-x, 0px), var(--move-y, 0px)) rotate(90deg) !important;
+    }
+
 .playerScreen .cardContainer.loading:not(.duplicate) {
     visibility: hidden;
 }

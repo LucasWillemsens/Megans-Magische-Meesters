@@ -630,13 +630,10 @@ class loadingAnimationsSystem {
         const element = document.querySelector(selector);
         if (!element) return;
 
-        // Determine if this is a trust-only effect (no flight, just glow)
+        // Determine if this is a trust-only effect (no lane change, just the
+        // flight into the lane's trusted row)
         if (cardInfo.trust && cardInfo.sourceLane === cardInfo.destinationLane) {
-            // Card stays in place, just add trust glow
-            element.classList.add('trust-glow');
-            this._scheduler.schedule(() => {
-                element.classList.remove('trust-glow');
-            }, cardDuration + 500);
+            this._flyTrustedCard(element, cardInfo, cardDuration);
             return;
         }
 
@@ -692,6 +689,64 @@ class loadingAnimationsSystem {
             laneRow.children.length,
         );
         laneRow.insertBefore(element, laneRow.children[insertIndex] ?? null);
+    }
+
+    _flyTrustedCard(element, cardInfo, cardDuration) {
+        // The board renders the newly trusted card on its untrusted lane
+        // slot; move the real card, hidden, into its lane's trusted row
+        // and fly an upright clone from the old slot onto it, so the card
+        // visibly travels into the trusted row and lands rotated into the
+        // sideways trusted presentation.
+        this._placeCardAtTrustedRow(element, cardInfo);
+        const duplicate = duplicateCard(element, cardInfo.sourceLane, cardInfo.sourceOrdinal, true);
+        if (!duplicate) {
+            element.classList.remove('loading');
+            element.classList.add('trust-glow');
+            this._scheduler.schedule(() => element.classList.remove('trust-glow'), 1500);
+            return;
+        }
+        const moveDuration = Math.min(1.0, cardDuration / 1000);
+        const targetRect = element.getBoundingClientRect();
+        const sourceRect = duplicate.getBoundingClientRect();
+        duplicate.style.setProperty('--move-duration', `${moveDuration}s`);
+        duplicate.style.setProperty('--move-x', `${targetRect.left + targetRect.width / 2 - sourceRect.left - sourceRect.width / 2}px`);
+        duplicate.style.setProperty('--move-y', `${targetRect.top + targetRect.height / 2 - sourceRect.top - sourceRect.height / 2}px`);
+        duplicate.classList.add('trust-flight');
+        let revealed = false;
+        const onReveal = () => {
+            if (revealed) return;
+            revealed = true;
+            duplicate.remove();
+            element.classList.remove('loading');
+            element.classList.add('trust-glow');
+            this._scheduler.schedule(() => element.classList.remove('trust-glow'), 1500);
+        };
+        duplicate.addEventListener('transitionend', onReveal, { once: true });
+        this._scheduler.schedule(onReveal, moveDuration * 1000 + 100);
+        requestAnimationFrame(() => {
+            duplicate.classList.add('to-original');
+        });
+    }
+
+    _placeCardAtTrustedRow(element, cardInfo) {
+        const laneNames = {1: 'Intelligence', 2: 'Speed', 3: 'Visciousness', 4: 'Resolve'};
+        const laneNumber = Number.parseInt(cardInfo.destinationLane, 10);
+        const laneName = laneNames[laneNumber];
+        if (!laneName) return;
+        const enemyBoard = element.closest('.enemyBoard');
+        const laneElement = enemyBoard
+            ? enemyBoard.querySelector(`.lane.${laneName}`)
+            : document.querySelector(`.playerScreen .playerBoard .lane.${laneName}`);
+        const trustedRow = laneElement
+            ? laneElement.querySelector(':scope > ul.cardRow[title="trustedCards"]')
+            : null;
+        if (!trustedRow) return;
+        element.classList.add('loading', 'trustedCard');
+        const insertIndex = Math.min(
+            Math.max(0, Number.parseInt(cardInfo.destinationOrdinal, 10) - 1),
+            trustedRow.children.length,
+        );
+        trustedRow.insertBefore(element, trustedRow.children[insertIndex] ?? null);
     }
 
     _playParticipantEffectStep(step, duration) {
@@ -1073,7 +1128,7 @@ function insertHandClone(source, clone) {
     }
 }
 
-function duplicateCard(element, lane, ordinal)
+function duplicateCard(element, lane, ordinal, keepFaceUp = false)
 {
     let laneElement  = null;
     const enemyBoard = element.closest('.enemyBoard');
@@ -1160,6 +1215,11 @@ function duplicateCard(element, lane, ordinal)
             laneElement.insertBefore(duplicate, beforeElement);
         } else {
             laneElement.appendChild(duplicate);
+        }
+        if (keepFaceUp) {
+            // A trust flight departs from a face-up lane card: the clone
+            // keeps the card's upright face-up look at its source slot.
+            return duplicate;
         }
         duplicate.classList.add('flipFaceUp');
         duplicate.classList.add('faceDown');

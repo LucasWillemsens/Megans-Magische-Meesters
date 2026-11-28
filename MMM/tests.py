@@ -1650,7 +1650,9 @@ console.log('enemy turn end-turn skip ok');
         shuffles the drawn card back into the deck before the response
         renders. The render must still show that card in the hand, marked
         loading with the deck position as its source, so the player sees
-        the draw flight before the special timeline takes over.
+        the draw flight before the special timeline takes over — and the
+        deck itself shows its emptied state, because only the timeline's
+        shuffle-back wave carries the card back in.
         """
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
@@ -1670,9 +1672,8 @@ console.log('enemy turn end-turn skip ok');
         self.assertContains(response, 'id="timelineSteps"')
         self.assertContains(response, '"shuffle-back"')
         self.assertIn(f'"cardId": {deck_card.id},', content)
-        self.assertContains(
-            response, '<button type="submit" class="card back draw" title="Draw card">'
-        )
+        self.assertContains(response, '<div class="card back emptyDeck">')
+        self.assertNotContains(response, 'class="card back draw"')
 
         loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
         self.assertIsNotNone(loading_tag)
@@ -1712,7 +1713,7 @@ console.log('enemy turn end-turn skip ok');
         loading_tag = re.search(r'<li class="cardContainer loading"[^>]*>', content)
         self.assertIsNotNone(loading_tag)
         self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
-        self.assertIn("Deck: 1 | Hand: 1", content)
+        self.assertIn("Deck: 0 | Hand: 1", content)
 
         timeline = self._board_timeline(content)
         int_effect = timeline[1]["affectedCards"]
@@ -1743,10 +1744,13 @@ console.log('enemy turn end-turn skip ok');
             self.assertTrue(game_card.state.inDeck)
 
     def test_depleted_deck_draw_flies_last_card_to_hand_and_deck_then_redraws_shuffled_order(self):
-        """A user story: my deck is down to its last card. I draw it and
-        watch that exact card fly into my hand, then straight back into the
-        deck with the shuffle wave; when I draw again afterwards, I get
-        whichever card the shuffle put on top, not a fixed card-ID order."""
+        """A user story: my deck is down to its last card. I draw it and the
+        board I animate shows my deck genuinely emptied — its empty slot, no
+        draw button — while that exact card flies out of it into my hand,
+        then straight back into the deck with the shuffle wave; the board
+        that settles afterwards deals from the refilled deck, and when I
+        draw again I get whichever card the shuffle put on top, not a
+        fixed card-ID order."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
         board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
@@ -1771,7 +1775,15 @@ console.log('enemy turn end-turn skip ok');
         self.assertIn('data-source-lane="-1"', loading_tag.group(0))
         self.assertIn('data-source-ordinal="0"', loading_tag.group(0))
         self.assertEqual(self._visible_card_tags(deck_game_card.id, content), [])
-        self.assertIn("Deck: 1 | Hand: 1", content)
+        self.assertIn("Deck: 0 | Hand: 1", content)
+        own_deck = re.search(
+            r'<div class="deck-stack own-deck-stack".*?<ul class="deck[^"]* active-deck">(.*?)</ul>',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(own_deck)
+        self.assertIn('<div class="card back emptyDeck">', own_deck.group(1))
+        self.assertNotIn("<button", own_deck.group(1))
 
         timeline = self._board_timeline(content)
         shuffle_cards = {
@@ -1792,7 +1804,16 @@ console.log('enemy turn end-turn skip ok');
 
         response = self.client.get(board_url)
         self.assertContains(response, 'data-phase="enemy"')
-        self.assertIn("Deck: 4 | Hand: 0", response.content.decode())
+        enemy_content = response.content.decode()
+        self.assertIn("Deck: 4 | Hand: 0", enemy_content)
+        settled_deck = re.search(
+            r'<div class="deck-stack own-deck-stack".*?<ul class="deck[^"]* active-deck">(.*?)</ul>',
+            enemy_content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(settled_deck)
+        self.assertNotIn('class="card back emptyDeck"', settled_deck.group(1))
+        self.assertIn("<button", settled_deck.group(1))
 
         response = self.client.post(draw_url, {"action": "draw"})
         content = response.content.decode()
@@ -1925,6 +1946,73 @@ console.log('enemy turn end-turn skip ok');
         for game_card in lane_game_cards + hand_game_cards + [deck_game_card]:
             game_card.state.refresh_from_db()
             self.assertTrue(game_card.state.inDeck)
+
+    def test_res_special_trusts_lane_cards_from_their_slots_into_the_trusted_row(self):
+        """A user story: my deck runs out mid-draw and my resolve lane
+        dominates. The board I get back still shows my newly trusted cards
+        face up on their lane slots, upright among my regular cards; the
+        timeline's trust card-effect carries each card's lane slot as its
+        flight source, so the trust transition animates the cards into
+        their lanes' trusted rows like a play flight, and the next board
+        shows them settled there as trusted."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        lane_game_cards, deck_game_card = self._stage_last_card_draw(
+            self.human_participant, [3, 3], 3
+        )
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        self.assertContains(response, 'data-phase="playerMoves"')
+        self.assertIn("holds and trusts", content)
+        timeline = self._board_timeline(content)
+        self.assertEqual(
+            [step["kind"] for step in timeline],
+            ["special-trigger", "card-effect", "shuffle-back"],
+        )
+        trust_effects = {
+            card["cardId"]: card for card in timeline[1]["affectedCards"]
+        }
+        self.assertEqual(set(trust_effects), {card.id for card in lane_game_cards})
+        for ordinal, game_card in enumerate(lane_game_cards, start=1):
+            self.assertEqual(
+                trust_effects[game_card.id],
+                {
+                    "cardId": game_card.id,
+                    "sourceLane": 4,
+                    "sourceOrdinal": ordinal,
+                    "destinationLane": 4,
+                    "destinationOrdinal": ordinal,
+                    "flipFaceUp": False,
+                    "trust": True,
+                },
+            )
+
+        for ordinal, game_card in enumerate(lane_game_cards, start=1):
+            card_tags = self._visible_card_tags(game_card.id, content)
+            self.assertEqual(len(card_tags), 1)
+            self.assertIn('data-source-lane="4"', card_tags[0])
+            self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
+            self.assertNotIn("trustedCard", card_tags[0])
+
+        for game_card in lane_game_cards:
+            game_card.state.refresh_from_db()
+            self.assertTrue(game_card.state.trusted)
+
+        settled_content = self.client.get(board_url).content.decode()
+        trusted_rows = "".join(
+            re.findall(
+                r'<ul class="cardRow" title="trustedCards">(.*?)</ul>',
+                settled_content,
+                re.DOTALL,
+            )
+        )
+        for game_card in lane_game_cards:
+            self.assertIn(f'data-card-id="{game_card.id}"', trusted_rows)
 
     def test_shuffle_board_returns_combined_cards_in_shuffled_deck_order(self):
         """shuffleBoard sweeps untrusted face-up board cards and hand cards
@@ -2527,7 +2615,14 @@ console.log('enemy turn end-turn skip ok');
             self.assertEqual(len(card_tags), 1)
             self.assertIn('data-source-lane="1"', card_tags[0])
             self.assertIn(f'data-source-ordinal="{ordinal}"', card_tags[0])
-        self.assertIn("Deck: 1 | Hand: 1", content)
+        self.assertIn("Deck: 0 | Hand: 1", content)
+        enemy_deck = re.search(
+            r'<div class="enemyDeckHand">.*?<ul class="deck enemyDeck active-deck">(.*?)</ul>',
+            content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(enemy_deck)
+        self.assertIn('<div class="card back emptyDeck">', enemy_deck.group(1))
 
         shuffle_cards = {
             card["cardId"]: (
@@ -2574,7 +2669,8 @@ console.log('enemy turn end-turn skip ok');
         cards — the board keeps that card in my hand until the timeline's
         card-effect flight carries it onto my lane — and after my specials
         the shuffle-back wave returns it and my remaining hand to my deck,
-        before the bot's own sweep closes the sequence."""
+        joining the card my deck already held without displacing it, before
+        the bot's own sweep closes the sequence."""
         confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
         self.client.post(confirm_url)
         self._stage_last_card_draw(self.bot_participant, [1, 1, 3], 1)
@@ -2582,11 +2678,11 @@ console.log('enemy turn end-turn skip ok');
             game_id=self.game.id, user_id=self.human_participant.id
         ).delete()
 
-        def stage_card(title, lane, ordinal, card_type, face_down, trusted=False):
+        def stage_card(title, lane, ordinal, card_type, face_down, trusted=False, in_deck=False):
             card = Card.objects.create(title=title, artSource="", cardType=card_type)
             game_card = GameCard.create(card.id, self.game.id, self.human_participant.id)
             game_card.save()
-            game_card.state.inDeck = False
+            game_card.state.inDeck = in_deck
             game_card.state.lane = lane
             game_card.state.laneOrdinal = ordinal
             game_card.state.faceDown = face_down
@@ -2599,6 +2695,9 @@ console.log('enemy turn end-turn skip ok');
         )
         played_game_card = stage_card("Human-hand-1", 0, 1, 0, face_down=True)
         kept_game_card = stage_card("Human-hand-2", 0, 2, 0, face_down=True)
+        held_deck_game_card = stage_card(
+            "Human-held-deck-card", -1, 0, 0, face_down=True, in_deck=True
+        )
 
         def played_card_first(cards):
             cards.sort(key=lambda card: card.id == kept_game_card.id)
@@ -2659,7 +2758,7 @@ console.log('enemy turn end-turn skip ok');
         trusted_tags = self._visible_card_tags(trusted_game_card.id, content)
         self.assertEqual(len(trusted_tags), 1)
         self.assertIn("trustedCard", trusted_tags[0])
-        self.assertIn("Deck: 0 | Hand: 2", content)
+        self.assertIn("Deck: 1 | Hand: 2", content)
 
         played_game_card.state.refresh_from_db()
         self.assertTrue(played_game_card.state.inDeck)
@@ -2667,6 +2766,16 @@ console.log('enemy turn end-turn skip ok');
         self.assertTrue(kept_game_card.state.inDeck)
         trusted_game_card.state.refresh_from_db()
         self.assertFalse(trusted_game_card.state.inDeck)
+        held_deck_game_card.state.refresh_from_db()
+        self.assertTrue(held_deck_game_card.state.inDeck)
+        self.assertEqual(held_deck_game_card.state.lane, -1)
+        self.assertEqual(
+            {played_game_card.state.lane, kept_game_card.state.lane},
+            {-2, -3},
+        )
+        self.assertEqual(
+            self.human_participant.getNextDeckCard().id, held_deck_game_card.id
+        )
         self.bot_participant.refresh_from_db()
         self.assertFalse(self.bot_participant.fled)
         self.human_participant.refresh_from_db()
@@ -2860,6 +2969,59 @@ console.log('enemy turn end-turn skip ok');
                 deck_game_card.id: (1, 3, -1),
             },
         )
+
+    def test_deck_card_restored_for_the_draw_flight_is_never_a_playable_board_card(self):
+        """A user story: my deck runs out mid-draw and the special sequence
+        sweeps the drawn card back into my deck. The board still plays the
+        draw flight — the card shows in my hand, loading, flying out of my
+        deck — but a card that is in my deck never works as a board card:
+        it carries no drag hook, and a staged play posted for it answers
+        with a clear action error while the card stays in my deck; the
+        settled board afterwards shows it nowhere but the deck."""
+        confirm_url = reverse("MMM:confirmChallenge", args=[self.game.id, self.human.id])
+        draw_url = reverse("MMM:boardAction", args=[self.game.id, self.human.id])
+        board_url = reverse("MMM:viewBoard", args=[self.game.id, self.human.id])
+
+        self.client.post(confirm_url)
+        _, deck_game_card = self._stage_last_card_draw(self.human_participant, [3], 3)
+
+        response = self.client.post(draw_url, {"action": "draw"})
+        content = response.content.decode()
+
+        loading_tag = re.search(
+            r'<li class="cardContainer loading"[^>]*>', content
+        )
+        self.assertIsNotNone(loading_tag)
+        self.assertIn(f'data-card-id="{deck_game_card.id}"', loading_tag.group(0))
+        self.assertIn('data-source-lane="-1"', loading_tag.group(0))
+        self.assertIn('draggable="false"', loading_tag.group(0))
+        self.assertIn('aria-disabled="true"', loading_tag.group(0))
+        self.assertIn("This card is in the deck and cannot be played", loading_tag.group(0))
+        self.assertNotIn('draggable="true"', loading_tag.group(0))
+
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+
+        self.client.cookies[str(deck_game_card.id)] = (
+            '{"laneValue": "2", "sourceLane": -1, "sourceOrdinal": 0, "flipFaceUp": false}'
+        )
+        response = self.client.post(draw_url, {"action": "end_turn"})
+        content = response.content.decode()
+
+        self.assertIn("cannot play a card that is in the deck", content)
+        deck_game_card.state.refresh_from_db()
+        self.assertTrue(deck_game_card.state.inDeck)
+        self.assertLess(deck_game_card.state.lane, 0)
+        self.assertFalse(
+            GameCard.objects.filter(
+                game_id=self.game.id,
+                user_id=self.human_participant.id,
+                state__lane=2,
+            ).exists()
+        )
+
+        settled_content = self.client.get(board_url).content.decode()
+        self.assertNotIn(f'data-card-id="{deck_game_card.id}"', settled_content)
 
     def test_autochoose_off_pauses_bot_special_until_continue(self):
         """A user story: with specials autochoose off, the bot's last-card
@@ -14104,6 +14266,278 @@ console.log('loading end turn guard ok');
 
             self.assertIn('loading end turn guard ok', _run_node_harness(
                 harness, f'loading end-turn guard ({board_phase})'))
+
+    def test_trust_card_effect_flies_lane_cards_into_the_trusted_row(self):
+        """The trust card-effect animates the transition like the other card
+        moves: each newly trusted card departs its lane slot as an upright
+        clone, the real card waits hidden in the lane's trusted row, and the
+        reveal settles it there with its trust glow running one full pulse."""
+        loading_js = _read_static_asset('loadingAnimations.js')
+
+        timeline = [
+            {
+                "order": 0, "kind": "special-trigger",
+                "banner": "Human holds and trusts up to 2 cards",
+                "participantId": 1, "lane": 4, "affectedCards": [],
+                "defeatedParticipantId": None, "fledParticipantId": None,
+            },
+            {
+                "order": 0, "kind": "card-effect", "banner": "",
+                "participantId": 1, "lane": 4,
+                "affectedCards": [
+                    {"cardId": 9, "sourceLane": 4, "sourceOrdinal": 1,
+                     "destinationLane": 4, "destinationOrdinal": 1,
+                     "flipFaceUp": False, "trust": True},
+                    {"cardId": 10, "sourceLane": 4, "sourceOrdinal": 2,
+                     "destinationLane": 4, "destinationOrdinal": 2,
+                     "flipFaceUp": False, "trust": True},
+                ],
+                "defeatedParticipantId": None, "fledParticipantId": None,
+            },
+            {
+                "order": 0, "kind": "shuffle-back", "banner": "",
+                "participantId": 1, "lane": None,
+                "affectedCards": [
+                    {"cardId": 11, "sourceLane": 0, "sourceOrdinal": 1,
+                     "destinationLane": -1, "destinationOrdinal": 0,
+                     "flipFaceUp": False, "trust": False},
+                ],
+                "defeatedParticipantId": None, "fledParticipantId": None,
+            },
+        ]
+
+        harness = FAKE_ELEMENT_DATASET_CORE + r"""
+FakeElement.prototype.replaceChildren = function (...nodes) {
+    this.children.splice(0, this.children.length);
+    nodes.forEach((node) => this.appendChild(node));
+};
+
+let timerCounter = 0;
+const pendingTimers = [];
+const clock = { now: 0 };
+const rafQueue = [];
+const hrefAssignments = [];
+let hrefValue = '';
+global.performance = { now: () => clock.now };
+global.requestAnimationFrame = (callback) => { rafQueue.push(callback); return rafQueue.length; };
+global.window = {
+    addEventListener() {}, removeEventListener() {},
+    location: { pathname: '/MMM/game/1/board/2/' },
+    setTimeout(callback, ms) {
+        timerCounter += 1;
+        pendingTimers.push({ id: timerCounter, at: clock.now + Math.max(0, ms || 0), callback });
+        return timerCounter;
+    },
+    clearTimeout(id) {
+        const index = pendingTimers.findIndex((task) => task.id === id);
+        if (index !== -1) pendingTimers.splice(index, 1);
+    },
+    scrollTo() {},
+};
+Object.defineProperty(global.window.location, 'href', {
+    get() { return hrefValue; },
+    set(value) { hrefAssignments.push({ value, at: clock.now }); },
+});
+global.sessionStorage = { getItem: () => null, removeItem: () => {} };
+
+const body = new FakeElement('body');
+const playerScreen = new FakeElement('div', 'playerScreen playingCards rotateHand');
+body.appendChild(playerScreen);
+const matTable = new FakeElement('ul', 'basic-mat table');
+playerScreen.appendChild(matTable);
+const playerBoard = new FakeElement('li', 'playerBoard');
+playerBoard.id = 'playerBoard';
+playerBoard.dataset = { participantId: '1' };
+matTable.appendChild(playerBoard);
+
+const deckStack = new FakeElement('div', 'deck-stack own-deck-stack');
+playerBoard.appendChild(deckStack);
+const deckList = new FakeElement('ul', 'deck active-deck');
+deckStack.appendChild(deckList);
+const deckLi = new FakeElement('li');
+deckList.appendChild(deckLi);
+deckLi.appendChild(new FakeElement('div', 'card back'));
+
+const lanesEl = new FakeElement('ul', 'lanes');
+playerBoard.appendChild(lanesEl);
+const resolveLane = new FakeElement('li', 'lane Resolve');
+lanesEl.appendChild(resolveLane);
+resolveLane.appendChild(new FakeElement('ul', 'hologramRow'));
+const cardsRow = new FakeElement('ul', 'cardRow');
+cardsRow.setAttribute('title', 'cards');
+resolveLane.appendChild(cardsRow);
+resolveLane.appendChild(new FakeElement('p', 'debug-overlay'));
+const trustedRow = new FakeElement('ul', 'cardRow');
+trustedRow.setAttribute('title', 'trustedCards');
+resolveLane.appendChild(trustedRow);
+
+const trustCardA = new FakeElement('li', 'cardContainer');
+trustCardA.setAttribute('data-card-id', '9');
+trustCardA.setAttribute('data-source-lane', '4');
+trustCardA.setAttribute('data-source-ordinal', '1');
+cardsRow.appendChild(trustCardA);
+trustCardA.appendChild(new FakeElement('div', 'card smallCard'));
+const trustCardB = new FakeElement('li', 'cardContainer');
+trustCardB.setAttribute('data-card-id', '10');
+trustCardB.setAttribute('data-source-lane', '4');
+trustCardB.setAttribute('data-source-ordinal', '2');
+cardsRow.appendChild(trustCardB);
+trustCardB.appendChild(new FakeElement('div', 'card smallCard'));
+
+const deckHand = new FakeElement('div', 'deckHand handContainer');
+matTable.appendChild(deckHand);
+deckHand.scrollIntoView = () => {};
+const handScroll = new FakeElement('div', 'hand-scroll');
+deckHand.appendChild(handScroll);
+const handFan = new FakeElement('ul', 'hand hand-fan');
+handFan.setAttribute('data-fan-index', '0');
+handScroll.appendChild(handFan);
+const drawnCard = new FakeElement('li', 'cardContainer loading');
+drawnCard.setAttribute('data-card-id', '11');
+drawnCard.setAttribute('data-source-lane', '-1');
+drawnCard.setAttribute('data-source-ordinal', '0');
+handFan.appendChild(drawnCard);
+drawnCard.appendChild(new FakeElement('div', 'card smallCard'));
+const endTurnForm = new FakeElement('form', 'cardActionForm');
+handScroll.appendChild(endTurnForm);
+endTurnForm.appendChild(new FakeElement('button', 'end-turn'));
+
+const turnPhaseEl = new FakeElement('div');
+turnPhaseEl.setAttribute('id', 'turnPhase');
+turnPhaseEl.setAttribute('data-phase', 'playerMoves');
+turnPhaseEl.dataset = { phase: 'playerMoves' };
+body.appendChild(turnPhaseEl);
+const boardNext = new FakeElement('div');
+boardNext.setAttribute('id', 'boardNext');
+boardNext.dataset = { nextUrl: '/MMM/game/1/board/2/' };
+body.appendChild(boardNext);
+const timelineScript = new FakeElement('script');
+timelineScript.setAttribute('id', 'timelineSteps');
+timelineScript.textContent = __TIMELINE_JSON__;
+body.appendChild(timelineScript);
+
+const documentListeners = {};
+const fakeDocument = {
+    documentElement: { contains: () => true },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    getElementsByClassName(className) {
+        const names = String(className).split(/\s+/).filter(Boolean);
+        const stack = [...body.children];
+        const out = [];
+        while (stack.length) {
+            const node = stack.shift();
+            out.push(node);
+            stack.unshift(...node.children);
+        }
+        return out.filter((el) => names.every((name) => el.classList && el.classList.contains(name)));
+    },
+    getElementById(id) {
+        const stack = [...body.children];
+        while (stack.length) {
+            const node = stack.shift();
+            if (node.id === id) return node;
+            stack.unshift(...node.children);
+        }
+        return null;
+    },
+    createElement: (tag) => new FakeElement(tag),
+    addEventListener(event, handler) { (documentListeners[event] ??= []).push(handler); },
+    removeEventListener(event, handler) {
+        documentListeners[event] = (documentListeners[event] ?? []).filter((h) => h !== handler);
+    },
+    hidden: false,
+    visibilityState: 'visible',
+    readyState: 'complete',
+    body,
+    activeElement: null,
+};
+global.document = fakeDocument;
+global.CSS = { escape: (value) => String(value) };
+
+const classLog = [];
+const watchClassList = (element, label) => {
+    const original = element.classList;
+    element.classList = {
+        add: (...names) => { names.forEach((n) => classLog.push([label, 'add', n, clock.now])); original.add(...names); },
+        remove: (...names) => { names.forEach((n) => classLog.push([label, 'remove', n, clock.now])); original.remove(...names); },
+        contains: (name) => original.contains(name),
+        toggle: (name) => original.toggle(name),
+    };
+};
+watchClassList(trustCardA, 'card 9');
+watchClassList(trustCardB, 'card 10');
+
+const clonesLandedInCardsRow = [];
+const recordCloneInsert = (inserter) => function (node, reference) {
+    if (node.classList && node.classList.contains('duplicate')) {
+        clonesLandedInCardsRow.push(node);
+    }
+    return inserter(node, reference);
+};
+const originalInsertBefore = cardsRow.insertBefore.bind(cardsRow);
+const originalAppendChild = cardsRow.appendChild.bind(cardsRow);
+cardsRow.insertBefore = recordCloneInsert(originalInsertBefore);
+cardsRow.appendChild = recordCloneInsert(originalAppendChild);
+
+const flushRaf = () => { while (rafQueue.length) rafQueue.shift()(); };
+const advance = (ms) => {
+    const target = clock.now + ms;
+    for (;;) {
+        flushRaf();
+        pendingTimers.sort((a, b) => a.at - b.at || a.id - b.id);
+        const next = pendingTimers[0];
+        if (!next || next.at > target) { clock.now = target; return; }
+        clock.now = next.at;
+        pendingTimers.shift();
+        next.callback();
+    }
+};
+
+eval(__LOADING_JS__);
+(documentListeners['DOMContentLoaded'] || []).forEach((handler) => handler());
+if (!global.window.loadingAnimations) throw new Error('loadingAnimations not instantiated');
+
+advance(12000);
+
+const assert = (label, condition) => {
+    if (!condition) throw new Error('FAILED: ' + label);
+    console.log('ok: ' + label);
+};
+
+for (const [label, card] of [['card 9', trustCardA], ['card 10', trustCardB]]) {
+    const events = classLog.filter((entry) => entry[0] === label);
+    assert(`${label} lands in the lane's trusted row`, card.parentNode === trustedRow);
+    assert(`${label} arrives revealed as a trusted card`,
+        card.classList.contains('trustedCard') && !card.classList.contains('loading'));
+    assert(`${label} hid while its clone flew`,
+        events.some((entry) => entry[1] === 'add' && entry[2] === 'loading'));
+    const glowAddedAt = events.find((entry) => entry[1] === 'add' && entry[2] === 'trust-glow');
+    const glowRemovedAt = events.find((entry) => entry[1] === 'remove' && entry[2] === 'trust-glow');
+    assert(`${label} settles with the trust glow`, Boolean(glowAddedAt));
+    assert(`${label} glow runs its full pulse`,
+        Boolean(glowRemovedAt)
+        && Math.round(glowRemovedAt[3] - glowAddedAt[3]) >= 1500);
+    const flight = clonesLandedInCardsRow.find(
+        (clone) => clone.getAttribute('data-card-id') === card.getAttribute('data-card-id')
+    );
+    assert(`${label} departs its lane slot as a clone`, Boolean(flight));
+    assert(`${label} clone flies rotated into the trusted presentation`,
+        flight.classList.contains('trust-flight') && flight.classList.contains('to-original'));
+    assert(`${label} clone gives way to the trusted card`, flight.removed);
+    assert(`${label} clone stays upright at its source`,
+        !flight.classList.contains('faceDown') && !flight.classList.contains('flipFaceUp'));
+}
+
+assert('the sequence finishes by reloading the board', hrefAssignments.length > 0);
+
+console.log('trust flight into the trusted row ok');
+""".replace('__TIMELINE_JSON__', repr(json.dumps(timeline))).replace(
+            '__LOADING_JS__', repr(loading_js)
+        )
+
+        self.assertIn('trust flight into the trusted row ok', _run_node_harness(
+            harness, 'trust card-effect flight'))
 
     def test_viewport_fit_stages_zoom_compact_and_collapse_the_enemy_board(self):
         stacking_js = _read_static_asset('laneStacking.js')
